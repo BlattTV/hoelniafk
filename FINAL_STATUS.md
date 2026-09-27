@@ -14,8 +14,18 @@ Discord / Cloudflare / public IP endpoints), **REAL ACCOUNT** (real Minecraft ac
 
 **Minecraft runtime**
 - `MinecraftRuntime` abstraction; `MineflayerRuntime` with supervised runtime host processes (IPC, heartbeats, crash detection → restart, idle reaping, configurable sessions per host, pooled/identity grouping).
-- Per session: `startSession`, `stopSession`, `reconnect`, `sendChat`, `getChat` (persisted), `getState`, `openInteractiveView`, `hideInteractiveView`, plus control input and inventory.
-- Interactive 3D game view of the *same* running session in a browser window (prismarine-viewer renderer, pointer-lock mouse look, WASD/jump/sprint/sneak, attack/dig, use/place, hotbar, chat, inventory, HUD). Lightweight AFK mode (physics off) while hidden; no reconnect when switching.
+- Per session: `startSession`, `stopSession`, `reconnect`, `sendChat`, `getChat` (persisted), `getState`, `openGame`, `closeGame`.
+- Lightweight AFK mode (physics off, anti-AFK actions).
+
+**Real game window ("Open game") – replaces the former browser view**
+- Own launcher for the **official Minecraft Java client** (vanilla or Fabric): version manifest v2, version JSON rules/features, libraries + natives, assets, log4j config, Mojang Java runtime, Fabric profile merge, SHA-1 verification, mirrors, shared installation, per-session game directory with safe `options.txt` defaults (`pauseOnLostFocus:false`, no onboarding screens).
+- **Live takeover (default):** the game takes over the *running* AFK session – same server connection, no second login. The runtime host records the session state (configuration/registries, join game, chunks + deltas, entities, inventory, tab list, scoreboard, …) and replays it to the game through a loopback endpoint, then bridges all packets live; the bot pauses, mirrors the player's movement and re-sends chat through its signed chat session. Closing the game / quitting to title / "Back to AFK" hands the session back to the AFK client at the same spot. The game gets no Microsoft token in this mode.
+- **Handover** mode (fallback: AFK client disconnects right before the game logs in through a local forwarder that applies the network profile and rewrites the handshake host; back to AFK = re-login) and **background** mode (the game holds the session minimized; Open game = restore window, same connection).
+- Game process management: install progress, launch, join detection, chat from `logs/latest.log` into the rules (link codes, rewards), crash/exit detection, graceful close (WM_CLOSE → kill), window control (Windows user32 via a persistent PowerShell helper: find by PID, restore + focus, minimize, close; X11: xdotool).
+- Version auto-detection via a status ping through the identity's network profile.
+
+**Desktop program**
+- Electron shell (`desktop/`): own application window, tray icon (window close keeps sessions running), single instance, "Start with Windows", graceful quit via IPC, external links in the default browser, Windows installer (NSIS) bundling backend + Node runtime. Fallback start script opens an Edge app window.
 - Desired-state model per identity × server (`SHOULD_BE_ONLINE/OFFLINE`), reconciler with concurrency limit and connect watchdog, rule-based reconnect policy (retry / delay / block for ban, whitelist, duplicate login, auth), exponential backoff with jitter, session restore after restart, per-session locks.
 - Microsoft authentication via prismarine-auth device code with identity-scoped vault cache, single-flight token fetch, periodic token refresh; chat-signing keys passed to hosts in memory.
 - Same account on several servers at once; per-session network override.
@@ -34,15 +44,15 @@ Discord / Cloudflare / public IP endpoints), **REAL ACCOUNT** (real Minecraft ac
 
 **Security / stability / operations**
 - Credential vault: AES-256-GCM, master key via DPAPI (Windows default) / Windows Credential Manager / passphrase, refs only in SQLite, ciphertext bound to its ref, identity-scoped access, fsync'd writes, rotating backups with automatic fallback, passphrase-protected recovery kit + re-encryption CLI.
-- Local-only API with per-launch token, Host/Origin checks, strict CSP; token-protected game view pages.
-- Supervisor (restart with backoff, signal forwarding), graceful shutdown, uncaught-exception handling, daily SQLite online backups, structured JSON logs with rotation and redaction, in-memory log buffer, metrics collector, session event log, configuration validation, setup check page.
+- Local-only API with per-launch token, Host/Origin checks, strict CSP; loopback-only takeover endpoint (one client, own username only).
+- Supervisor (restart with backoff, graceful stop via IPC on Windows / signals elsewhere), graceful shutdown, uncaught-exception handling, daily SQLite online backups, structured JSON logs with rotation and redaction, in-memory log buffer, metrics collector, session event log, configuration validation, setup check page.
 - UI: account × server matrix, sessions page, global chat (multi-send), monitoring (KPIs, sparklines, hosts, attention list), logs, audit, settings/vault, mailboxes/aliases, servers, templates, all mail, verification mail.
 - Local flying-squid test servers (`npm run testserver`), demo with real sessions (`npm run demo`), benchmark (`npm run bench`).
 - Windows helper scripts: start, autostart at logon (scheduled task), adding bind IPs.
 
 ## TESTED
 
-`npm test` – 17 test files / 102 tests green, `npm run test:e2e` – 6 Playwright tests green; typecheck clean, production build OK:
+`npm test` – 19 test files / 133 tests green, `npm run test:e2e` – 6 Playwright tests green; typecheck clean, production build OK:
 
 | Area | Level | Tests |
 |---|---|---|
@@ -52,10 +62,13 @@ Discord / Cloudflare / public IP endpoints), **REAL ACCOUNT** (real Minecraft ac
 | Identity lifecycle, Phase-F milestone, templates/clone, desired state, block rules, runtime crash, restore after restart | MOCK (inline runtime) | `tests/identity.test.ts` |
 | API security (token, DNS rebinding, origin, CSP, no secrets in responses, OAuth callback) | MOCK | `tests/api.test.ts` |
 | Real mineflayer sessions in runtime host processes vs. local servers: bind IP 127.0.0.2 seen by the server, link codes, rewards, multi-server, kick → reconnect, host crash recovery, ban → BLOCKED, desired offline | LOCAL INTEGRATION | `tests/integration/runtime.int.test.ts` |
-| Interactive view: world stream, control movement, hide → lightweight with the same connection | LOCAL INTEGRATION | `tests/integration/view.int.test.ts` |
+| Launcher against a local mirror with format-correct Mojang/Fabric metadata: rules, natives per OS, assets, SHA-1 rejection, Fabric merge, Java runtime (executable, links), launch arguments (quick play, `--server` fallback, placeholders, classpath separator) | LOCAL INTEGRATION | `tests/launcher.test.ts` |
+| Forwarder: handshake parse/rebuild (FML suffix), bind IP as source, handshake host rewrite, `beforeLogin` ordering, status pings | LOCAL INTEGRATION | `tests/launcher.test.ts` |
+| **Open game** end to end: suite → launcher (installs from the mirror incl. Java) → *game process* (client emulator started with the real launch command line, speaking the real protocol like the game) → flying-squid. Live takeover: exactly one server login throughout, game in the world at the bot's position, chat + movement through the same connection, Back to AFK / quit in game → AFK continues from the new spot without rubber-banding. Handover: one extra login, bind IP + rewritten host seen by the server, Back to AFK, game closed by the user → AFK, failed launch leaves AFK untouched. Background: minimized, restore/minimize without new login, desired offline closes the game | LOCAL INTEGRATION | `tests/integration/gameclient.int.test.ts` |
+| Live takeover across protocol generations: 1.20.1, 1.20.2 (configuration phase), 1.21.1 (per-registry data, known packs, chunk batches) | LOCAL INTEGRATION | `tests/integration/takeover-versions.int.test.ts` |
 | Source-IP binding, SOCKS5 (RFC 1929 auth) and HTTP CONNECT proxies, exit-IP detection & mismatch, network guard, diagnosis | LOCAL INTEGRATION (Linux) | `tests/integration/network.int.test.ts` |
 | IMAP (imapflow ↔ local IMAP server) incl. XOAUTH2, SMTP (PLAIN, XOAUTH2), OAuth2 code exchange with PKCE verification + refresh, Discord API over HTTP | LOCAL INTEGRATION | `tests/integration/mail.int.test.ts` |
-| Browser UI: all pages without console errors, dashboard filter/context menu, matrix toggle → ONLINE, game view open/hide in a popup, global chat command | LOCAL INTEGRATION (Playwright) | `tests/e2e/ui.spec.ts` (`npm run test:e2e`) |
+| UI: all pages without console errors, dashboard filter/context menu, matrix toggle → ONLINE, **Open game → 🎮 game (live) → Back to AFK**, global chat command | LOCAL INTEGRATION (Playwright) | `tests/e2e/ui.spec.ts` (`npm run test:e2e`) |
 | Performance 1–100 sessions, reconnect after connection drop | LOCAL INTEGRATION | `npm run bench` → docs/PERFORMANCE.md |
 | Fresh checkout acceptance: `git clone` → `npm ci` → `npm run build` → `npm start` (supervisor) → setup check → identity + server via API → session ONLINE in a runtime host → SIGTERM: clean shutdown (no processes left) → restart: session restored automatically → SIGKILL of the main process: supervisor restarts it, session restored, the old host exits on IPC disconnect | LOCAL INTEGRATION (manual run, built `dist/`) | documented here |
 
@@ -69,12 +82,21 @@ Discord / Cloudflare / public IP endpoints), **REAL ACCOUNT** (real Minecraft ac
 | 100 | 10 | 1.71 GB | 33 % | 3.1 s | 11.6 s |
 
 Lightweight mode saves ~⅔ of the CPU compared to physics always on; one process per session would
-cost ~168 MB per session. Details and method: docs/PERFORMANCE.md.
+cost ~168 MB per session. The live-takeover state cache adds ~2 MB per session on the test worlds
+(100 sessions: 1.95 GB). Each *open* game window costs what the official client costs (1–2 GB).
+Details and method: docs/PERFORMANCE.md.
 
 ## REAL-SERVICE-TESTED
 
 Nothing yet. The build environment had no access to Microsoft, Google, Discord, Mojang,
 Fabric or public-IP services (egress blocked) and no credentials were provided.
+
+**Not executed here and therefore not claimed as tested:** the real Minecraft client binary
+(Mojang downloads blocked – the tests run the identical launch command line against a
+protocol-level client emulator), the Windows window control (no Windows), the Electron
+desktop program and its installer (Electron binaries not downloadable here; syntax-checked
+only). First real run: `npm run demo` on Windows → *Open game* on any online session downloads
+Minecraft 1.20.1 and takes over the session on the local offline test server – no account needed.
 
 ## REQUIRES USER CREDENTIALS
 
@@ -89,21 +111,30 @@ All integrations are implemented end-to-end; only the following values/accounts 
 | Microsoft accounts owning Minecraft Java | Identity → Minecraft (device code sign-in) | online-mode servers |
 | Cloudflare API token + zone (optional) | Mailboxes & Aliases → alias provider | alias creation |
 | Your server address/version and the exact chat texts | Server Profiles, `config/rules.yaml` | link codes, rewards, reconnect rules |
+| Internet access to Mojang/Fabric download hosts (or a mirror) | `client.mirrors` | first "Open game" |
 | Windows bind IPs, OPNsense, VPN, exit VPS with public IPv4s | see NETWORKING.md | one exit IP per identity |
 
 Pending real tests once these exist: Microsoft device-code login → join your online-mode server
-(REAL ACCOUNT); Discord OAuth connect; Outlook/Gmail OAuth IMAP; Cloudflare alias creation;
+(REAL ACCOUNT); **Open game with the real client: takeover on your server's version and plugins
+(REAL SERVICE + REAL ACCOUNT)**; Discord OAuth connect; Outlook/Gmail OAuth IMAP; Cloudflare alias creation;
 public-IP verification through the real VPN exits; the rules against your server's real messages.
 
 ## KNOWN LIMITATIONS
 
-- The interactive view is a browser renderer (prismarine-viewer) of the running protocol
-  session, not the vanilla client: no vanilla GUIs (e.g. crafting screens), resource packs,
-  shaders or mods; inventory is shown as a list. Rendering needs WebGL.
-- A Fabric/vanilla client runtime was evaluated but not built: it cannot take over a running
-  session, needs ~1–2 GB RAM per account, and Mojang/Fabric downloads were not reachable here.
-- mineflayer/prismarine-viewer support is bounded by their supported Minecraft versions
-  (viewer up to 1.21.4 at the time of writing).
+- A socket cannot be moved between processes (encrypted, no session resumption). The live
+  takeover therefore keeps the AFK process in the middle (like session-holding proxies): the
+  game plays through it. Anything the state cache does not cover would be missing until the
+  server resends it (e.g. a map item's pixels sent before the takeover beyond the cache cap).
+- Proxy networks that move players between backends with a *configuration* restart
+  (Velocity, 1.20.2+) end the takeover (message in the game) – press Open game again or use
+  mode `handover`.
+- While attached, typed chat is re-sent by the AFK client (its signed chat session); the game
+  itself runs in offline mode against the local endpoint, so it shows your skin only if the
+  server sends it (it does on normal servers via the tab list).
+- Supported Minecraft versions follow mineflayer/minecraft-protocol (up to 26.1 in the installed
+  versions); takeover is tested on 1.20.1, 1.20.2 and 1.21.1.
+- Chat typed in the game is read from `latest.log` in handover/background modes (no mod);
+  in takeover mode chat comes directly from the session.
 - Linux-only parts of the network tests use 127.0.0.x loopback aliases; on Windows the bind-IP
   path is the same code but was not executed here.
 - DPAPI and Windows Credential Manager key providers are implemented but could only be
@@ -117,6 +148,8 @@ public-IP verification through the real VPN exits; the rules against your server
 
 - IMAP IDLE for instant verification mails; rules editor in the UI.
 - Additional alias adapters (SimpleLogin, addy.io).
-- Optional Fabric client runtime behind the same `MinecraftRuntime` interface for vanilla GUIs.
+- Validate takeover with the real client on your server version; extend the state cache if a
+  plugin feature (e.g. custom map art, resource-pack prompts) needs it.
+- Code-signing for the installer; auto-update for the desktop program.
 - Per-host CPU/RAM limits and automatic rebalancing of sessions across hosts.
 - Windows service packaging (installer) and signed builds.

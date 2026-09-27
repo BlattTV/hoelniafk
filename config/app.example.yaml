@@ -51,6 +51,15 @@ sessions:
   reconcileIntervalMs: 3000
   maxConcurrentStarts: 4   # parallel connection attempts (avoid login storms after a restart)
 
+client:                    # the real Minecraft client ("Open game")
+  enabled: true
+  rootDir: ''              # shared installation; default <dataDir>/minecraft
+  instancesDir: ''         # per identity×server game folders; default <dataDir>/instances
+  javaPath: ''             # empty = Mojang's Java runtime (downloaded automatically)
+  mirrors: {}              # e.g. { piston-meta.mojang.com: 'https://mirror.example/piston-meta' }
+  onlineAfterMs: 5000      # handover/background: a login that stays connected this long counts as ONLINE
+  joinTimeoutMs: 300000    # the game must reach the server within this time (first start compiles shaders)
+
 logging:
   level: info              # debug | info | warn | error
   file: true               # JSON lines in <dataDir>/logs/hoelni.log

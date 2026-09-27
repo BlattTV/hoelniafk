@@ -27,11 +27,16 @@ Identity
 
 ## Schnellstart
 
+Desktop-Programm (eigenes Fenster + Tray, Windows-Installer):
+
 ```bash
-npm ci
-npm run build
-npm start                 # supervised → http://127.0.0.1:7420
+npm ci && npm run build
+cd desktop && npm install
+npm start                 # Programmfenster direkt aus dem Repository
+npm run dist              # Windows-Installer → desktop/release/
 ```
+
+Nur das Backend (z. B. als Autostart-Dienst): `npm start` (supervised, 127.0.0.1:7420).
 
 Ohne echte Accounts ausprobieren (echte Sessions gegen drei lokale Testserver):
 
@@ -43,8 +48,13 @@ npm run demo              # → http://127.0.0.1:7421
 
 * **Minecraft-Runtime:** mineflayer-Sessions in überwachten Runtime-Host-Prozessen
   (Crash → Neustart, Heartbeats), Desired-State-Reconciler mit regelbasierter Reconnect-Policy,
-  Lightweight-AFK-Modus, **interaktive 3D-Spielansicht derselben laufenden Session**
-  (öffnen/verstecken ohne Reconnect, Maus/Tastatur-Steuerung).
+  Lightweight-AFK-Modus.
+* **„Open game“ = echtes Minecraft:** eigener Launcher für den offiziellen Java-Client
+  (Vanilla/Fabric, Java-Runtime von Mojang). Standardmodus **Live-Takeover**: das echte Spiel
+  übernimmt die *laufende* AFK-Session – dieselbe Serververbindung, kein neuer Login; Spiel
+  schließen / „Back to AFK“ gibt die Session an den AFK-Client zurück. Normales Fenster
+  (Alt-Tab), normale Steuerung, Inventar, HUD. Alternativ Handover (Re-Login) oder
+  Background (Spiel hält die Session minimiert).
 * **Multi-Account × Multi-Server:** derselbe Account gleichzeitig auf mehreren Servern,
   Account × Server-Matrix, Bulk-Operationen, Global Chat.
 * **Netzwerk:** Bind-IP / SOCKS5 / HTTP-Proxy pro Identity oder Session, Public-IP-Prüfung,
@@ -66,7 +76,7 @@ npm run demo              # → http://127.0.0.1:7421
 npm run typecheck
 npm run test:unit          # MOCK
 npm run test:integration   # LOCAL INTEGRATION: mineflayer↔flying-squid, Runtime-Prozesse,
-                           # Bind-IP/Proxys, IMAP/SMTP, OAuth2+PKCE über HTTP, Spielansicht
+                           # Bind-IP/Proxys, IMAP/SMTP, OAuth2+PKCE, Launcher, Open game/Takeover
 npm test                   # beides
 npm run test:e2e           # Browser (Playwright) gegen die Demo; einmalig: npx playwright install chromium
 npm run bench              # Performance 1–100 Sessions → docs/PERFORMANCE.md

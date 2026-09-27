@@ -20,6 +20,22 @@ is protected by DPAPI for exactly this user.
 
 ## 2. Get the code and build
 
+> **Desktop program (recommended):** after the build below, create the Windows installer once:
+>
+> ```powershell
+> cd desktop
+> npm install
+> npm run dist        # → desktop\release\Hoelni Client Suite Setup <version>.exe
+> ```
+>
+> Install it; the start menu entry **Hoelni Client Suite** opens the suite in its own window
+> with a tray icon (closing the window keeps the sessions running, *Quit* in the tray stops
+> them). The installer bundles the backend and the Node runtime it was built with; data lives
+> in `%APPDATA%\Hoelni Client Suite\data`. Tray → *Start with Windows* replaces the scheduled task.
+> Without the installer: `cd desktop && npm install && npm start` runs the desktop window
+> against the repository, or `scripts\windows\start-hoelni.cmd` opens an Edge app window.
+
+
 ```powershell
 cd C:\
 git clone https://github.com/BlattTV/hoelniafk.git
@@ -46,6 +62,9 @@ Relevant keys (all documented in the file):
 | `runtime.sessionsPerHost` | 10 | sessions per runtime host process (see docs/PERFORMANCE.md) |
 | `sessions.maxConcurrentStarts` | 4 | parallel connection attempts after a restart |
 | `automation.*` | | mail/network/Discord/token checks, `restoreSessions` |
+| `client.javaPath` | empty | use this Java instead of Mojang's runtime (downloaded automatically) |
+| `client.rootDir` / `client.instancesDir` | `data\minecraft`, `data\instances` | game installation (shared) / per-session game folders |
+| `client.mirrors` | – | host → base URL, e.g. a local mirror of Mojang's download hosts |
 
 Recognition rules (verification mails, link codes, stars, reconnect policy) live in
 `config/rules.yaml`. Adapt the chat texts to the exact messages of your server; reload them in
@@ -103,8 +122,18 @@ prismarine-auth; the wizard shows the code to enter at microsoft.com/link.
 
 * **Account × Server** matrix: click a cell to toggle *should be online / offline*; the
   reconciler keeps the state (reconnect with backoff; bans/whitelist/duplicate logins block).
-* **Open game** on an online session opens the interactive view of that session;
-  **Hide game** returns to lightweight AFK mode – the session is not reconnected.
+* **Open game** starts the **real Minecraft client** for that session as a normal window
+  (Alt-Tab, taskbar, normal controls, inventory, HUD). The first time, the official client
+  (the server's version, detected automatically) and Mojang's Java are downloaded into
+  `data\minecraft` (~0.5–1 GB, progress is shown at the session). Default mode **takeover**:
+  the game takes over the running AFK session – **same connection, no new login**; closing
+  the game, quitting to the title screen or **Back to AFK** hands the session back to the
+  AFK client at the same spot. Per identity (*Identity → Settings → Game client*) you can
+  choose `handover` (quick re-login instead) or `background` (the game holds the session all
+  the time, minimized), the Minecraft version, Vanilla/Fabric and the memory.
+  Chat typed in the game is sent through the session (rules, link codes and rewards keep
+  working); while the game is open, "send chat" from the suite also still works in
+  takeover mode.
 * **Monitoring**, **Logs**, **Audit Log** for operations; logs are also in `data\logs\`.
 * Backups: `data\backups\` (daily SQLite), `data\vault.json.bak.*` (rotating vault copies).
 
@@ -136,4 +165,7 @@ npm run testserver -- --port 25601 --count 1   # a local offline test server for
 | Session BLOCKED | see the reason in the session row / Session log; fix it (whitelist, ban, duplicate login) and press Start |
 | Session RECONNECTING with "Network guard" | exit IP mismatch – run *Network → Diagnose* |
 | Microsoft sign-in keeps asking | complete the device code within 15 minutes; check *Minecraft auth* in the identity |
-| Game view blank | browser needs WebGL; try Chrome/Edge; check the session is ONLINE |
+| Open game: "Unknown Minecraft version" | set the server's version in *Server Profiles* or the identity's game client version |
+| Open game: download fails | check internet access to `piston-meta.mojang.com`, `piston-data.mojang.com`, `libraries.minecraft.net`, `resources.download.minecraft.net` (Fabric: `meta.fabricmc.net`, `maven.fabricmc.net`) or configure `client.mirrors` |
+| Game window does not come to the front | Windows focus rules – use Alt-Tab / the taskbar; the game keeps running either way |
+| Takeover ends with "moved you to another server" | proxy networks (Velocity 1.20.2+) reconfigure the client on server switches – press Open game again or use mode `handover` |

@@ -451,6 +451,8 @@ export class TakeoverServer {
     if (was) {
       try {
         if (this.bot.currentWindow) this.bot.closeWindow(this.bot.currentWindow);
+        // The game may have raised the view distance – restore the AFK client's own settings.
+        this.bot.setSettings?.({});
       } catch {
         /* ignore */
       }

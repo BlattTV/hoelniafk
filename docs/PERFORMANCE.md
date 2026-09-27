@@ -29,8 +29,17 @@ CPU % is per core (100 % = one core fully used). "Connect all" includes the conc
   main process and ~120–150 MB per runtime host process (Node + mineflayer + minecraft-data).
   100 sessions ≈ 1.7 GB RSS and ≈ ⅓ of one CPU core on this 4-vCPU Xeon.
 - **Lightweight AFK mode pays off**: with physics always on, 30 sessions needed ~3× the CPU
-  (25 % vs. 8.3 % of a core); RAM is almost unchanged. Physics is only switched on while a game
-  view is open (or for the AFK action "jump").
+  (25 % vs. 8.3 % of a core); RAM is almost unchanged. Physics is only on for the AFK action
+  "jump" (and never while the real game has taken the session over).
+- **Live-takeover state cache** (default game client mode `takeover`, measured afterwards with
+  `npm run bench -- --tiers 50,100 --steady 20`): 50 sessions 1 059 MB (+83 MB), 100 sessions
+  1 945 MB (+237 MB) → **~2 MB per session** for the recorded chunks/entities/registries on the
+  superflat test worlds. Real worlds have larger chunks: expect roughly 2–6 MB per session at
+  view distance "tiny". Set the game client mode to `handover` for identities that never need
+  the live takeover to save this memory.
+- **Real game client** (only while a game window is open): the official client needs about
+  1–2 GB RAM and a GPU share per open window (setting "Memory (MB)", default 2048) – it is
+  started on demand and closed on "Back to AFK" (modes takeover/handover).
 - **Host pooling vs. isolation**: one process per session costs ~168 MB per session
   (15 sessions: 2.5 GB vs. 0.45 GB pooled). The default of 10 sessions per host is the compromise:
   a crashing bot affects at most 10 sessions, which are restarted automatically.
