@@ -245,3 +245,21 @@ describe('deleting an identity', () => {
     expect(await store.list()).toEqual([refs.identity(b.id, 'minecraft')]);
   });
 });
+
+describe('concurrency', () => {
+  it('parallel checks of one shared mailbox use a single IMAP sync', async () => {
+    const { suite, mailServer } = await createTestSuite();
+    const box = suite.repo.createMailAccount({
+      label: 'shared', kind: 'imap', imapHost: 'x', imapPort: 993, imapSecure: true, username: 'real@example.com',
+      smtpHost: null, smtpPort: null, webmailUrl: null, exclusiveIdentityId: null, aliasProviderId: null,
+    });
+    await suite.mail.setMailboxPassword(box.id, 'pw');
+    const ids = [1, 2, 3, 4].map((n) => {
+      const id = suite.identities.create({}).identity.id;
+      suite.repo.assignMail(id, { mailAccountId: box.id, address: `mc0${n}@example.com`, isAlias: true });
+      return id;
+    });
+    await Promise.all(ids.map((id) => suite.mail.checkIdentity(id)));
+    expect(mailServer.listCalls).toBe(1);
+  });
+});

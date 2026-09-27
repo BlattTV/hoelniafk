@@ -201,7 +201,18 @@ export class MailService {
 
   // ------------------------------------------------------------ sync
 
-  async syncMailbox(mailboxId: number): Promise<{ fetched: number }> {
+  private readonly syncing = new Map<number, Promise<{ fetched: number }>>();
+
+  /** Syncs a mailbox; concurrent callers of the same mailbox share one IMAP round-trip. */
+  syncMailbox(mailboxId: number): Promise<{ fetched: number }> {
+    const running = this.syncing.get(mailboxId);
+    if (running) return running;
+    const p = this.doSync(mailboxId).finally(() => this.syncing.delete(mailboxId));
+    this.syncing.set(mailboxId, p);
+    return p;
+  }
+
+  private async doSync(mailboxId: number): Promise<{ fetched: number }> {
     const account = this.repo.getMailAccount(mailboxId);
     const headers = await this.sourceFor(account).listMessages({ limit: this.syncLimit });
     const rules = this.getRules();

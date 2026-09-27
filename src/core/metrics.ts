@@ -46,10 +46,11 @@ export class MetricsCollector {
     private readonly sessions: SessionManager,
     private readonly runtime: MinecraftRuntime,
     private readonly maxSamples = 180,
-  ) {}
+  ) {
+    this.lag.enable();
+  }
 
   start(intervalMs = 5000): void {
-    this.lag.enable();
     this.timer = setInterval(() => this.sample(), intervalMs);
     this.timer.unref?.();
   }

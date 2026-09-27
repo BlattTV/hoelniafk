@@ -19,7 +19,9 @@
     "test:integration": "vitest run tests/integration",
     "vault": "node dist/cli/vault.js",
     "start:direct": "node dist/index.js",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "testserver": "node dist/testserver/cli.js",
+    "bench": "node --import tsx src/bench/bench.ts"
   },
   "license": "UNLICENSED",
   "dependencies": {

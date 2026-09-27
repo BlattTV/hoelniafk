@@ -36,3 +36,11 @@ describe('structured logging', () => {
     expect(recentLogs({ q: 'broken', limit: 5 })[0].scope).toBe('beta');
   });
 });
+
+describe('redaction precision', () => {
+  it('does not mangle harmless short values', async () => {
+    const { redact } = await import('../src/core/logger.js');
+    expect(redact('Runtime host exited (exit code=1 signal=null)')).toContain('code=1');
+    expect(redact('password: hunter22')).not.toContain('hunter22');
+  });
+});

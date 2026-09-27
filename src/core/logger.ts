@@ -29,7 +29,8 @@ const PATTERNS: Array<[RegExp, string]> = [
   [/\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]{8,}/gi, '$1 [REDACTED]'],
   // key=value / key: value / "key":"value" with sensitive key names
   [
-    /(["']?(?:password|passwd|pass|secret|token|access_token|refresh_token|id_token|client_secret|authorization|code|apikey|api_key)["']?\s*[:=]\s*)(["']?)[^"'\s,&}]+\2/gi,
+    // values shorter than 6 characters (e.g. "exit code=1") are not treated as secrets
+    /(["']?(?:password|passwd|pass|secret|token|access_token|refresh_token|id_token|client_secret|authorization|code|apikey|api_key)["']?\s*[:=]\s*)(["']?)[^"'\s,&}]{6,}\2/gi,
     '$1$2[REDACTED]$2',
   ],
 ];

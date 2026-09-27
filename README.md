@@ -3,117 +3,80 @@
 Integrierte **Minecraft / Discord / Mail Identity Management Suite** für den eigenen
 Minecraft-Server und selbst kontrollierte Testumgebungen.
 
-Die zentrale Verwaltungseinheit ist die **Identity**:
+```
+Identity
+├── Minecraft Account ─┬─ Session → Server A     (desired ONLINE/OFFLINE, eigener Netzwerkpfad)
+│                      ├─ Session → Server B
+│                      └─ …
+├── Mail (Mailbox / Alias, Verification Mail)
+├── Discord (OAuth2, Link-Status zum Server)
+├── Network Profile (Bind-IP / Proxy, erwartete Exit-IP, Guard)
+└── Rewards / Stars (pro Server)
+```
 
-```
-IdentityProfile
-├── MinecraftIdentity      Microsoft-/Offline-Account, UUID, Auth-Status
-├── MailIdentity           Adresse (ggf. Alias) auf einer realen Mailbox
-├── DiscordIdentity        per OAuth2 verbundener Discord-Account + Link-Status
-├── NetworkProfile[]       Bind-IP / SOCKS5 / HTTP-Proxy, erwartete Exit-IP
-├── RewardState            Stars, Eligible, Historie
-└── SessionInstances[]     je Server eine Session (Account, Server, Network, Chat, State)
-```
+## Dokumentation
+
+| Datei | Inhalt |
+|---|---|
+| [SETUP.md](SETUP.md) | Vom frischen Windows bis zur laufenden Suite, OAuth-Apps, Betrieb, Updates |
+| [NETWORKING.md](NETWORKING.md) | Windows-Bind-IPs → OPNsense → VPN → Exit-VPS mit mehreren IPv4, Troubleshooting |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | Tatsächlich implementierte Architektur, Session-Lebenszyklus, Sicherheitsmodell |
+| [FINAL_STATUS.md](FINAL_STATUS.md) | Was implementiert / getestet ist, was Zugangsdaten braucht, Grenzen |
+| [docs/PERFORMANCE.md](docs/PERFORMANCE.md) | Messwerte 1–100 Sessions (generiert von `npm run bench`) |
+| [docs/DISCORD.md](docs/DISCORD.md) | Discord-Integration, Bewertung Provisional Accounts |
 
 ## Schnellstart
 
-Voraussetzung: Node.js ≥ 20 (Windows empfohlen, Linux/macOS funktionieren ebenfalls).
-
 ```bash
-npm install
+npm ci
 npm run build
-npm start                 # → http://127.0.0.1:7420
+npm start                 # supervised → http://127.0.0.1:7420
 ```
 
-* Die Oberfläche lauscht **nur auf 127.0.0.1**. Jeder Start erzeugt ein neues API-Token,
-  das ausschließlich in die ausgelieferte Seite eingebettet wird.
-* Konfiguration (ohne Secrets): `config/app.example.yaml` → `config/app.yaml` kopieren.
-* Erkennungsregeln (Mails, Link-Codes, Stars): `config/rules.yaml`.
-
-**Demo ohne echte Accounts** (simulierte Sessions, Mailbox, Discord, Exit-IPs, 15 Identities):
+Ohne echte Accounts ausprobieren (echte Sessions gegen drei lokale Testserver):
 
 ```bash
 npm run demo              # → http://127.0.0.1:7421
 ```
 
-**Tests:**
+## Kernfunktionen
+
+* **Minecraft-Runtime:** mineflayer-Sessions in überwachten Runtime-Host-Prozessen
+  (Crash → Neustart, Heartbeats), Desired-State-Reconciler mit regelbasierter Reconnect-Policy,
+  Lightweight-AFK-Modus, **interaktive 3D-Spielansicht derselben laufenden Session**
+  (öffnen/verstecken ohne Reconnect, Maus/Tastatur-Steuerung).
+* **Multi-Account × Multi-Server:** derselbe Account gleichzeitig auf mehreren Servern,
+  Account × Server-Matrix, Bulk-Operationen, Global Chat.
+* **Netzwerk:** Bind-IP / SOCKS5 / HTTP-Proxy pro Identity oder Session, Public-IP-Prüfung,
+  Netzwerk-Guard (Start blockieren bei Mismatch), Schritt-für-Schritt-Diagnose.
+* **Mail:** IMAP (Passwort / OAuth2 Microsoft & Google), SMTP, Inbox, Global Inbox,
+  Verification-Mail-Erkennung per Regeln, Codes kopierbar, Aliase (Plus-Addressing, Cloudflare).
+* **Discord:** OAuth2 (PKCE) für bestehende Accounts, benutzergeführte Registrierung,
+  Link-Status/Codes aus dem Server-Chat.
+* **Rewards/Stars:** pro Identity und Server (Stars, eligible, received, waiting, Discord linked,
+  Historie) – alles über `config/rules.yaml`.
+* **Sicherheit:** AES-256-GCM-Vault (DPAPI / Credential Manager), nur Referenzen in SQLite,
+  Recovery-Kit, Identity-Isolation, redigierte Logs, Audit-Log, lokale API mit Token/CSP.
+* **Betrieb:** Supervisor, Session-Restore nach Neustart, strukturierte Logs, Monitoring,
+  Setup-Check, DB-Migrationen mit Backup, tägliche DB-Backups.
+
+## Tests
 
 ```bash
-npm test                  # vitest – u. a. Isolation, Vault, Regeln, Audit, API-Sicherheit
 npm run typecheck
+npm run test:unit          # MOCK
+npm run test:integration   # LOCAL INTEGRATION: mineflayer↔flying-squid, Runtime-Prozesse,
+                           # Bind-IP/Proxys, IMAP/SMTP, OAuth2+PKCE über HTTP, Spielansicht
+npm test                   # beides
+npm run test:e2e           # Browser (Playwright) gegen die Demo; einmalig: npx playwright install chromium
+npm run bench              # Performance 1–100 Sessions → docs/PERFORMANCE.md
 ```
 
-## Credential Vault
+Real-Service- und Real-Account-Tests benötigen deine Zugangsdaten – siehe [FINAL_STATUS.md](FINAL_STATUS.md).
 
-* Secrets werden AES-256-GCM-verschlüsselt in `data/vault.json` gespeichert; die Credential-Ref
-  ist dabei *Additional Authenticated Data* – ein Eintrag lässt sich nicht auf eine andere
-  Identity „umkopieren“.
-* Der Master-Key wird geschützt durch
-  * **Windows DPAPI** (Standard unter Windows, `vault.keyProvider: auto|dpapi`) oder
-  * **Windows Credential Manager** (`credman`, via `@napi-rs/keyring`) oder
-  * eine Passphrase (`HOELNI_VAULT_PASSPHRASE`, für Linux/Headless).
-* SQLite (`data/hoelni.db`) enthält **ausschließlich Referenzen** wie
-  `vault://identity/7/mail`, `vault://identity/7/minecraft`, `vault://mailbox/3`.
-* Die GUI zeigt Passwörter/Tokens nie an; Eingabefelder für Secrets sind Write-only.
-* Logs und Audit-Log laufen durch einen Redaction-Filter; Codes werden im Audit-Log maskiert (`AB****`).
+## Weitere Befehle
 
-## OAuth-Apps einrichten
-
-Redirect-URI für alle Provider: `http://127.0.0.1:7420/oauth/callback`
-(in der UI unter *Settings & Vault* kopierbar). Client-IDs und -Secrets werden in der UI
-eingetragen; Secrets landen im Vault.
-
-| Provider  | Zweck | Scopes |
-|-----------|-------|--------|
-| Discord   | bestehenden Discord-Account mit einer Identity verbinden | `identify` |
-| Microsoft | Outlook/Hotmail-Mailbox per IMAP/SMTP (XOAUTH2) | `IMAP.AccessAsUser.All`, `SMTP.Send`, `offline_access` |
-| Google    | Gmail per IMAP/SMTP (XOAUTH2) | `https://mail.google.com/` |
-
-Alle Flows nutzen Authorization Code + PKCE; der `state` ist einmalig und an die Identity gebunden.
-
-## Discord – was die Suite tut und was nicht
-
-* **Verbinden** bestehender Accounts nur über den offiziellen OAuth2-Flow.
-* **CREATE DISCORD ACCOUNT** öffnet nur die offizielle Registrierung im Browser
-  (`https://discord.com/register`); der Benutzer registriert und verifiziert selbst und
-  verbindet den Account danach per OAuth2. Keine Self-Bots, keine automatisierte
-  Account-Erstellung, keine Automatisierung normaler Benutzerkonten.
-* Einschätzung zu *Discord Provisional Accounts*: siehe [docs/DISCORD.md](docs/DISCORD.md).
-
-## Minecraft ↔ Discord Linking
-
-Der generische `LinkingWorkflow` beobachtet nur den Chat der Sessions:
-`UNKNOWN → WAITING (Link-Code erkannt) → LINKED (Erfolgsmeldung) / ERROR`.
-Welche Nachrichten Code/Erfolg/Fehler bedeuten, steht ausschließlich in `config/rules.yaml`
-(`chatRules`, Typ `linking`). Der Code wird im Dashboard angezeigt und kann kopiert werden;
-der Benutzer führt den vorgesehenen Link-Vorgang selbst aus.
-
-## Funktionen im Überblick
-
-| Bereich | Umsetzung |
-|---|---|
-| Identity Dashboard | Tabelle mit Minecraft/Discord/Mail/Exit-IP/Stars/Health, Mehrfachauswahl |
-| Identity-Ansicht | Minecraft, Discord, Mail (Inbox), Network, Sessions, Rewards, Settings, Audit; Health-Checks anklickbar |
-| Setup Wizard | Step 1–6 (Mail, Minecraft, Discord, Network, Server, Verification) mit READY-Checkliste |
-| Health Check | HEALTHY / WARNING / ERROR; Meilenstein „alles grün“ (Minecraft, Mail, Discord, Discord Link, Exit IP, Session) |
-| Mail Manager | IMAP (Passwort) oder OAuth2, Suche, Absender-/Betreff-Filter, unread/read, HTML (sandboxed, Remote-Bilder blockiert)/Text, Links, Anhänge, manuelle Zuordnung |
-| Verification Mail | regelbasierte Erkennung (Discord, Microsoft, Minecraft, Hoelni), Codes anzeigen & kopieren |
-| Mail-Aliase | `MailProvider` mit `listAliases/createAlias/deleteAlias/listMessages/getMessage`; Adapter: Plus-Addressing, Cloudflare Email Routing (offizielle API) |
-| Global Inbox | ALL MAIL mit Filtern Identity / Provider / unread / verification / security |
-| Global Operations | Check Mail, Verify Network, Start/Stop Sessions, Reconnect, Verify Discord, Open Discord, Open Mail – für die Auswahl |
-| Templates | z. B. „Default AFK Identity“ (Network-Modus, Server, AutoReconnect, Mail, Discord-Linking, AFK, Parser) |
-| Identity Clone | übernimmt Serverzuweisungen, Network-Regeln, AFK, Parser, UI – **keine** Credentials/Accounts/IPs |
-| Sessions | mineflayer; mehrere Server pro Identity gleichzeitig; Network-Profil pro Identity oder pro Session überschreibbar; Auto-Reconnect mit Backoff; Chat-Ansicht |
-| Monitoring / Automation | zyklische Mail-, Netzwerk- und Discord-Prüfung, Auto-Start (`config/app.yaml`), Live-Updates per SSE |
-| Audit Log | sicherheitsrelevante Aktionen, ohne Tokens/Passwörter/vollständige Codes |
-
-## Isolation
-
-Jede Ressource ist einer Identity zugeordnet und wird beim Zugriff geprüft
-(`IsolationError`, HTTP 403). Automatisierte Tests in `tests/isolation.test.ts` stellen sicher,
-dass eine Identity niemals Mailbox/Mails, Discord-Verknüpfung, NetworkProfile oder
-Minecraft-Token einer anderen Identity verwendet. Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
-
-## Entwicklungsphasen
-
-Stand und Vorgehen: [docs/ROADMAP.md](docs/ROADMAP.md).
+```bash
+npm run vault -- status | export-recovery --out kit.json | recover --kit kit.json
+npm run testserver -- --port 25601 --count 1     # lokaler Offline-Testserver
+```

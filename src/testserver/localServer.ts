@@ -61,7 +61,8 @@ export async function startLocalServer(opts: LocalServerOptions): Promise<LocalS
     'view-distance': opts.viewDistance ?? 2,
     'player-list-text': { header: 'Hoelni', footer: 'local' },
     'everybody-op': false,
-    'max-entities': 20,
+    // Players count as entities in flying-squid – keep this well above the session count.
+    'max-entities': 2000,
     version,
     // A debug hook disables flying-squid's per-player process error handlers (listener leak).
     debug: () => undefined,
