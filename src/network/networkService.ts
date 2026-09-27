@@ -4,14 +4,45 @@ import type { NetworkProfile } from '../core/types.js';
 import type { IdentityRepository } from '../identity/repository.js';
 import type { Vault } from '../vault/vault.js';
 import { ValidationError } from '../core/errors.js';
+import os from 'node:os';
+import net from 'node:net';
+import dns from 'node:dns/promises';
 import { detectPublicIp, DEFAULT_IP_ENDPOINTS } from './publicIp.js';
-import type { ProxySecret } from './connector.js';
+import { openSocket, resolveMinecraftTarget, type ProxySecret } from './connector.js';
 
 export type IpDetector = (profile: NetworkProfile | null, secret: ProxySecret | null, endpoints: string[]) => Promise<string>;
 
 export interface ResolvedNetwork {
   profile: NetworkProfile | null;
   secret: ProxySecret | null;
+}
+
+export interface DiagnosticStep {
+  step: string;
+  status: 'ok' | 'warn' | 'error' | 'skipped';
+  detail: string;
+  ms: number | null;
+}
+
+export interface NetworkDiagnosis {
+  identityId: number;
+  profileId: number | null;
+  profileName: string | null;
+  steps: DiagnosticStep[];
+  ok: boolean;
+}
+
+/** Local addresses of all network interfaces (for bind-IP validation). */
+export function localAddresses(): string[] {
+  return Object.values(os.networkInterfaces())
+    .flat()
+    .filter(Boolean)
+    .map((a) => a!.address);
+}
+
+export function isLocalAddress(ip: string): boolean {
+  if (/^127\./.test(ip) && process.platform === 'linux') return true; // whole 127/8 is local on Linux
+  return localAddresses().includes(ip);
 }
 
 export interface NetworkConflict {
@@ -89,6 +120,105 @@ export class NetworkService {
     }
     this.bus.emit({ type: 'network.checked', identityId, data: { profileId: updated.id, status: updated.checkStatus } });
     return updated;
+  }
+
+  /**
+   * Step-by-step network diagnosis for one profile of an identity:
+   * ownership → bind IP present → proxy reachable → DNS → Minecraft TCP through
+   * the profile → public exit IP vs. expected → conflicts with other identities.
+   */
+  async diagnose(identityId: number, profileId?: number | null): Promise<NetworkDiagnosis> {
+    const steps: DiagnosticStep[] = [];
+    const time = async <T>(fn: () => Promise<T>): Promise<[T, number]> => {
+      const t = Date.now();
+      const r = await fn();
+      return [r, Date.now() - t];
+    };
+    let resolved: ResolvedNetwork;
+    try {
+      resolved = await this.resolve(identityId, profileId);
+      steps.push({ step: 'Profile', status: 'ok', detail: resolved.profile ? `${resolved.profile.name} (${resolved.profile.kind}) owned by this identity` : 'No profile – direct connection', ms: null });
+    } catch (e) {
+      steps.push({ step: 'Profile', status: 'error', detail: (e as Error).message, ms: null });
+      return { identityId, profileId: profileId ?? null, profileName: null, steps, ok: false };
+    }
+    const p = resolved.profile;
+
+    if (p?.localBindIp) {
+      const present = isLocalAddress(p.localBindIp);
+      steps.push({
+        step: 'Local bind IP',
+        status: present ? 'ok' : 'error',
+        detail: present ? `${p.localBindIp} is assigned to a local interface` : `${p.localBindIp} is not assigned to any local network interface (add it to the adapter first)`,
+        ms: null,
+      });
+    } else steps.push({ step: 'Local bind IP', status: 'skipped', detail: 'Not used by this profile', ms: null });
+
+    if (p && (p.kind === 'SOCKS5' || p.kind === 'HTTP')) {
+      try {
+        const [, ms] = await time(
+          () =>
+            new Promise<void>((resolve, reject) => {
+              const sock = net.connect({ host: p.proxyHost!, port: p.proxyPort!, localAddress: p.localBindIp ?? undefined });
+              sock.setTimeout(5000, () => sock.destroy(new Error('timeout')));
+              sock.once('connect', () => {
+                sock.destroy();
+                resolve();
+              });
+              sock.once('error', reject);
+            }),
+        );
+        steps.push({ step: 'Proxy reachable', status: 'ok', detail: `${p.proxyHost}:${p.proxyPort}${p.credentialRef ? ' (credentials in vault)' : ''}`, ms });
+      } catch (e) {
+        steps.push({ step: 'Proxy reachable', status: 'error', detail: `${p.proxyHost}:${p.proxyPort}: ${(e as Error).message}`, ms: null });
+      }
+    } else steps.push({ step: 'Proxy reachable', status: 'skipped', detail: 'No proxy', ms: null });
+
+    const servers = this.repo
+      .listAssignments(identityId)
+      .filter((a) => a.enabled && (a.networkProfileId ?? this.repo.getIdentity(identityId).networkProfileId) === (p?.id ?? null))
+      .map((a) => this.repo.getServer(a.serverId));
+    for (const srv of servers) {
+      try {
+        const [target, dnsMs] = await time(async () => {
+          if (!net.isIP(srv.host) && srv.host !== 'localhost') await dns.lookup(srv.host);
+          return resolveMinecraftTarget(srv.host, srv.port);
+        });
+        steps.push({ step: `DNS ${srv.name}`, status: 'ok', detail: `${srv.host} → ${target.host}:${target.port}`, ms: dnsMs });
+        const [sock, ms] = await time(() => openSocket(p, resolved.secret, target, 8000));
+        const local = `${sock.localAddress}`;
+        sock.destroy();
+        const bindOk = !p?.localBindIp || p.kind !== 'BIND' || local.endsWith(p.localBindIp);
+        steps.push({
+          step: `Minecraft TCP ${srv.name}`,
+          status: bindOk ? 'ok' : 'error',
+          detail: `connected via ${p?.kind ?? 'DIRECT'}, local source ${local}${bindOk ? '' : ` (expected ${p!.localBindIp})`}`,
+          ms,
+        });
+      } catch (e) {
+        steps.push({ step: `Minecraft TCP ${srv.name}`, status: 'error', detail: (e as Error).message, ms: null });
+      }
+    }
+    if (!servers.length) steps.push({ step: 'Minecraft TCP', status: 'skipped', detail: 'No enabled server uses this profile', ms: null });
+
+    if (p) {
+      const t = Date.now();
+      const checked = await this.verify(identityId, p.id);
+      const ms = Date.now() - t;
+      if (!checked || checked.checkStatus === 'ERROR') steps.push({ step: 'Public exit IP', status: 'error', detail: checked?.lastError ?? 'check failed', ms });
+      else if (checked.checkStatus === 'MISMATCH') steps.push({ step: 'Public exit IP', status: 'error', detail: `actual ${checked.actualPublicIp}, expected ${checked.expectedPublicIp}`, ms });
+      else if (!checked.expectedPublicIp) steps.push({ step: 'Public exit IP', status: 'warn', detail: `actual ${checked.actualPublicIp} – no expected IP configured`, ms });
+      else steps.push({ step: 'Public exit IP', status: 'ok', detail: `${checked.actualPublicIp} = expected`, ms });
+    } else steps.push({ step: 'Public exit IP', status: 'skipped', detail: 'No profile', ms: null });
+
+    const conflicts = this.conflicts(identityId);
+    steps.push({
+      step: 'Isolation',
+      status: conflicts.length ? 'warn' : 'ok',
+      detail: conflicts.length ? conflicts.map((c) => `shares ${c.field} ${c.value} with identity ${c.otherIdentityId}`).join('; ') : 'No other identity uses the same exit, bind IP or proxy',
+      ms: null,
+    });
+    return { identityId, profileId: p?.id ?? null, profileName: p?.name ?? null, steps, ok: !steps.some((s) => s.status === 'error') };
   }
 
   /** Finds other identities that would share an exit IP, bind IP or proxy with this identity. */

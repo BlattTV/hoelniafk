@@ -474,6 +474,9 @@ export async function buildServer(suite: Suite, opts: ServerOptions = {}): Promi
     await suite.network.deleteProfile(num(req.params.id), num(req.params.pid));
     return { ok: true };
   });
+  app.get('/api/identities/:id/network/diagnose', async (req: Req) =>
+    suite.network.diagnose(num(req.params.id), req.query.profileId ? num(req.query.profileId) : undefined),
+  );
   app.post('/api/identities/:id/network/verify', async (req: Req) => {
     const id = num(req.params.id);
     const r = await suite.network.verify(id, bodyOf(req).profileId ? num(bodyOf(req).profileId) : undefined);
