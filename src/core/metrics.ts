@@ -18,6 +18,13 @@ export interface MetricsSample {
   system: { totalMem: number; freeMem: number; load1: number; cpus: number };
 }
 
+export const LAG_RESOLUTION_MS = 20;
+
+export function lagMs(ns: number): number {
+  if (!Number.isFinite(ns)) return 0;
+  return Math.max(0, Math.round((ns / 1e6 - LAG_RESOLUTION_MS) * 10) / 10);
+}
+
 export function threadCount(pid = process.pid): number | null {
   try {
     const m = /^Threads:\s+(\d+)/m.exec(fs.readFileSync(`/proc/${pid}/status`, 'utf8'));
@@ -30,7 +37,7 @@ export function threadCount(pid = process.pid): number | null {
 export class MetricsCollector {
   private readonly history: MetricsSample[] = [];
   private timer: NodeJS.Timeout | null = null;
-  private readonly lag = monitorEventLoopDelay({ resolution: 20 });
+  private readonly lag = monitorEventLoopDelay({ resolution: LAG_RESOLUTION_MS });
   private lastCpu = process.cpuUsage();
   private lastAt = Date.now();
   private lastBytes = { in: 0, out: 0, at: Date.now() };
@@ -80,8 +87,9 @@ export class MetricsCollector {
         rss: mem.rss,
         heapUsed: mem.heapUsed,
         cpuPercent: Math.round(((cpu.user + cpu.system) / 1000 / elapsed) * 1000) / 10,
-        eventLoopLagMs: Math.round((this.lag.mean / 1e6) * 10) / 10 || 0,
-        eventLoopLagP99Ms: Math.round((this.lag.percentile(99) / 1e6) * 10) / 10 || 0,
+        // The histogram includes the sampling resolution itself – subtract it to get the real lag.
+        eventLoopLagMs: lagMs(this.lag.mean),
+        eventLoopLagP99Ms: lagMs(this.lag.percentile(99)),
         threads: threadCount(),
       },
       hosts: {

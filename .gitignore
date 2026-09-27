@@ -5,3 +5,5 @@ data/
 .env
 coverage/
 scratch/
+test-results/
+playwright-report/

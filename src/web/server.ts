@@ -217,6 +217,7 @@ export async function buildServer(suite: Suite, opts: ServerOptions = {}): Promi
     const store = suite.vault.store as any;
     if (typeof store.exportRecoveryKit !== 'function') throw new ValidationError('This vault backend does not support recovery kits');
     const kit = store.exportRecoveryKit(String(bodyOf(req).passphrase ?? ''));
+    suite.repo.setSetting('vault.recoveryKitExportedAt', new Date().toISOString());
     suite.audit.record(null, 'Vault recovery kit exported');
     reply.header('Content-Disposition', 'attachment; filename="hoelni-vault-recovery.json"');
     return kit;
@@ -247,6 +248,7 @@ export async function buildServer(suite: Suite, opts: ServerOptions = {}): Promi
       networkConflicts: suite.network.conflicts(id),
       assignments: suite.repo.listAssignments(id),
       rewards: suite.repo.getRewards(id),
+      serverRewards: suite.repo.listAssignments(id).map((a) => ({ ...suite.repo.getServerReward(id, a.serverId), serverName: suite.repo.getServer(a.serverId).name })),
       rewardHistory: suite.repo.rewardHistory(id, 30),
       sessions: suite.sessions.list(id),
       health: suite.identities.health(id),
@@ -630,6 +632,18 @@ export async function buildServer(suite: Suite, opts: ServerOptions = {}): Promi
     return r;
   });
 
+  app.get('/api/identities/:id/rewards/servers', async (req: Req) => {
+    const id = num(req.params.id);
+    return suite.repo.listAssignments(id).map((a) => ({ ...suite.repo.getServerReward(id, a.serverId), serverName: suite.repo.getServer(a.serverId).name }));
+  });
+  app.patch('/api/identities/:id/rewards/servers/:sid', async (req: Req) => {
+    const b = bodyOf(req);
+    const patch: Record<string, unknown> = {};
+    if (b.stars !== undefined) patch.stars = Number(b.stars);
+    for (const k of ['eligible', 'received', 'waiting', 'discordLinked']) if (k in b) patch[k] = b[k] === null ? null : !!b[k];
+    return suite.rewards.setServerState(num(req.params.id), num(req.params.sid), patch as any);
+  });
+
   // ------------------------------------------------------------------ templates
   app.get('/api/templates', async () => suite.repo.listTemplates());
   app.post('/api/templates', async (req: Req) => suite.repo.saveTemplate(bodyOf(req)));
@@ -637,6 +651,54 @@ export async function buildServer(suite: Suite, opts: ServerOptions = {}): Promi
   app.delete('/api/templates/:id', async (req: Req) => {
     suite.repo.deleteTemplate(num(req.params.id));
     return { ok: true };
+  });
+
+  // ------------------------------------------------------------------ setup / configuration validation
+  app.get('/api/setup/checks', async () => {
+    type Check = { key: string; label: string; status: 'ok' | 'warn' | 'error'; detail: string; action?: string };
+    const checks: Check[] = [];
+    checks.push({ key: 'vault', label: 'Credential vault', status: 'ok', detail: `Backend ${suite.vault.backend}` });
+    const kitAt = suite.repo.getSetting('vault.recoveryKitExportedAt');
+    checks.push({
+      key: 'recovery',
+      label: 'Vault recovery kit',
+      status: kitAt ? 'ok' : 'warn',
+      detail: kitAt ? `Exported ${kitAt}` : 'Not exported yet – without it, secrets are lost if the Windows user/PC changes',
+      action: '#/settings',
+    });
+    const rules = suite.getRules();
+    checks.push({ key: 'rules', label: 'Recognition rules', status: rules.chatRules.length && rules.mailRules.length ? 'ok' : 'warn', detail: `${rules.mailRules.length} mail rules, ${rules.chatRules.length} chat rule-sets, ${rules.reconnect.rules.length} reconnect rules` });
+    for (const p of ['discord', 'microsoft', 'google'] as const) {
+      const ok = await suite.oauth.isConfigured(p);
+      checks.push({
+        key: `oauth-${p}`,
+        label: `${p[0].toUpperCase()}${p.slice(1)} OAuth client`,
+        status: ok ? 'ok' : p === 'discord' ? 'warn' : 'warn',
+        detail: ok ? 'Client ID configured' : p === 'discord' ? 'Required to connect Discord accounts' : 'Only needed for Outlook/Gmail mailboxes via OAuth2',
+        action: '#/settings',
+      });
+    }
+    const servers = suite.repo.listServers();
+    checks.push({ key: 'servers', label: 'Minecraft servers', status: servers.length ? 'ok' : 'error', detail: servers.length ? servers.map((x) => `${x.name} (${x.host}:${x.port})`).join(', ') : 'No server configured', action: '#/servers' });
+    const ids = suite.repo.listIdentities();
+    checks.push({ key: 'identities', label: 'Identities', status: ids.length ? 'ok' : 'warn', detail: `${ids.length} identities`, action: '#/wizard' });
+    const withMc = ids.filter((i) => suite.repo.getMinecraft(i.id)).length;
+    checks.push({ key: 'minecraft', label: 'Minecraft accounts', status: withMc === ids.length && ids.length ? 'ok' : 'warn', detail: `${withMc}/${ids.length} identities have a Minecraft account` });
+    const mb = suite.repo.listMailAccounts();
+    checks.push({ key: 'mail', label: 'Mailboxes', status: mb.length ? (mb.every((m) => m.credentialRef) ? 'ok' : 'warn') : 'warn', detail: mb.length ? `${mb.filter((m) => m.credentialRef).length}/${mb.length} with credentials` : 'No mailbox configured', action: '#/mailboxes' });
+    const noNet = ids.filter((i) => i.settings.networkMode !== 'DIRECT' && !i.networkProfileId).length;
+    checks.push({ key: 'network', label: 'Network profiles', status: noNet ? 'warn' : 'ok', detail: noNet ? `${noNet} identities without a network profile` : 'All identities have a network profile' });
+    let viewerOk = true;
+    try {
+      const { createRequire } = await import('node:module');
+      createRequire(import.meta.url).resolve('prismarine-viewer/public/index.js');
+    } catch {
+      viewerOk = false;
+    }
+    checks.push({ key: 'viewer', label: 'Interactive game view', status: viewerOk ? 'ok' : 'error', detail: viewerOk ? 'prismarine-viewer assets available' : 'prismarine-viewer not installed (npm install)' });
+    const hosts = suite.runtime.stats().hosts.length;
+    checks.push({ key: 'runtime', label: 'Minecraft runtime', status: 'ok', detail: `${suite.config.runtime.mode} mode, ${suite.config.runtime.sessionsPerHost} sessions/host, ${hosts} host process(es) running` });
+    return { checks, ok: !checks.some((c) => c.status === 'error') };
   });
 
   // ------------------------------------------------------------------ monitoring & logs

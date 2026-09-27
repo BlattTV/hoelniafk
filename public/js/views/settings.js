@@ -22,6 +22,23 @@ export async function settingsView(root) {
           h('section', { class: 'card' }, h('h2', null, 'Credential Vault'),
             h('div', { class: 'kv' }, h('div', null, 'Backend'), h('div', { class: 'mono' }, vault.backend), h('div', null, 'Stored secrets'), h('div', null, String(vault.refs.length))),
             h('p', { class: 'muted' }, 'Secrets are AES-256-GCM encrypted; the master key is protected by Windows DPAPI or the Windows Credential Manager. SQLite only stores references. Values are never shown in the UI.'),
+            h('h3', null, 'Recovery kit'),
+            h('p', { class: 'muted' }, 'DPAPI / Credential Manager keys are bound to this Windows user and PC. Export a passphrase-protected recovery kit and keep it offline – restore with “npm run vault -- recover --kit <file>”.'),
+            (() => {
+              const pw = h('input', { type: 'password', placeholder: 'passphrase (min. 12 chars)', autocomplete: 'new-password' });
+              const pw2 = h('input', { type: 'password', placeholder: 'repeat passphrase', autocomplete: 'new-password' });
+              return h('div', { class: 'form-actions' }, pw, pw2, h('button', { onclick: () => guard(async () => {
+                if (pw.value !== pw2.value) throw new Error('Passphrases do not match');
+                const kit = await api.post('/api/vault/recovery-kit', { passphrase: pw.value });
+                const a = h('a', { href: URL.createObjectURL(new Blob([JSON.stringify(kit, null, 2)], { type: 'application/json' })), download: 'hoelni-vault-recovery.json' });
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                pw.value = '';
+                pw2.value = '';
+              }, 'Recovery kit downloaded – store it offline') }, 'Export recovery kit'));
+            })(),
+            h('h3', null, 'Stored secrets (references only)'),
             h('ul', { class: 'mono', style: { fontSize: '12px' } }, vault.refs.map((r) => h('li', null, r)))),
           h('section', { class: 'card' }, h('h2', null, 'OAuth redirect URI'),
             h('p', null, 'Register this redirect URI in every OAuth app (Discord, Microsoft, Google):'),
@@ -37,7 +54,8 @@ export async function settingsView(root) {
               h('div', null, 'Mail check'), h('div', null, settings.automation.mailCheckMinutes ? `every ${settings.automation.mailCheckMinutes} min` : 'off'),
               h('div', null, 'Network check'), h('div', null, settings.automation.networkCheckMinutes ? `every ${settings.automation.networkCheckMinutes} min` : 'off'),
               h('div', null, 'Discord verify'), h('div', null, settings.automation.discordVerifyHours ? `every ${settings.automation.discordVerifyHours} h` : 'off'),
-              h('div', null, 'Auto-start sessions'), h('div', null, settings.automation.autoStartSessions ? 'yes' : 'no')),
+              h('div', null, 'Token refresh'), h('div', null, settings.automation.tokenRefreshHours ? `every ${settings.automation.tokenRefreshHours} h` : 'off'),
+              h('div', null, 'Restore sessions'), h('div', null, settings.automation.restoreSessions ? 'desired-state reconciler active' : 'off')),
             h('p', { class: 'muted' }, 'Configured in config/app.yaml.'))),
         h('div', null,
           oauthCard('discord', 'Discord OAuth2', 'Discord Developer Portal → your application → OAuth2. Used only to connect existing accounts (scope "identify").'),

@@ -3,7 +3,7 @@
  * ctx = { id, data, meta: { mailboxes, servers, rules, aliasProviders }, reload }
  */
 import { api, qs } from '../api.js';
-import { badge, clear, codeBox, copy, field, fmtTime, formData, guard, h, modal, openExternal, select, statusIcon, toast, mount } from '../ui.js';
+import { badge, clear, codeBox, copy, field, fmtBytes, fmtTime, formData, guard, h, modal, mount, openExternal, openGame, relTime, select, stateBadge, statusIcon, toast } from '../ui.js';
 import { openMessage } from './mailviewer.js';
 
 export async function loadMeta() {
@@ -333,8 +333,22 @@ export function networkSection(ctx) {
           )),
         )
       : h('p', { class: 'muted' }, 'No network profile yet.'),
-    h('div', { class: 'form-actions' }, h('button', { onclick: () => editor(null) }, '＋ Add profile')),
+    h('div', { class: 'form-actions' },
+      h('button', { onclick: () => editor(null) }, '＋ Add profile'),
+      profiles.length ? h('button', { title: 'Step-by-step check: bind IP, proxy, DNS, Minecraft TCP, public exit IP', onclick: () => diagnose(id, data.identity.networkProfileId) }, 'Diagnose') : null,
+      h('span', { class: 'muted', title: 'Network guard setting of this identity' }, `Guard: ${data.identity.settings.networkGuard}`)),
   );
+}
+
+export async function diagnose(identityId, profileId) {
+  const body = h('div', null, h('p', { class: 'muted' }, 'Running checks…'));
+  modal('Network diagnosis', body);
+  const d = await guard(() => api.get(`/api/identities/${identityId}/network/diagnose${profileId ? `?profileId=${profileId}` : ''}`));
+  if (!d) return;
+  mount(body,
+    h('p', null, d.profileName ? `Profile “${d.profileName}”` : 'Direct connection', ' – ', d.ok ? h('span', { class: 's-ok' }, 'no errors') : h('span', { class: 's-error' }, 'problems found')),
+    h('ul', { class: 'steps', style: { listStyle: 'none', padding: 0 } }, d.steps.map((st) =>
+      h('li', null, h('span', { class: `s-${st.status}` }, statusIcon(st.status)), h('span', null, st.step), h('span', { class: 'muted' }, st.detail), h('span', { class: 'muted' }, st.ms !== null ? `${st.ms} ms` : '')))));
 }
 
 // ---------------------------------------------------------------- servers & sessions
@@ -344,32 +358,43 @@ export function sessionsSection(ctx) {
   const byServer = new Map(data.assignments.map((a) => [a.serverId, a]));
   const sessionFor = (sid) => data.sessions.find((s) => s.serverId === sid);
   const profileOpts = [['', 'identity default'], ...data.networkProfiles.map((p) => [p.id, p.name])];
+  const reload = () => ctx.reload();
   return card(
     'sessions',
     'Minecraft Server Assignments & Sessions',
+    h('p', { class: 'muted' }, 'Desired state is maintained automatically: a session that should be online is reconnected according to the reconnect policy (rules.yaml).'),
     meta.servers.length
       ? h('table', null,
-          h('thead', null, h('tr', null, ['Server', 'Assigned', 'Auto start', 'Network', 'Session', ''].map((t) => h('th', null, t)))),
+          h('thead', null, h('tr', null, ['Server', 'Assigned', 'Should be', 'Network', 'State', 'Details', ''].map((t) => h('th', null, t)))),
           h('tbody', null, meta.servers.map((s) => {
             const a = byServer.get(s.id);
             const sess = sessionFor(s.id);
-            const update = (patch) => guard(async () => { await api.put(`/api/identities/${id}/servers/${s.id}`, { enabled: a?.enabled ?? true, autoStart: a?.autoStart ?? false, networkProfileId: a?.networkProfileId ?? null, ...patch }); await ctx.reload(); });
+            const sid = `${id}:${s.id}`;
+            const update = (patch) => guard(async () => { await api.put(`/api/identities/${id}/servers/${s.id}`, { enabled: a?.enabled ?? true, autoStart: a?.autoStart ?? false, networkProfileId: a?.networkProfileId ?? null, desiredState: a?.desiredState ?? 'OFFLINE', ...patch }); await reload(); });
+            const st = sess?.stats;
             return h('tr', null,
               h('td', null, s.name, h('div', { class: 'muted' }, `${s.host}:${s.port}`)),
-              h('td', null, h('input', { type: 'checkbox', checked: !!a && a.enabled, onchange: (e) => (e.target.checked ? update({ enabled: true }) : guard(async () => { await api.del(`/api/identities/${id}/servers/${s.id}`); await ctx.reload(); })) })),
-              h('td', null, a ? h('input', { type: 'checkbox', checked: a.autoStart, onchange: (e) => update({ autoStart: e.target.checked }) }) : '–'),
-              h('td', null, a ? select('np', profileOpts, a.networkProfileId ?? '', { onchange: (e) => update({ networkProfileId: e.target.value ? Number(e.target.value) : null }) }) : '–'),
-              h('td', null, sess ? h('span', null, badge(sess.state === 'ONLINE' ? 'ok' : sess.state === 'ERROR' ? 'error' : 'warn', sess.state), sess.lastError ? h('div', { class: 'muted', style: { maxWidth: '260px' } }, sess.lastError) : null) : h('span', { class: 'muted' }, '–')),
+              h('td', null, h('input', { type: 'checkbox', title: 'Assign this server', checked: !!a && a.enabled, onchange: (e) => (e.target.checked ? update({ enabled: true }) : guard(async () => { await api.del(`/api/identities/${id}/servers/${s.id}`); await reload(); })) })),
+              h('td', null, a ? select('desired', [['ONLINE', 'online'], ['OFFLINE', 'offline']], a.desiredState, { title: 'Desired state (SHOULD_BE_ONLINE / OFFLINE)', onchange: (e) => guard(async () => { await api.put(`/api/identities/${id}/servers/${s.id}/desired`, { state: e.target.value }); await reload(); }) }) : '–'),
+              h('td', null, a ? select('np', profileOpts, a.networkProfileId ?? '', { title: 'Per-session network override', onchange: (e) => update({ networkProfileId: e.target.value ? Number(e.target.value) : null }) }) : '–'),
+              h('td', null, sess ? stateBadge(sess.state, sess.lastError ?? '') : h('span', { class: 'muted' }, '–'), sess?.viewOpen ? h('span', { title: 'Game view open' }, ' 🎮') : null),
+              h('td', { class: 'muted', style: { fontSize: '12px', maxWidth: '260px' } },
+                sess?.state === 'ONLINE' && st ? `ping ${st.ping ?? '–'}ms · ❤ ${st.health ?? '–'} · ${st.physics ? 'physics' : 'lightweight'} · ↓${fmtBytes(st.bytesIn)}` : null,
+                sess?.state === 'RECONNECTING' ? `next attempt ${relTime(sess.nextAttemptAt)} · failures ${sess.consecutiveFailures}` : null,
+                sess?.lastError && sess.state !== 'ONLINE' ? h('div', { class: sess.state === 'BLOCKED' ? 's-error' : '' }, sess.lastError) : null),
               h('td', null, a ? h('div', { class: 'toolbar' },
-                !sess || ['STOPPED', 'ERROR', 'IDLE'].includes(sess.state)
-                  ? h('button', { class: 'small primary', onclick: () => guard(async () => { await api.post(`/api/identities/${id}/sessions/${s.id}/start`); await ctx.reload(); }) }, 'Start')
-                  : h('button', { class: 'small', onclick: () => guard(async () => { await api.post(`/api/sessions/${sess.id}/stop`); await ctx.reload(); }) }, 'Stop'),
-                sess ? h('button', { class: 'small', onclick: () => guard(async () => { await api.post(`/api/sessions/${sess.id}/reconnect`); await ctx.reload(); }) }, 'Reconnect') : null,
-                sess ? h('button', { class: 'small', onclick: () => openChat(sess, ctx) }, 'Chat') : null) : null),
+                !sess || ['STOPPED', 'BLOCKED', 'RECONNECTING'].includes(sess.state)
+                  ? h('button', { class: 'small primary', title: 'Set desired ONLINE and connect now', onclick: () => guard(async () => { await api.post(`/api/identities/${id}/sessions/${s.id}/start`); await reload(); }) }, 'Start')
+                  : h('button', { class: 'small', title: 'Set desired OFFLINE and disconnect', onclick: () => guard(async () => { await api.post(`/api/sessions/${sid}/stop`); await reload(); }) }, 'Stop'),
+                sess && sess.state !== 'STOPPED' ? h('button', { class: 'small', onclick: () => guard(async () => { await api.post(`/api/sessions/${sid}/reconnect`); await reload(); }) }, 'Reconnect') : null,
+                sess?.state === 'ONLINE' && !sess.viewOpen ? h('button', { class: 'small', title: 'Open the interactive game view of this running session', onclick: () => openGame(api, sid).then(reload) }, 'Open game') : null,
+                sess?.viewOpen ? h('button', { class: 'small', title: 'Back to lightweight AFK mode (session keeps running)', onclick: () => guard(async () => { await api.del(`/api/sessions/${sid}/view`); await reload(); }) }, 'Hide game') : null,
+                h('button', { class: 'small', onclick: () => openChat({ id: sid, serverName: s.name }, ctx) }, 'Chat'),
+                h('button', { class: 'small', onclick: () => openSessionLog(sid, `${s.name}`) }, 'Log')) : null),
             );
           })),
         )
-      : h('p', { class: 'muted' }, 'No servers defined yet – add them under “Servers”.'),
+      : h('p', { class: 'muted' }, 'No servers defined yet – add them under “Server Profiles”.'),
   );
 }
 
@@ -379,7 +404,7 @@ export function openChat(sess, ctx) {
     log.appendChild(h('div', null, h('span', { class: 'muted' }, `[${fmtTime(line.ts)}] `), line.text));
     log.scrollTop = log.scrollHeight;
   };
-  api.get(`/api/sessions/${encodeURIComponent(sess.id)}/chat`).then((lines) => lines.forEach(add));
+  api.get(`/api/sessions/${encodeURIComponent(sess.id)}/chat?limit=200`).then((lines) => lines.forEach(add)).catch(() => undefined);
   const input = h('input', { style: { flex: 1 }, placeholder: 'Message or /command', maxlength: 256 });
   const send = () => guard(async () => { await api.post(`/api/sessions/${encodeURIComponent(sess.id)}/chat`, { text: input.value }); input.value = ''; });
   input.addEventListener('keydown', (e) => e.key === 'Enter' && send());
@@ -390,27 +415,59 @@ export function openChat(sess, ctx) {
   };
 }
 
+export async function openSessionLog(sessionId, title) {
+  const [events, logs] = await Promise.all([
+    guard(() => api.get(`/api/sessions/${encodeURIComponent(sessionId)}/events`)),
+    guard(() => api.get(`/api/logs?sessionId=${encodeURIComponent(sessionId)}&level=debug&limit=200`)),
+  ]);
+  modal(`Session log – ${title}`, h('div', null,
+    h('h3', null, 'State changes & events'),
+    h('table', null, h('tbody', null, (events ?? []).map((e) => h('tr', null, h('td', { class: 'mono muted' }, fmtTime(e.ts)), h('td', null, e.kind), h('td', { class: 'muted' }, e.detail))))),
+    h('h3', null, 'Runtime log'),
+    (logs ?? []).length
+      ? h('table', null, h('tbody', null, logs.map((e) => h('tr', { class: `log-row ${e.level}` }, h('td', { class: 'mono muted' }, fmtTime(e.ts)), h('td', null, e.level), h('td', null, e.msg)))))
+      : h('p', { class: 'muted' }, 'No runtime log entries for this session.')));
+}
+
 // ---------------------------------------------------------------- rewards
 
 export function rewardsSection(ctx) {
   const { id, data } = ctx;
   const r = data.rewards;
-  const stars = h('input', { type: 'number', value: r.stars, style: { width: '90px' } });
+  const tri = (v) => (v === true ? h('span', { class: 's-ok' }, '✓') : v === false ? h('span', { class: 's-error' }, '✗') : h('span', { class: 'muted' }, '–'));
+  const edit = (sr) => {
+    const f = h('div', { class: 'form-grid' },
+      field('Stars', h('input', { type: 'number', name: 'stars', value: sr.stars })),
+      ...['eligible', 'received', 'waiting', 'discordLinked'].map((k) => field(k, select(k, [['', 'unknown'], ['true', 'yes'], ['false', 'no']], sr[k] === null ? '' : String(sr[k])))));
+    const m = modal(`Rewards – ${sr.serverName}`, h('div', null, f, h('p', { class: 'muted' }, 'Normally detected from chat rules (rules.yaml). Manual changes are recorded in the history.'),
+      h('button', { class: 'primary', onclick: () => guard(async () => {
+        const b = formData(f);
+        const body = { stars: b.stars };
+        for (const k of ['eligible', 'received', 'waiting', 'discordLinked']) body[k] = b[k] === '' ? null : b[k] === 'true';
+        await api.patch(`/api/identities/${id}/rewards/servers/${sr.serverId}`, body);
+        m.close();
+        await ctx.reload();
+      }, 'Rewards updated') }, 'Save')));
+  };
   return card(
     'rewards',
-    'Rewards',
-    kv([
-      ['Stars', h('span', { class: 'mono' }, String(r.stars))],
-      ['Eligible', r.eligible ? h('span', { class: 's-ok' }, 'yes ✓') : h('span', { class: 'muted' }, 'no')],
-      ['Last update', fmtTime(r.lastUpdate)],
-    ]),
-    h('div', { class: 'form-actions' },
-      stars,
-      h('button', { class: 'small', onclick: () => guard(async () => { await api.patch(`/api/identities/${id}/rewards`, { stars: Number(stars.value) }); await ctx.reload(); }, 'Stars updated') }, 'Set stars'),
-      h('button', { class: 'small', onclick: () => guard(async () => { await api.patch(`/api/identities/${id}/rewards`, { eligible: !r.eligible }); await ctx.reload(); }) }, r.eligible ? 'Mark not eligible' : 'Mark eligible')),
+    'Rewards / Stars',
+    h('div', { class: 'kv' },
+      h('div', { class: 'tree-line' }, 'Stars (total)'), h('div', { class: 'mono' }, String(r.stars)),
+      h('div', { class: 'tree-line' }, 'Eligible'), h('div', null, r.eligible ? h('span', { class: 's-ok' }, 'yes ✓') : h('span', { class: 'muted' }, 'no')),
+      h('div', { class: 'tree-line' }, 'Last update'), h('div', null, fmtTime(r.lastUpdate))),
+    data.serverRewards?.length
+      ? h('table', null,
+          h('thead', null, h('tr', null, ['Server', 'Stars', 'Eligible', 'Received', 'Waiting', 'Discord', 'Last change', ''].map((t) => h('th', null, t)))),
+          h('tbody', null, data.serverRewards.map((sr) => h('tr', null,
+            h('td', null, sr.serverName), h('td', { class: 'mono' }, String(sr.stars)), h('td', null, tri(sr.eligible)), h('td', null, tri(sr.received)),
+            h('td', null, tri(sr.waiting)), h('td', null, tri(sr.discordLinked)),
+            h('td', { class: 'muted', title: sr.lastMessage ?? '' }, fmtTime(sr.lastChange)),
+            h('td', null, h('button', { class: 'small', onclick: () => edit(sr) }, 'Edit'))))))
+      : h('p', { class: 'muted' }, 'No server assignments yet.'),
     h('h3', null, 'History'),
     data.rewardHistory.length
-      ? h('table', null, h('tbody', null, data.rewardHistory.map((e) => h('tr', null, h('td', { class: 'muted' }, fmtTime(e.ts)), h('td', { class: e.delta >= 0 ? 's-ok mono' : 's-error mono' }, e.delta >= 0 ? `+${e.delta}` : String(e.delta)), h('td', { class: 'mono' }, String(e.stars)), h('td', { class: 'muted' }, e.reason)))))
+      ? h('table', null, h('tbody', null, data.rewardHistory.map((e) => h('tr', null, h('td', { class: 'muted' }, fmtTime(e.ts)), h('td', null, h('span', { class: 'tag' }, e.kind)), h('td', { class: e.delta >= 0 ? 's-ok mono' : 's-error mono' }, e.kind === 'stars' ? (e.delta >= 0 ? `+${e.delta}` : String(e.delta)) : ''), h('td', { class: 'mono' }, String(e.stars)), h('td', { class: 'muted' }, e.reason)))))
       : h('p', { class: 'muted' }, 'No reward history yet (updated from chat rules).'),
   );
 }
@@ -427,6 +484,8 @@ export function settingsSection(ctx) {
     h('div', { class: 'form-grid' },
       field('Label', h('input', { name: 'label', value: data.identity.label })),
       field('Network mode', select('networkMode', ['PER_ACCOUNT', 'SHARED', 'DIRECT'], s.networkMode)),
+      field('Network guard', select('networkGuard', [['off', 'off'], ['warn', 'warn on IP mismatch'], ['block', 'block session start on IP mismatch']], s.networkGuard)),
+      field('View distance', select('viewDistance', ['tiny', 'short', 'normal', 'far'], s.viewDistance)),
       field('Discord linking', select('discordLinking', ['required', 'optional', 'disabled'], s.discordLinking)),
       field('Reconnect delay (s)', h('input', { type: 'number', name: 'reconnectDelaySec', value: s.reconnectDelaySec, min: 5 })),
       field('AFK action', select('afkAction', ['none', 'look', 'swing', 'jump'], s.afk.action)),
@@ -438,6 +497,7 @@ export function settingsSection(ctx) {
       h('label', { class: 'check' }, h('input', { type: 'checkbox', name: 'autoReconnect', checked: s.autoReconnect }), 'Auto reconnect'),
       h('label', { class: 'check' }, h('input', { type: 'checkbox', name: 'afkEnabled', checked: s.afk.enabled }), 'Anti-AFK'),
       h('label', { class: 'check' }, h('input', { type: 'checkbox', name: 'mailEnabled', checked: s.mailEnabled }), 'Mail enabled'),
+      h('label', { class: 'check', title: 'Physics off while no game view is open (saves CPU); the AFK action "jump" keeps physics on' }, h('input', { type: 'checkbox', name: 'lightweight', checked: s.lightweight }), 'Lightweight AFK mode'),
     ),
     h('h3', null, 'Chat parsers (rules.yaml)'),
     h('div', { class: 'toolbar' }, parsers.map((p) => h('label', { class: 'check' }, h('input', { type: 'checkbox', dataset: { parser: p }, checked: s.parsers.includes(p) }), p))),
@@ -454,6 +514,9 @@ export function settingsSection(ctx) {
         label: f.label,
         settings: {
           networkMode: f.networkMode,
+          networkGuard: f.networkGuard,
+          viewDistance: f.viewDistance,
+          lightweight: f.lightweight,
           discordLinking: f.discordLinking,
           reconnectDelaySec: f.reconnectDelaySec,
           autoReconnect: f.autoReconnect,

@@ -133,7 +133,7 @@ export class RuntimeHostCore {
         rss: mem.rss,
         heapUsed: mem.heapUsed,
         cpuPercent: Math.round(((cpu.user + cpu.system) / 1000 / elapsedMs) * 1000) / 10,
-        eventLoopLagMs: Math.round((this.lag.mean / 1e6) * 10) / 10,
+        eventLoopLagMs: Number.isFinite(this.lag.mean) ? Math.max(0, Math.round((this.lag.mean / 1e6 - 20) * 10) / 10) : 0, // minus sampling resolution
         sessions: this.sessions.size,
         threads: readThreadCount(),
         uptimeSec: Math.round((now - this.startedAt) / 1000),

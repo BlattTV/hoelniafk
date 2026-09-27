@@ -158,3 +158,89 @@ export function whenModalClosed(fn) {
   });
   obs.observe(root, { childList: true });
 }
+
+// ---------------------------------------------------------------- status & formatting helpers
+
+const STATE_CLASS = {
+  ONLINE: 'ok', STARTING: 'info', CONNECTING: 'info', AUTHENTICATING: 'info', STOPPING: 'skipped',
+  RECONNECTING: 'warn', BLOCKED: 'error', STOPPED: 'skipped',
+};
+const STATE_HELP = {
+  ONLINE: 'Connected and spawned',
+  STARTING: 'Preflight checks (network guard, auth)',
+  CONNECTING: 'Opening the connection',
+  AUTHENTICATING: 'Logging in',
+  STOPPING: 'Disconnecting',
+  RECONNECTING: 'Should be online – waiting for the next attempt (backoff)',
+  BLOCKED: 'Should be online, but the reconnect policy forbids automatic retries – fix the cause and start again',
+  STOPPED: 'Not running',
+};
+
+export function stateBadge(state, extra) {
+  return h('span', { class: `badge ${STATE_CLASS[state] ?? 'unknown'}`, title: (STATE_HELP[state] ?? state) + (extra ? `\n${extra}` : '') }, state);
+}
+
+export function relTime(iso) {
+  if (!iso) return '–';
+  const diff = (Date.parse(iso) - Date.now()) / 1000;
+  const a = Math.abs(diff);
+  const s = a < 60 ? `${Math.round(a)}s` : a < 3600 ? `${Math.round(a / 60)}m` : a < 86400 ? `${Math.round(a / 3600)}h` : `${Math.round(a / 86400)}d`;
+  return diff > 0 ? `in ${s}` : `${s} ago`;
+}
+
+export function fmtBytes(n) {
+  if (n === null || n === undefined) return '–';
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 ** 2) return `${(n / 1024).toFixed(1)} KB`;
+  if (n < 1024 ** 3) return `${(n / 1024 ** 2).toFixed(1)} MB`;
+  return `${(n / 1024 ** 3).toFixed(2)} GB`;
+}
+
+/** Tiny SVG sparkline. */
+export function sparkline(values, { w = 160, h = 36, max } = {}) {
+  const ns = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(ns, 'svg');
+  svg.setAttribute('width', w);
+  svg.setAttribute('height', h);
+  svg.setAttribute('class', 'spark');
+  if (!values.length) return svg;
+  const m = max ?? Math.max(1, ...values);
+  const pts = values.map((v, i) => `${(i / Math.max(1, values.length - 1)) * (w - 2) + 1},${h - 1 - (v / m) * (h - 4)}`).join(' ');
+  const pl = document.createElementNS(ns, 'polyline');
+  pl.setAttribute('points', pts);
+  pl.setAttribute('fill', 'none');
+  pl.setAttribute('stroke', 'currentColor');
+  pl.setAttribute('stroke-width', '1.5');
+  svg.appendChild(pl);
+  return svg;
+}
+
+let openMenu = null;
+/** Context menu at the mouse position. items: [label, fn] | null (separator). */
+export function contextMenu(ev, items) {
+  ev.preventDefault();
+  if (openMenu) openMenu.remove();
+  const menu = h(
+    'div',
+    { class: 'ctx-menu', style: { left: `${ev.clientX}px`, top: `${ev.clientY}px` } },
+    items.map((it) =>
+      it === null
+        ? h('div', { class: 'ctx-sep' })
+        : h('div', { class: `ctx-item ${it[2] ?? ''}`, onclick: () => { menu.remove(); openMenu = null; it[1](); } }, it[0]),
+    ),
+  );
+  document.body.appendChild(menu);
+  openMenu = menu;
+  const r = menu.getBoundingClientRect();
+  if (r.bottom > innerHeight) menu.style.top = `${Math.max(4, innerHeight - r.height - 4)}px`;
+  if (r.right > innerWidth) menu.style.left = `${Math.max(4, innerWidth - r.width - 4)}px`;
+  setTimeout(() => document.addEventListener('click', () => { menu.remove(); if (openMenu === menu) openMenu = null; }, { once: true }));
+}
+
+/** Opens the interactive game view of a running session in its own window. */
+export async function openGame(api, sessionId) {
+  const r = await guard(() => api.post(`/api/sessions/${encodeURIComponent(sessionId)}/view`));
+  if (!r) return;
+  const w = window.open(r.url, `hoelni-view-${sessionId.replace(/\W/g, '_')}`, 'width=1280,height=760');
+  if (!w) toast('Popup blocked – allow popups for this page', 'error');
+}

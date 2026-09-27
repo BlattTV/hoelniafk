@@ -1,6 +1,5 @@
 import { api } from '../api.js';
 import { badge, clear, field, fmtTime, formData, guard, h, identityName, pad2, mount } from '../ui.js';
-import { openChat } from './sections.js';
 
 export async function serversView(root) {
   const render = async () => {
@@ -25,37 +24,3 @@ export async function serversView(root) {
   await render();
 }
 
-/** Session Manager: all sessions grouped by server. */
-export async function sessionsView(root) {
-  const ctx = { chatListener: null };
-  const render = async () => {
-    const [sessions, servers, dash] = await Promise.all([api.get('/api/sessions'), api.get('/api/servers'), api.get('/api/dashboard')]);
-    const name = (id) => { const r = dash.rows.find((x) => x.id === id); return r ? `#${pad2(r.number)} ${identityName(r)}` : `#${id}`; };
-    mount(root, 
-      h('div', { class: 'page-head' }, h('div', null, h('h1', null, 'Session Manager'), h('div', { class: 'sub' }, `${sessions.filter((s) => s.state === 'ONLINE').length}/${sessions.length} online`))),
-      servers.map((srv) => {
-        const list = sessions.filter((s) => s.serverId === srv.id);
-        return h('section', { class: 'card' }, h('h2', null, `${srv.name} sessions (${list.length})`),
-          list.length
-            ? h('table', null, h('tbody', null, list.map((s) => h('tr', null,
-                h('td', null, h('a', { href: `#/identity/${s.identityId}/sessions` }, name(s.identityId))),
-                h('td', null, badge(s.state === 'ONLINE' ? 'ok' : s.state === 'ERROR' ? 'error' : 'warn', s.state)),
-                h('td', { class: 'muted' }, `since ${fmtTime(s.since)} · reconnects ${s.reconnects}`),
-                h('td', { class: 'muted' }, s.lastError ?? ''),
-                h('td', null, h('div', { class: 'toolbar' },
-                  h('button', { class: 'small', onclick: () => openChat(s, ctx) }, 'Chat'),
-                  h('button', { class: 'small', onclick: () => guard(async () => { await api.post(`/api/sessions/${s.id}/reconnect`); await render(); }) }, 'Reconnect'),
-                  h('button', { class: 'small', onclick: () => guard(async () => { await api.post(`/api/sessions/${s.id}/stop`); await render(); }) }, 'Stop')))))))
-            : h('p', { class: 'muted' }, 'No sessions.'));
-      }),
-    );
-  };
-  await render();
-  let t;
-  return {
-    onEvent(ev) {
-      if (ctx.chatListener) ctx.chatListener(ev);
-      if (ev.type === 'session.state' && !document.getElementById('modal-root').childElementCount) { clearTimeout(t); t = setTimeout(render, 400); }
-    },
-  };
-}

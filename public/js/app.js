@@ -5,7 +5,13 @@ import { identityView } from './views/identity.js';
 import { wizardView } from './views/wizard.js';
 import { inboxView } from './views/inbox.js';
 import { mailboxesView } from './views/mailboxes.js';
-import { serversView, sessionsView } from './views/servers.js';
+import { serversView } from './views/servers.js';
+import { sessionsView } from './views/sessions.js';
+import { matrixView } from './views/matrix.js';
+import { chatView } from './views/chat.js';
+import { monitoringView } from './views/monitoring.js';
+import { logsView } from './views/logs.js';
+import { setupView } from './views/setup.js';
 import { templatesView } from './views/templates.js';
 import { auditView } from './views/audit.js';
 import { settingsView } from './views/settings.js';
@@ -19,6 +25,11 @@ const routes = [
   [/^\/mailboxes$/, 'mailboxes', mailboxesView],
   [/^\/servers$/, 'servers', serversView],
   [/^\/sessions$/, 'sessions', sessionsView],
+  [/^\/matrix$/, 'matrix', matrixView],
+  [/^\/chat$/, 'chat', chatView],
+  [/^\/monitoring$/, 'monitoring', monitoringView],
+  [/^\/logs$/, 'logs', logsView],
+  [/^\/setup$/, 'setup', setupView],
   [/^\/templates$/, 'templates', templatesView],
   [/^\/audit$/, 'audit', auditView],
   [/^\/settings$/, 'settings', settingsView],

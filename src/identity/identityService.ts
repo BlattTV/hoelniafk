@@ -15,6 +15,7 @@ export interface DashboardRow {
   health: HealthReport['level'];
   ready: boolean;
   minecraft: { username: string | null; authStatus: string | null; online: number; sessions: number };
+  sessions: Array<{ id: string; serverId: number; serverName: string; desired: string; state: string; lastError: string | null }>;
   discord: { state: string; linkState: string; username: string | null; pendingLinkCode: string | null };
   mail: { address: string | null; unread: number; status: string | null };
   network: { exitLabel: string | null; actualIp: string | null; expectedIp: string | null; status: string | null };
@@ -132,8 +133,19 @@ export class IdentityService {
           username: mc?.username ?? null,
           authStatus: mc?.authStatus ?? null,
           online: sessions.filter((x) => x.state === 'ONLINE').length,
-          sessions: this.repo.listAssignments(id).filter((a) => a.enabled).length,
+          sessions: this.repo.listAssignments(id).filter((a) => a.enabled && a.desiredState === 'ONLINE').length,
         },
+        sessions: this.repo.listAssignments(id).map((a) => {
+          const sess = sessions.find((x) => x.serverId === a.serverId);
+          return {
+            id: `${id}:${a.serverId}`,
+            serverId: a.serverId,
+            serverName: this.repo.getServer(a.serverId).name,
+            desired: a.desiredState,
+            state: sess?.state ?? 'STOPPED',
+            lastError: sess?.lastError ?? null,
+          };
+        }),
         discord: {
           state: d?.oauthState ?? 'NONE',
           linkState: d?.linkState ?? 'UNKNOWN',
