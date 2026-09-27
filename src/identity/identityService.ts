@@ -53,7 +53,7 @@ export class IdentityService {
         warnings.push(`Template server "${name}" does not exist – skipped`);
         continue;
       }
-      this.repo.assignServer(identity.id, { serverId: server.id, enabled: true, autoStart: settings.autoReconnect });
+      this.repo.assignServer(identity.id, { serverId: server.id, enabled: true, desiredState: 'OFFLINE' });
     }
     this.audit.record(identity.id, 'Identity created', { label: identity.label, template: input.templateId ?? 'none' });
     this.bus.emit({ type: 'identity.changed', identityId: identity.id });
@@ -72,7 +72,8 @@ export class IdentityService {
     settings.ui = { ...settings.ui, notes: undefined, tags: [...settings.ui.tags] };
     const identity = this.repo.createIdentity({ label, templateId: src.templateId, settings });
     for (const a of this.repo.listAssignments(sourceId)) {
-      this.repo.assignServer(identity.id, { serverId: a.serverId, enabled: a.enabled, autoStart: a.autoStart, networkProfileId: null });
+      // Desired state starts OFFLINE: the clone has no Minecraft account yet.
+      this.repo.assignServer(identity.id, { serverId: a.serverId, enabled: a.enabled, autoStart: a.autoStart, networkProfileId: null, desiredState: 'OFFLINE' });
     }
     const srcProfile = src.networkProfileId ? this.repo.getNetworkProfile(src.networkProfileId) : null;
     if (srcProfile && srcProfile.kind === 'DIRECT') {

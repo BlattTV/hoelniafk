@@ -12,6 +12,7 @@ import type { LinkState, MailAccountKind } from '../core/types.js';
 import { DISCORD_APP_URL } from '../discord/discordService.js';
 import type { BulkAction } from '../ops/bulk.js';
 import { refs } from '../vault/refs.js';
+import { registerViewRelay } from './viewRelay.js';
 
 const log = createLogger('web');
 const PUBLIC_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../public');
@@ -84,7 +85,8 @@ export async function buildServer(suite: Suite, opts: ServerOptions = {}): Promi
     }
   });
 
-  app.addHook('onSend', async (_req, reply, payload) => {
+  app.addHook('onSend', async (req, reply, payload) => {
+    if (req.url.startsWith('/view/')) return payload; // view pages set their own CSP
     reply.header('Content-Security-Policy', CSP);
     reply.header('X-Content-Type-Options', 'nosniff');
     reply.header('X-Frame-Options', 'SAMEORIGIN');
@@ -105,6 +107,8 @@ export async function buildServer(suite: Suite, opts: ServerOptions = {}): Promi
     log.error('Unhandled error:', err);
     reply.code(500).send({ error: 'Internal error – see log' });
   });
+
+  registerViewRelay(app, suite, (h) => allowedHosts.has(h), (o) => allowedOrigins.has(o));
 
   // ------------------------------------------------------------------ UI
   const indexHtml = () =>
@@ -491,29 +495,110 @@ export async function buildServer(suite: Suite, opts: ServerOptions = {}): Promi
   });
   app.put('/api/identities/:id/servers/:sid', async (req: Req) => {
     const id = num(req.params.id);
+    const b = bodyOf(req);
     const a = suite.repo.assignServer(id, {
       serverId: num(req.params.sid),
-      enabled: bodyOf(req).enabled !== false,
-      autoStart: !!bodyOf(req).autoStart,
-      networkProfileId: bodyOf(req).networkProfileId ? num(bodyOf(req).networkProfileId) : null,
+      enabled: b.enabled !== false,
+      autoStart: !!b.autoStart,
+      networkProfileId: b.networkProfileId ? num(b.networkProfileId) : null,
+      desiredState: b.desiredState === 'ONLINE' || b.desiredState === 'OFFLINE' ? b.desiredState : undefined,
     });
+    void suite.sessions.reconcile();
     suite.bus.emit({ type: 'identity.changed', identityId: id });
     return a;
   });
   app.delete('/api/identities/:id/servers/:sid', async (req: Req) => {
     const id = num(req.params.id);
     suite.repo.unassignServer(id, num(req.params.sid));
+    void suite.sessions.reconcile();
     suite.bus.emit({ type: 'identity.changed', identityId: id });
     return { ok: true };
   });
   app.get('/api/sessions', async () => suite.sessions.list());
-  app.post('/api/identities/:id/sessions/:sid/start', async (req: Req) => suite.sessions.start(num(req.params.id), num(req.params.sid)));
-  app.post('/api/sessions/:sessionId/stop', async (req: Req) => suite.sessions.stop(req.params.sessionId));
+  app.post('/api/identities/:id/sessions/:sid/start', async (req: Req) => suite.sessions.startSession(num(req.params.id), num(req.params.sid)));
+  app.put('/api/identities/:id/servers/:sid/desired', async (req: Req) => {
+    const state = String(bodyOf(req).state ?? '');
+    if (state !== 'ONLINE' && state !== 'OFFLINE') throw new ValidationError('state must be ONLINE or OFFLINE');
+    return suite.sessions.setDesired(num(req.params.id), num(req.params.sid), state);
+  });
+  app.get('/api/sessions/:sessionId', async (req: Req) => suite.sessions.getState(req.params.sessionId));
+  app.post('/api/sessions/:sessionId/stop', async (req: Req) => suite.sessions.stopSession(req.params.sessionId));
   app.post('/api/sessions/:sessionId/reconnect', async (req: Req) => suite.sessions.reconnect(req.params.sessionId));
-  app.get('/api/sessions/:sessionId/chat', async (req: Req) => suite.sessions.chat(req.params.sessionId));
+  app.get('/api/sessions/:sessionId/chat', async (req: Req) =>
+    suite.sessions.getChat(req.params.sessionId, {
+      limit: req.query.limit ? num(req.query.limit, 'limit') : 200,
+      before: req.query.before ? num(req.query.before, 'before') : undefined,
+    }),
+  );
   app.post('/api/sessions/:sessionId/chat', async (req: Req) => {
-    suite.sessions.sendChat(req.params.sessionId, String(bodyOf(req).text ?? ''));
+    await suite.sessions.sendChat(req.params.sessionId, String(bodyOf(req).text ?? ''));
     return { ok: true };
+  });
+  app.get('/api/sessions/:sessionId/events', async (req: Req) => suite.repo.sessionEvents({ sessionId: req.params.sessionId, limit: 200 }));
+  app.post('/api/sessions/:sessionId/view', async (req: Req) => suite.sessions.openInteractiveView(req.params.sessionId));
+  app.delete('/api/sessions/:sessionId/view', async (req: Req) => {
+    await suite.sessions.hideInteractiveView(req.params.sessionId);
+    return { ok: true };
+  });
+  app.get('/api/sessions/:sessionId/inventory', async (req: Req) => suite.sessions.inventory(req.params.sessionId));
+
+  // Global chat across all sessions
+  app.get('/api/chat', async (req: Req) =>
+    suite.repo.chatLog({
+      identityId: req.query.identityId ? num(req.query.identityId) : undefined,
+      serverId: req.query.serverId ? num(req.query.serverId) : undefined,
+      q: req.query.q || undefined,
+      before: req.query.before ? num(req.query.before, 'before') : undefined,
+      limit: req.query.limit ? num(req.query.limit, 'limit') : 300,
+    }),
+  );
+  app.post('/api/chat/send', async (req: Req) => {
+    const b = bodyOf(req);
+    const ids: string[] = Array.isArray(b.sessionIds) ? b.sessionIds.map(String) : [];
+    if (!ids.length) throw new ValidationError('No sessions selected');
+    const results = [];
+    for (const id of ids) {
+      try {
+        await suite.sessions.sendChat(id, String(b.text ?? ''));
+        results.push({ sessionId: id, ok: true });
+      } catch (e) {
+        results.push({ sessionId: id, ok: false, error: (e as Error).message });
+      }
+    }
+    return { results };
+  });
+
+  // Account × Server matrix
+  app.get('/api/matrix', async () => {
+    const sessions = new Map(suite.sessions.list().map((x) => [x.id, x]));
+    const servers = suite.repo.listServers();
+    return {
+      servers,
+      rows: suite.repo.listIdentities().map((i) => ({
+        id: i.id,
+        number: i.number,
+        label: i.label,
+        username: suite.repo.getMinecraft(i.id)?.username ?? null,
+        cells: servers.map((srv) => {
+          const a = suite.repo.getAssignment(i.id, srv.id);
+          const sess = sessions.get(`${i.id}:${srv.id}`);
+          const rw = a ? suite.repo.getServerReward(i.id, srv.id) : null;
+          return a
+            ? {
+                serverId: srv.id,
+                assigned: true,
+                enabled: a.enabled,
+                desiredState: a.desiredState,
+                state: sess?.state ?? 'STOPPED',
+                lastError: sess?.lastError ?? null,
+                nextAttemptAt: sess?.nextAttemptAt ?? null,
+                viewOpen: sess?.viewOpen ?? false,
+                stars: rw?.stars ?? 0,
+              }
+            : { serverId: srv.id, assigned: false };
+        }),
+      })),
+    };
   });
 
   // ------------------------------------------------------------------ rewards
@@ -538,9 +623,14 @@ export async function buildServer(suite: Suite, opts: ServerOptions = {}): Promi
   });
 
   // ------------------------------------------------------------------ bulk & audit
-  app.post('/api/bulk', async (req: Req) => ({
-    results: await suite.bulk.run(String(bodyOf(req).action) as BulkAction, Array.isArray(bodyOf(req).identityIds) ? bodyOf(req).identityIds : []),
-  }));
+  app.post('/api/bulk', async (req: Req) => {
+    const b = bodyOf(req);
+    return {
+      results: await suite.bulk.run(String(b.action) as BulkAction, Array.isArray(b.identityIds) ? b.identityIds : [], {
+        serverIds: Array.isArray(b.serverIds) ? b.serverIds.map(Number) : undefined,
+      }),
+    };
+  });
   app.get('/api/audit', async (req: Req) =>
     suite.audit.list({
       identityId: req.query.identityId ? num(req.query.identityId) : undefined,

@@ -63,6 +63,8 @@ export async function startLocalServer(opts: LocalServerOptions): Promise<LocalS
     'everybody-op': false,
     'max-entities': 20,
     version,
+    // A debug hook disables flying-squid's per-player process error handlers (listener leak).
+    debug: () => undefined,
   });
   await new Promise<void>((resolve, reject) => {
     serv.once('listening', () => resolve());

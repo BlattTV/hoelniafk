@@ -62,3 +62,30 @@ describe('chat rules', () => {
     expect(parseChatLine(TEST_RULES, ['hoelni-rewards'], 'Link your account using code ABC123')).toEqual([]);
   });
 });
+
+describe('reconnect policy', () => {
+  it('uses the configured rules from rules.yaml', async () => {
+    const { decideReconnect } = await import('../src/core/rules.js');
+    const { PROJECT_RULES } = await import('./helpers.js');
+    const p = PROJECT_RULES.reconnect;
+    expect(decideReconnect(p, 'You are banned from this server', 1).action).toBe('block');
+    expect(decideReconnect(p, 'You are not white-listed on this server!', 1).action).toBe('block');
+    expect(decideReconnect(p, 'You logged in from another location', 1).action).toBe('block');
+    const throttled = decideReconnect(p, 'Connection throttled! Please wait before reconnecting.', 1);
+    expect(throttled.action).toBe('delay');
+    expect(throttled.delaySec).toBeGreaterThanOrEqual(60);
+    const plain = decideReconnect(p, 'socketClosed', 1);
+    expect(plain.action).toBe('retry');
+    expect(plain.delaySec).toBeLessThanOrEqual(12);
+  });
+
+  it('backs off exponentially up to the maximum', async () => {
+    const { decideReconnect } = await import('../src/core/rules.js');
+    const p = { baseDelaySec: 10, maxDelaySec: 600, stableAfterSec: 300, rules: [] };
+    const d = [1, 2, 3, 4, 10].map((f) => decideReconnect(p, 'x', f).delaySec);
+    expect(d[1]).toBeGreaterThan(d[0]);
+    expect(d[3]).toBeGreaterThan(d[2]);
+    expect(d[4]).toBeLessThanOrEqual(600 * 1.15);
+    expect(decideReconnect(p, 'x', 8, true).delaySec).toBeLessThanOrEqual(12); // crash: no escalation
+  });
+});

@@ -16,6 +16,7 @@ export const BULK_ACTIONS = [
   'verifyDiscord',
   'openDiscord',
   'openMail',
+  'refreshMinecraftAuth',
 ] as const;
 export type BulkAction = (typeof BULK_ACTIONS)[number];
 
@@ -51,9 +52,11 @@ export class BulkOperations {
     private readonly sessions: SessionManager,
     private readonly discord: DiscordService,
     private readonly audit: AuditLog,
+    private readonly auth?: { authenticate(identityId: number): Promise<{ authStatus: string; lastError: string | null }> },
   ) {}
 
-  async run(action: BulkAction, identityIds: number[]): Promise<BulkResult[]> {
+  /** `serverIds` limits session actions to these servers (default: all assignments). */
+  async run(action: BulkAction, identityIds: number[], opts: { serverIds?: number[] } = {}): Promise<BulkResult[]> {
     if (!BULK_ACTIONS.includes(action)) throw new ValidationError(`Unknown bulk action ${action}`);
     const ids = [...new Set(identityIds.map(Number))].filter((n) => Number.isInteger(n));
     if (!ids.length) throw new ValidationError('No identities selected');
@@ -79,16 +82,31 @@ export class BulkOperations {
             return { identityId, ok: p.checkStatus === 'OK', message: p.checkStatus === 'OK' ? `Exit ${p.actualPublicIp}` : p.lastError ?? p.checkStatus };
           }
           case 'startSessions': {
-            const s = await this.sessions.startAll(identityId);
-            return { identityId, ok: true, message: `${s.length} session(s) starting` };
+            const targets = this.repo.listAssignments(identityId).filter((a) => a.enabled && (!opts.serverIds || opts.serverIds.includes(a.serverId)));
+            for (const a of targets) this.sessions.setDesired(identityId, a.serverId, 'ONLINE');
+            return { identityId, ok: targets.length > 0, message: targets.length ? `${targets.length} session(s) set online` : 'No enabled assignments' };
           }
-          case 'stopSessions':
-            this.sessions.stopAll(identityId);
-            return { identityId, ok: true, message: 'Stopped' };
+          case 'stopSessions': {
+            const targets = this.repo.listAssignments(identityId).filter((a) => !opts.serverIds || opts.serverIds.includes(a.serverId));
+            for (const a of targets) {
+              const id = `${identityId}:${a.serverId}`;
+              try {
+                await this.sessions.stopSession(id);
+              } catch {
+                this.sessions.setDesired(identityId, a.serverId, 'OFFLINE');
+              }
+            }
+            return { identityId, ok: true, message: `${targets.length} session(s) set offline` };
+          }
           case 'reconnect': {
-            const list = this.sessions.list(identityId);
+            const list = this.sessions.list(identityId).filter((s) => !opts.serverIds || opts.serverIds.includes(s.serverId));
             for (const s of list) await this.sessions.reconnect(s.id);
             return { identityId, ok: true, message: `${list.length} session(s) reconnecting` };
+          }
+          case 'refreshMinecraftAuth': {
+            if (!this.auth) return { identityId, ok: false, message: 'Not available' };
+            const mc = await this.auth.authenticate(identityId);
+            return { identityId, ok: mc.authStatus === 'AUTHENTICATED', message: mc.authStatus === 'AUTHENTICATED' ? 'Token valid' : mc.lastError ?? mc.authStatus };
           }
           case 'verifyDiscord': {
             const d = await this.discord.verify(identityId);

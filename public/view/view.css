@@ -1,0 +1,18 @@
+html, body { margin: 0; height: 100%; overflow: hidden; background: #000; font: 13px/1.4 system-ui, 'Segoe UI', sans-serif; color: #eee; }
+canvas { display: block; width: 100%; height: 100%; }
+#hud { position: fixed; inset: 0; pointer-events: none; z-index: 10; }
+#hud-top { position: absolute; top: 8px; left: 10px; right: 10px; display: flex; gap: 16px; align-items: center; text-shadow: 0 1px 2px #000; }
+#hud-stats { font-family: ui-monospace, Consolas, monospace; color: #cde; }
+#crosshair { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); font: 22px monospace; color: rgba(255,255,255,.8); text-shadow: 0 0 2px #000; }
+#hotbar { position: absolute; bottom: 44px; left: 50%; transform: translateX(-50%); display: flex; gap: 3px; }
+#hotbar div { width: 38px; height: 38px; border: 2px solid rgba(255,255,255,.35); background: rgba(0,0,0,.45); display: grid; place-items: center; font-size: 10px; text-align: center; overflow: hidden; }
+#hotbar div.sel { border-color: #fff; }
+#chat { position: absolute; left: 10px; bottom: 96px; width: min(560px, 60vw); font-size: 13px; }
+#chat div { background: rgba(0,0,0,.45); padding: 1px 6px; margin-top: 1px; white-space: pre-wrap; word-break: break-word; }
+#chat-input-wrap { position: absolute; left: 10px; bottom: 70px; width: min(560px, 60vw); pointer-events: auto; }
+#chat-input { width: 100%; box-sizing: border-box; background: rgba(0,0,0,.8); color: #fff; border: 1px solid #888; padding: 6px; font: inherit; }
+#inventory { position: absolute; right: 12px; top: 40px; width: 280px; max-height: 70vh; overflow: auto; background: rgba(10,14,18,.92); border: 1px solid #444; padding: 10px; pointer-events: auto; font-family: ui-monospace, monospace; }
+#help { position: absolute; bottom: 8px; left: 10px; right: 10px; font-size: 12px; color: #ccd; text-shadow: 0 1px 2px #000; pointer-events: auto; }
+#hide-btn { float: right; background: #1f6feb; color: #fff; border: 0; border-radius: 5px; padding: 5px 12px; cursor: pointer; }
+#closed { position: fixed; inset: 0; display: grid; place-items: center; background: rgba(0,0,0,.8); pointer-events: auto; text-align: center; }
+[hidden] { display: none !important; }
