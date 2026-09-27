@@ -205,7 +205,12 @@ export class SessionManager {
     r.state = state;
     if (changed) r.since = nowIso();
     if (error !== undefined) r.lastError = error;
-    if (changed) this.repo.addSessionEvent(r.identityId, r.serverId, r.id, `state:${state}`, error ?? '');
+    if (changed) {
+      this.repo.addSessionEvent(r.identityId, r.serverId, r.id, `state:${state}`, error ?? '');
+      const l = log.with({ identityId: r.identityId, sessionId: r.id });
+      if (state === 'BLOCKED') l.warn(`${r.serverName}: ${state}${error ? ` – ${error}` : ''}`);
+      else l.info(`${r.serverName}: ${state}${error ? ` – ${error}` : ''}`);
+    }
     this.bus.emit({ type: 'session.state', identityId: r.identityId, data: this.info(r) });
   }
 

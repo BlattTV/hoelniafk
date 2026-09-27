@@ -10,13 +10,15 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "start": "node dist/index.js",
+    "start": "node dist/supervisor.js",
     "dev": "tsx src/index.ts",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "demo": "tsx src/demo.ts",
     "test:unit": "vitest run --exclude \"tests/integration/**\"",
-    "test:integration": "vitest run tests/integration"
+    "test:integration": "vitest run tests/integration",
+    "vault": "node dist/cli/vault.js",
+    "start:direct": "node dist/index.js"
   },
   "license": "UNLICENSED",
   "dependencies": {

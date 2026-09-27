@@ -236,3 +236,31 @@ describe('bulk operations', () => {
     await tick();
   });
 });
+
+describe('session restore after restart', () => {
+  it('brings desired sessions back online when the suite starts again', async () => {
+    const fs = await import('node:fs');
+    const os = await import('node:os');
+    const path = await import('node:path');
+    const { openDatabase } = await import('../src/core/db.js');
+    const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'hoelni-restore-')), 'hoelni.db');
+    const first = await createTestSuite({ db: openDatabase(file) });
+    const srv = first.suite.repo.upsertServer({ name: 'SMP', host: 'smp.example.com' });
+    const id = first.suite.identities.create({}).identity.id;
+    first.suite.repo.upsertMinecraft(id, { username: 'Player01', authType: 'offline' });
+    first.suite.repo.assignServer(id, { serverId: srv.id });
+    await first.suite.sessions.startSession(id, srv.id);
+    await waitFor(() => first.bots.length === 1);
+    first.bots[0].join();
+    await settle();
+    await first.suite.shutdown(); // desired state stays ONLINE
+
+    const second = await createTestSuite({ db: openDatabase(file) });
+    second.suite.sessions.startReconciler();
+    await waitFor(() => second.bots.length === 1, 3000, 'restored session');
+    second.bots[0].join();
+    await settle();
+    expect(second.suite.sessions.getState(`${id}:${srv.id}`).state).toBe('ONLINE');
+    await second.suite.shutdown();
+  });
+});

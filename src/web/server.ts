@@ -7,7 +7,7 @@ import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest }
 import fastifyStatic from '@fastify/static';
 import type { Suite } from '../app.js';
 import { SuiteError, ValidationError } from '../core/errors.js';
-import { createLogger } from '../core/logger.js';
+import { createLogger, onLogEntry, recentLogs, type Level } from '../core/logger.js';
 import type { LinkState, MailAccountKind } from '../core/types.js';
 import { DISCORD_APP_URL } from '../discord/discordService.js';
 import type { BulkAction } from '../ops/bulk.js';
@@ -141,6 +141,12 @@ export async function buildServer(suite: Suite, opts: ServerOptions = {}): Promi
     }
   });
 
+  // Warnings/errors are pushed live to the UI.
+  const offLog = onLogEntry((e) => {
+    if (e.level === 'warn' || e.level === 'error') suite.bus.emit({ type: 'log', identityId: e.identityId ?? null, data: e });
+  });
+  app.addHook('onClose', async () => offLog());
+
   // ------------------------------------------------------------------ SSE
   app.get('/api/events', (req, reply) => {
     reply.hijack();
@@ -207,6 +213,14 @@ export async function buildServer(suite: Suite, opts: ServerOptions = {}): Promi
   });
 
   app.get('/api/vault', async () => ({ backend: suite.vault.backend, refs: await suite.vault.store.list() }));
+  app.post('/api/vault/recovery-kit', async (req: Req, reply: FastifyReply) => {
+    const store = suite.vault.store as any;
+    if (typeof store.exportRecoveryKit !== 'function') throw new ValidationError('This vault backend does not support recovery kits');
+    const kit = store.exportRecoveryKit(String(bodyOf(req).passphrase ?? ''));
+    suite.audit.record(null, 'Vault recovery kit exported');
+    reply.header('Content-Disposition', 'attachment; filename="hoelni-vault-recovery.json"');
+    return kit;
+  });
 
   app.get('/api/network/interfaces', async () =>
     Object.entries(os.networkInterfaces()).flatMap(([name, addrs]) =>
@@ -623,6 +637,22 @@ export async function buildServer(suite: Suite, opts: ServerOptions = {}): Promi
   app.delete('/api/templates/:id', async (req: Req) => {
     suite.repo.deleteTemplate(num(req.params.id));
     return { ok: true };
+  });
+
+  // ------------------------------------------------------------------ monitoring & logs
+  app.get('/api/monitoring', async () => ({ ...suite.metrics.snapshot(), sessions: suite.sessions.list() }));
+  app.get('/api/logs', async (req: Req) => {
+    const q = req.query;
+    const level = (['debug', 'info', 'warn', 'error'].includes(q.level) ? q.level : 'info') as Level;
+    return recentLogs({
+      level,
+      scope: q.scope || undefined,
+      q: q.q || undefined,
+      sessionId: q.sessionId || undefined,
+      identityId: q.identityId ? num(q.identityId) : undefined,
+      before: q.before ? num(q.before, 'before') : undefined,
+      limit: q.limit ? Math.min(num(q.limit, 'limit'), 1000) : 300,
+    });
   });
 
   // ------------------------------------------------------------------ bulk & audit

@@ -176,9 +176,11 @@ export class MineflayerRuntime implements MinecraftRuntime {
         h.stats = m.stats;
         h.lastBeat = Date.now();
         return;
-      case 'log':
-        log[m.level](`[${h.id}${m.sessionId ? ` ${m.sessionId}` : ''}] ${m.message}`);
+      case 'log': {
+        const identityId = m.sessionId ? this.sessionIdentity.get(m.sessionId) : undefined;
+        log.with({ sessionId: m.sessionId, identityId })[m.level](`[${h.id}] ${m.message}`);
         return;
+      }
       case 'inventory.reply': {
         const w = this.invWaiters.get(m.reqId);
         this.invWaiters.delete(m.reqId);

@@ -24,6 +24,19 @@ import type { MinecraftRuntime } from './runtime/types.js';
 import { NetworkService, type IpDetector } from './network/networkService.js';
 import { detectPublicIp } from './network/publicIp.js';
 import { BulkOperations } from './ops/bulk.js';
+import { MetricsCollector } from './core/metrics.js';
+
+/** Online SQLite backup into <dataDir>/backups (keeps the newest 7). */
+export async function backupDatabase(db: DB, dataDir: string): Promise<string | null> {
+  if ((db as any).memory) return null;
+  const dir = path.join(dataDir, 'backups');
+  fs.mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, `hoelni-${new Date().toISOString().replace(/[:.]/g, '-')}.db`);
+  await db.backup(file);
+  const old = fs.readdirSync(dir).filter((f) => f.startsWith('hoelni-') && f.endsWith('.db')).sort();
+  for (const f of old.slice(0, Math.max(0, old.length - 7))) fs.unlinkSync(path.join(dir, f));
+  return file;
+}
 import { refs } from './vault/refs.js';
 import { Vault, type SecretStore } from './vault/vault.js';
 
@@ -106,6 +119,7 @@ export function createSuite(deps: SuiteDeps) {
   const discord = new DiscordService(repo, vault, oauth, audit, bus, deps.discordUserFetcher ?? fetchDiscordUser);
   const identities = new IdentityService(repo, vault, network, sessions, linking, audit, bus);
   const bulk = new BulkOperations(repo, mail, network, sessions, discord, audit, auth);
+  const metrics = new MetricsCollector(sessions, runtime);
 
   // ----------------------------------------------------------- automation / monitoring
   const timers: NodeJS.Timeout[] = [];
@@ -145,8 +159,10 @@ export function createSuite(deps: SuiteDeps) {
       }
     });
     everyMinutes(60, 'log pruning', async () => repo.pruneLogs());
+    everyMinutes(24 * 60, 'database backup', () => backupDatabase(db, config.dataDir));
     // Desired-state reconciler: restores every session that should be online.
     if (a.restoreSessions) sessions.startReconciler();
+    metrics.start();
   }
 
   let closed = false;
@@ -154,6 +170,7 @@ export function createSuite(deps: SuiteDeps) {
     if (closed) return;
     closed = true;
     for (const t of timers) clearInterval(t);
+    metrics.stop();
     await sessions.shutdown();
     db.close();
   }
@@ -176,6 +193,7 @@ export function createSuite(deps: SuiteDeps) {
     discord,
     identities,
     bulk,
+    metrics,
     getRules,
     reloadRules,
     startAutomation,

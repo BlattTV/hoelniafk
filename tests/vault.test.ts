@@ -110,3 +110,41 @@ describe('SQLite never contains secrets', () => {
     expect(suite.repo.getMailAccount(box.id).credentialRef).toBe('vault://mailbox/' + box.id);
   });
 });
+
+describe('vault recovery', () => {
+  it('restores from the newest backup when the vault file is corrupt', async () => {
+    const file = path.join(tmp(), 'vault.json');
+    const key = crypto.randomBytes(32);
+    const v = await EncryptedFileVault.open(file, new StaticKeyProvider(key));
+    await v.set(refs.identity(1, 'mail'), 'backed-up-secret');
+    (v as any).lastBackupAt = 0;
+    await v.set(refs.identity(1, 'discord'), 'second'); // triggers a backup of the previous state
+    expect(fs.existsSync(`${file}.bak.1`)).toBe(true);
+    fs.writeFileSync(file, '{ this is not json');
+    const again = await EncryptedFileVault.open(file, new StaticKeyProvider(key));
+    expect(await again.get(refs.identity(1, 'mail'))).toBe('backed-up-secret');
+    expect(fs.readdirSync(path.dirname(file)).some((f) => f.includes('.corrupt-'))).toBe(true);
+  });
+
+  it('does not fall back to backups with a wrong key', async () => {
+    const file = path.join(tmp(), 'vault.json');
+    await EncryptedFileVault.open(file, new StaticKeyProvider(crypto.randomBytes(32)));
+    await expect(EncryptedFileVault.open(file, new StaticKeyProvider(crypto.randomBytes(32)))).rejects.toThrow(/Vault key is invalid/);
+  });
+
+  it('moves secrets to a new machine/key with a recovery kit', async () => {
+    const file = path.join(tmp(), 'vault.json');
+    const oldMachine = await EncryptedFileVault.open(file, new StaticKeyProvider(crypto.randomBytes(32)));
+    await oldMachine.set(refs.identity(7, 'minecraft'), 'token-cache-07');
+    await oldMachine.set(refs.mailbox(2), 'imap-pw');
+    const kit = oldMachine.exportRecoveryKit('correct horse battery staple');
+    expect(JSON.stringify(kit)).not.toContain('token-cache-07');
+    await expect(EncryptedFileVault.recover(file, kit, 'wrong passphrase!!', new StaticKeyProvider())).rejects.toThrow(/Wrong recovery passphrase/);
+    const newKey = new StaticKeyProvider(crypto.randomBytes(32));
+    const n = await EncryptedFileVault.recover(file, kit, 'correct horse battery staple', newKey);
+    expect(n).toBe(2);
+    const onNewMachine = await EncryptedFileVault.open(file, newKey);
+    expect(await onNewMachine.get(refs.identity(7, 'minecraft'))).toBe('token-cache-07');
+    expect(await onNewMachine.get(refs.mailbox(2))).toBe('imap-pw');
+  });
+});

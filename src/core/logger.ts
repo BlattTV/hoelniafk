@@ -1,12 +1,15 @@
 /**
- * Redacting logger. Credentials, tokens and codes must never reach log output.
+ * Structured, redacting logger.
  *
- * Two layers of protection:
- *  1. Every secret value that passes through the vault is registered here and
- *     replaced by `[REDACTED]` wherever it appears.
- *  2. Generic patterns (JWTs, bearer tokens, key=value pairs with secret-ish
- *     key names) are masked even if they were never registered.
+ *  - Every entry is { ts, level, scope, msg, identityId?, sessionId? }.
+ *  - Sinks: console (human readable), JSON-lines file with size rotation,
+ *    and an in-memory ring buffer for the Logs page of the UI.
+ *  - Credentials, tokens and codes never reach any sink: secrets that pass
+ *    through the vault are registered and replaced by [REDACTED], and generic
+ *    patterns (JWTs, bearer tokens, key=value secrets) are masked as well.
  */
+import fs from 'node:fs';
+import path from 'node:path';
 
 const registeredSecrets = new Set<string>();
 
@@ -40,26 +43,106 @@ export function redact(input: string): string {
   return out;
 }
 
-type Level = 'debug' | 'info' | 'warn' | 'error';
+export type Level = 'debug' | 'info' | 'warn' | 'error';
 const LEVELS: Record<Level, number> = { debug: 10, info: 20, warn: 30, error: 40 };
 
-export interface LogSink {
-  (line: string, level: Level): void;
+export interface LogEntry {
+  id: number;
+  ts: string;
+  level: Level;
+  scope: string;
+  msg: string;
+  identityId?: number;
+  sessionId?: string;
 }
 
-let sink: LogSink = (line, level) => {
+export interface LogContext {
+  identityId?: number;
+  sessionId?: string;
+}
+
+// ---------------------------------------------------------------- sinks
+
+export type LogSink = (line: string, level: Level, entry: LogEntry) => void;
+
+let consoleSink: LogSink = (line, level) => {
   if (level === 'error' || level === 'warn') console.error(line);
   else console.log(line);
 };
 let minLevel: Level = (process.env.HOELNI_LOG_LEVEL as Level) || 'info';
+const listeners = new Set<(e: LogEntry) => void>();
+
+const RING_SIZE = 3000;
+const ring: LogEntry[] = [];
+let seq = 1;
+
+interface FileSink {
+  file: string;
+  maxBytes: number;
+  keep: number;
+  size: number;
+  fd: number;
+}
+let fileSink: FileSink | null = null;
 
 export function setLogSink(s: LogSink): void {
-  sink = s;
+  consoleSink = s;
 }
 
 export function setLogLevel(level: Level): void {
   minLevel = level;
 }
+
+/** Writes JSON lines to `<dir>/hoelni.log`, rotating at `maxMb` and keeping `keep` old files. */
+export function setupFileLogging(dir: string, maxMb = 10, keep = 5): void {
+  fs.mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, 'hoelni.log');
+  const size = fs.existsSync(file) ? fs.statSync(file).size : 0;
+  if (fileSink) fs.closeSync(fileSink.fd);
+  fileSink = { file, maxBytes: maxMb * 1024 * 1024, keep, size, fd: fs.openSync(file, 'a', 0o600) };
+}
+
+export function closeFileLogging(): void {
+  if (fileSink) fs.closeSync(fileSink.fd);
+  fileSink = null;
+}
+
+function rotate(fsink: FileSink): void {
+  fs.closeSync(fsink.fd);
+  for (let i = fsink.keep - 1; i >= 1; i--) {
+    const from = `${fsink.file}.${i}`;
+    if (fs.existsSync(from)) fs.renameSync(from, `${fsink.file}.${i + 1}`);
+  }
+  fs.renameSync(fsink.file, `${fsink.file}.1`);
+  const tooOld = `${fsink.file}.${fsink.keep + 1}`;
+  if (fs.existsSync(tooOld)) fs.unlinkSync(tooOld);
+  fsink.fd = fs.openSync(fsink.file, 'a', 0o600);
+  fsink.size = 0;
+}
+
+export function onLogEntry(fn: (e: LogEntry) => void): () => void {
+  listeners.add(fn);
+  return () => listeners.delete(fn);
+}
+
+export function recentLogs(filter: { level?: Level; scope?: string; q?: string; sessionId?: string; identityId?: number; limit?: number; before?: number } = {}): LogEntry[] {
+  const min = LEVELS[filter.level ?? 'debug'];
+  const q = filter.q?.toLowerCase();
+  const out: LogEntry[] = [];
+  for (let i = ring.length - 1; i >= 0 && out.length < (filter.limit ?? 300); i--) {
+    const e = ring[i];
+    if (filter.before && e.id >= filter.before) continue;
+    if (LEVELS[e.level] < min) continue;
+    if (filter.scope && e.scope !== filter.scope) continue;
+    if (filter.sessionId && e.sessionId !== filter.sessionId) continue;
+    if (filter.identityId !== undefined && e.identityId !== filter.identityId) continue;
+    if (q && !e.msg.toLowerCase().includes(q) && !e.scope.includes(q)) continue;
+    out.push(e);
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------- writing
 
 function fmt(v: unknown): string {
   if (v instanceof Error) return `${v.name}: ${v.message}`;
@@ -71,18 +154,41 @@ function fmt(v: unknown): string {
   }
 }
 
-function write(level: Level, scope: string, parts: unknown[]): void {
-  if (LEVELS[level] < LEVELS[minLevel]) return;
-  const line = `${new Date().toISOString()} ${level.toUpperCase().padEnd(5)} [${scope}] ${parts.map(fmt).join(' ')}`;
-  sink(redact(line), level);
+function write(level: Level, scope: string, ctx: LogContext, parts: unknown[]): void {
+  const msg = redact(parts.map(fmt).join(' '));
+  const entry: LogEntry = { id: seq++, ts: new Date().toISOString(), level, scope, msg, ...ctx };
+  ring.push(entry);
+  if (ring.length > RING_SIZE) ring.splice(0, ring.length - RING_SIZE);
+  if (LEVELS[level] >= LEVELS[minLevel]) {
+    const human = `${entry.ts} ${level.toUpperCase().padEnd(5)} [${scope}${ctx.sessionId ? ` ${ctx.sessionId}` : ''}] ${msg}`;
+    consoleSink(human, level, entry);
+    if (fileSink) {
+      const line = JSON.stringify(entry) + '\n';
+      try {
+        fs.writeSync(fileSink.fd, line);
+        fileSink.size += Buffer.byteLength(line);
+        if (fileSink.size > fileSink.maxBytes) rotate(fileSink);
+      } catch {
+        /* never let logging crash the app */
+      }
+    }
+  }
+  for (const l of listeners) {
+    try {
+      l(entry);
+    } catch {
+      /* ignore */
+    }
+  }
 }
 
-export function createLogger(scope: string) {
+export function createLogger(scope: string, ctx: LogContext = {}) {
   return {
-    debug: (...p: unknown[]) => write('debug', scope, p),
-    info: (...p: unknown[]) => write('info', scope, p),
-    warn: (...p: unknown[]) => write('warn', scope, p),
-    error: (...p: unknown[]) => write('error', scope, p),
+    debug: (...p: unknown[]) => write('debug', scope, ctx, p),
+    info: (...p: unknown[]) => write('info', scope, ctx, p),
+    warn: (...p: unknown[]) => write('warn', scope, ctx, p),
+    error: (...p: unknown[]) => write('error', scope, ctx, p),
+    with: (extra: LogContext) => createLogger(scope, { ...ctx, ...extra }),
   };
 }
 
