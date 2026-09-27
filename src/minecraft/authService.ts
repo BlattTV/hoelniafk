@@ -1,4 +1,4 @@
-import { Authflow, Titles } from 'prismarine-auth';
+import prismarineAuth from 'prismarine-auth';
 import type { AuditLog } from '../core/audit.js';
 import type { EventBus } from '../core/events.js';
 import { ValidationError } from '../core/errors.js';
@@ -30,6 +30,7 @@ export type TokenFetcher = (args: {
 }) => Promise<MinecraftProfile>;
 
 export const prismarineTokenFetcher: TokenFetcher = async ({ msaAccount, cacheFactory, onDeviceCode }) => {
+  const { Authflow, Titles } = prismarineAuth as any;
   const flow = new Authflow(
     msaAccount,
     cacheFactory as any,

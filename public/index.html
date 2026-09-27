@@ -1,1 +1,36 @@
-<!doctype html><meta name="hoelni-token" content="__HOELNI_TOKEN__">
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="hoelni-token" content="__HOELNI_TOKEN__">
+  <title>Hoelni Client Suite</title>
+  <link rel="stylesheet" href="/static/styles.css">
+  <link rel="icon" href="data:,">
+  <script type="module" src="/static/js/app.js"></script>
+</head>
+<body>
+  <div class="shell">
+    <nav class="sidebar">
+      <div class="brand"><span class="brand-mark">H</span><div><strong>Hoelni</strong><small>Client Suite</small></div></div>
+      <a href="#/" data-nav="dashboard">Identities</a>
+      <a href="#/wizard" data-nav="wizard">＋ New Identity</a>
+      <div class="nav-group">Communication</div>
+      <a href="#/inbox" data-nav="inbox">All Mail</a>
+      <a href="#/verification" data-nav="verification">Verification Mail</a>
+      <div class="nav-group">Resources</div>
+      <a href="#/sessions" data-nav="sessions">Sessions</a>
+      <a href="#/mailboxes" data-nav="mailboxes">Mailboxes &amp; Aliases</a>
+      <a href="#/servers" data-nav="servers">Servers</a>
+      <a href="#/templates" data-nav="templates">Templates</a>
+      <div class="nav-group">Security</div>
+      <a href="#/audit" data-nav="audit">Audit Log</a>
+      <a href="#/settings" data-nav="settings">Settings &amp; Vault</a>
+      <div class="sidebar-foot" id="conn-state">connecting…</div>
+    </nav>
+    <main id="view" class="view"></main>
+  </div>
+  <div id="toasts" class="toasts"></div>
+  <div id="modal-root"></div>
+</body>
+</html>

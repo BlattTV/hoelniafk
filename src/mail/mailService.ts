@@ -1,6 +1,5 @@
 import nodemailer from 'nodemailer';
 import type { AuditLog } from '../core/audit.js';
-import { maskCode } from '../core/audit.js';
 import type { EventBus } from '../core/events.js';
 import { IsolationError, NotFoundError, ValidationError } from '../core/errors.js';
 import { createLogger } from '../core/logger.js';
@@ -514,10 +513,5 @@ export class MailService {
     if (owner) throw new ValidationError(`Alias is still assigned to identity ${owner.identityId} – unassign it first`);
     await this.providerFor(mailboxId).deleteAlias(address);
     this.audit.record(null, 'Mail alias deleted', { alias: address });
-  }
-
-  /** Short, non-sensitive hint for audit/UI summaries. */
-  static codeHint(code: string): string {
-    return maskCode(code);
   }
 }
