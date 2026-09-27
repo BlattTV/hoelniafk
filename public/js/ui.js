@@ -262,6 +262,7 @@ export function gameBadge(sess) {
   const active = g && !['closed', 'failed'].includes(g.status);
   if (!active && sess?.runtime !== 'game') return g?.status === 'failed' && g.message ? h('span', { class: 's-error', title: g.message }, ' 🎮✕') : null;
   const pct = g?.progress && g.progress.total ? ` ${Math.floor((g.progress.done / g.progress.total) * 100)}%` : '';
+  if (sess?.takeover === 'attached') return h('span', { class: 's-info', title: 'The real game plays on this session\'s live connection (no re-login)' }, ` 🎮 game (live)${g && !g.visible ? ' – minimized' : ''}`);
   const label = sess?.runtime === 'game'
     ? (!g || g.status === 'running' ? (g && !g.visible ? 'game (minimized)' : 'game') : g.status)
     : g.status === 'running' ? 'joining…' : `${g.status}${pct}…`;

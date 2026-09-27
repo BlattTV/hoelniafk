@@ -7,3 +7,5 @@ coverage/
 scratch/
 test-results/
 playwright-report/
+desktop/backend/
+desktop/release/

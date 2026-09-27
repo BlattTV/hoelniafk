@@ -7,6 +7,8 @@
  *   the backoff resets after 5 minutes of stable uptime
  * - forwards SIGINT/SIGTERM so the suite can shut down cleanly (sessions keep
  *   their desired state and are restored on the next start)
+ * - graceful stop via IPC ({ cmd: 'shutdown' }) – signals are hard kills on Windows,
+ *   so the desktop app and the supervisor use the IPC channel there
  * - exit code 0 of the child ends the supervisor
  */
 import { spawn, type ChildProcess } from 'node:child_process';
@@ -46,7 +48,7 @@ export function supervise(opts: SupervisorOptions): Supervisor {
 
   const start = () => {
     const startedAt = Date.now();
-    child = spawn(opts.command, opts.args, { stdio: 'inherit', env: { ...process.env, ...opts.env, HOELNI_SUPERVISED: '1' } });
+    child = spawn(opts.command, opts.args, { stdio: ['inherit', 'inherit', 'inherit', 'ipc'], env: { ...process.env, ...opts.env, HOELNI_SUPERVISED: '1' } });
     log(`started suite (pid ${child.pid})`);
     child.on('exit', (code, signal) => {
       child = null;
@@ -81,7 +83,9 @@ export function supervise(opts: SupervisorOptions): Supervisor {
       }
       const c = child;
       const killTimer = setTimeout(() => c.kill('SIGKILL'), 20_000);
-      c.kill(signal);
+      if (c.connected) c.send({ cmd: 'shutdown' });
+      // On Windows a signal is a hard kill – only the IPC request is graceful there.
+      if (process.platform !== 'win32' || !c.connected) c.kill(signal);
       await done;
       clearTimeout(killTimer);
     },
@@ -100,5 +104,10 @@ if (isMain) {
   };
   process.on('SIGINT', () => onSignal('SIGINT'));
   process.on('SIGTERM', () => onSignal('SIGTERM'));
+  // Desktop app (or any parent with an IPC channel): graceful stop on request.
+  process.on('message', (m: any) => {
+    if (m?.cmd === 'shutdown') onSignal('SIGTERM');
+  });
+  process.on('disconnect', () => onSignal('SIGTERM'));
   sup.done.then((code) => process.exit(code));
 }

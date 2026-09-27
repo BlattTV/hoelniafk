@@ -13,9 +13,10 @@
  * Two runtimes can own a session:
  *   lightweight – MineflayerRuntime (AFK, 50–100 sessions)
  *   game        – GameClientRuntime, the real Minecraft client in a normal window
- * "Open game" hands a running lightweight session over to the real client
- * (handover mode) or brings the always-running minimized client to the front
- * (background mode); "Back to AFK" reverses it.
+ * "Open game" (default "takeover" mode) lets the real client take over the running
+ * lightweight session's connection – no second login; leaving the game hands control
+ * back to the AFK client. Fallbacks: "handover" (quick re-login) and "background"
+ * (the game itself holds the session, minimized).
  *
  * A session that SHOULD be online and ends is brought back according to the
  * reconnect policy from rules.yaml (backoff, delay, or block for bans/whitelist).
@@ -74,6 +75,9 @@ export class SessionRecord {
   wantGame = false;
   /** Game client is being prepared while the lightweight session still holds the account. */
   handoverPending = false;
+  /** Live takeover: the game plays on this session's own connection. */
+  takeover: 'none' | 'launching' | 'attached' = 'none';
+  uuid: string | null = null;
   game: GameInfo | null = null;
   stats: SessionStats | null = null;
   username: string | null = null;
@@ -186,6 +190,7 @@ export class SessionManager {
       nextAttemptAt: r.nextAttemptAt ? new Date(r.nextAttemptAt).toISOString() : null,
       onlineSince: r.onlineSince ? new Date(r.onlineSince).toISOString() : null,
       runtime: r.runtime === 'game' ? 'game' : 'lightweight',
+      takeover: r.takeover,
       game: r.game,
       stats: r.stats,
       username: r.username,
@@ -417,6 +422,7 @@ export class SessionManager {
       afk: s.afk,
       lightweight: s.lightweight,
       viewDistance: s.viewDistance,
+      takeover: !!this.game && s.gameClient.mode === 'takeover',
     };
   }
 
@@ -502,6 +508,10 @@ export class SessionManager {
 
   private async halt(r: SessionRecord, reason: string, keepDesired = false): Promise<void> {
     if (r.handoverPending) await this.game?.stopSession(r.id, reason);
+    if (r.takeover !== 'none') {
+      r.takeover = 'none';
+      await this.game?.stopSession(r.id, reason);
+    }
     if (!ACTIVE.includes(r.state)) {
       if (!keepDesired && r.state !== 'STOPPED') this.setState(r, 'STOPPED');
       return;
@@ -524,8 +534,9 @@ export class SessionManager {
   /** Which runtime should hold this session when it is (re)started. */
   private chooseRuntime(r: SessionRecord): 'lightweight' | 'game' {
     if (!this.game) return 'lightweight';
-    if (r.wantGame) return 'game';
-    return this.gameSettings(r).mode === 'background' ? 'game' : 'lightweight';
+    const mode = this.gameSettings(r).mode;
+    if (mode === 'background') return 'game';
+    return r.wantGame && mode === 'handover' ? 'game' : 'lightweight';
   }
 
   private onRuntimeEvent(source: 'lightweight' | 'game', e: RuntimeEvent): void {
@@ -551,6 +562,22 @@ export class SessionManager {
       this.setState(r, r.state, r.lastError);
       return;
     }
+    if (e.type === 'takeover') {
+      this.onTakeoverEvent(r, e);
+      return;
+    }
+    if (source === 'game' && r.takeover !== 'none' && e.type === 'ended') {
+      // The game (attached to or launching for the live session) is gone – the AFK client continues.
+      r.takeover = 'none';
+      r.wantGame = false;
+      void this.runtime.closeTakeover(r.id, 'Game closed').catch(() => undefined);
+      if (e.reason === 'launchFailed' || e.reason === 'connectFailed') {
+        r.lastError = `Game could not be started: ${e.error ?? e.reason}`.slice(0, 500);
+        this.repo.addSessionEvent(r.identityId, r.serverId, r.id, 'game-failed', r.lastError);
+      } else this.repo.addSessionEvent(r.identityId, r.serverId, r.id, 'game-closed', e.error ?? '');
+      this.setState(r, r.state, e.reason === 'launchFailed' || e.reason === 'connectFailed' ? r.lastError : undefined);
+      return;
+    }
     if (source === 'lightweight' && r.handoverPending && e.type === 'ended') {
       // The lightweight session dropped while the game was still starting: the game takes over directly.
       r.handoverPending = false;
@@ -570,6 +597,7 @@ export class SessionManager {
         return;
       case 'spawned':
         r.username = e.username;
+        r.uuid = e.uuid;
         return;
       case 'stats':
         r.stats = e.stats;
@@ -584,8 +612,31 @@ export class SessionManager {
     }
   }
 
+  private onTakeoverEvent(r: SessionRecord, e: Extract<RuntimeEvent, { type: 'takeover' }>): void {
+    if (e.status === 'attached') {
+      r.takeover = 'attached';
+      this.game?.notifyJoined(r.id);
+      this.repo.addSessionEvent(r.identityId, r.serverId, r.id, 'game-attached', 'live takeover');
+      this.setState(r, r.state);
+    } else if (e.status === 'detached') {
+      if (r.takeover === 'none') return; // closed by us ("Back to AFK")
+      // The game left the session (quit to title, closed, kicked): close it, the AFK client carries on.
+      r.takeover = 'none';
+      r.wantGame = false;
+      this.repo.addSessionEvent(r.identityId, r.serverId, r.id, 'game-detached', e.message ?? '');
+      if (this.game?.has(r.id)) void this.game.stopSession(r.id, 'Back to AFK');
+      void this.runtime.closeTakeover(r.id, 'Back to AFK').catch(() => undefined);
+      this.setState(r, r.state);
+    }
+  }
+
   private onEnded(r: SessionRecord, e: Extract<RuntimeEvent, { type: 'ended' }>): void {
     r.releaseStart?.();
+    if (r.takeover !== 'none') {
+      // The live session ended while the game was on it – the game has nothing to play on anymore.
+      r.takeover = 'none';
+      if (this.game?.has(r.id)) void this.game.stopSession(r.id, 'Session ended');
+    }
     const detail = [e.error, e.reason].filter(Boolean).join(' | ');
     r.lastEndReason = e.reason;
     this.repo.addSessionEvent(r.identityId, r.serverId, r.id, e.kicked ? 'kicked' : 'ended', detail);
@@ -699,6 +750,21 @@ export class SessionManager {
     }
     if (a.desiredState !== 'ONLINE') this.setDesired(r.identityId, r.serverId, 'ONLINE');
     this.audit.record(r.identityId, 'Game window opened', { server: r.serverName });
+    if (this.gameSettings(r).mode === 'takeover') {
+      if (r.state !== 'ONLINE' || r.runtime !== 'lightweight') await this.waitOnline(r);
+      await this.withLock(r, async () => {
+        if (this.game!.has(r.id)) return void (await this.game!.show(r.id));
+        try {
+          await this.takeoverWithGame(r);
+        } catch (e) {
+          if (!/without live takeover/.test((e as Error).message)) throw e;
+          // Session was started before takeover was enabled: fall back to a handover re-login.
+          this.repo.addSessionEvent(r.identityId, r.serverId, r.id, 'game-takeover-unavailable', (e as Error).message);
+          await this.handoverToGame(r);
+        }
+      });
+      return this.info(r);
+    }
     await this.withLock(r, async () => {
       if (this.game!.has(r.id)) return void (await this.game!.show(r.id));
       if (r.runtime === 'lightweight' && r.state === 'ONLINE') return this.handoverToGame(r);
@@ -708,6 +774,41 @@ export class SessionManager {
       await this.launch(r);
     });
     return this.info(r);
+  }
+
+  private async waitOnline(r: SessionRecord): Promise<void> {
+    const deadline = Date.now() + this.opts.connectTimeoutMs;
+    void this.reconcile();
+    while (!(r.state === 'ONLINE' && r.runtime === 'lightweight')) {
+      if (r.state === 'BLOCKED') throw new ValidationError(`Session is blocked: ${r.lastError ?? ''}`);
+      if (Date.now() > deadline) throw new ValidationError('Session did not come online');
+      await new Promise((res) => setTimeout(res, 250));
+    }
+  }
+
+  /** Live takeover: the game joins the running session's local endpoint (same server connection). */
+  private async takeoverWithGame(r: SessionRecord): Promise<void> {
+    const spec = await this.buildSpec(r);
+    const port = await this.runtime.openTakeover(r.id);
+    r.takeover = 'launching';
+    this.repo.addSessionEvent(r.identityId, r.serverId, r.id, 'game-takeover', 'launching');
+    const name = r.username ?? spec.username;
+    const uuid = (r.uuid ?? '').replace(/-/g, '') || '00000000000000000000000000000000';
+    try {
+      await this.game!.startSession({
+        spec,
+        settings: this.gameSettings(r),
+        visible: true,
+        connect: { host: '127.0.0.1', port },
+        // The local endpoint is offline-mode: the game gets no Microsoft token at all.
+        auth: { username: name, uuid, accessToken: '0', userType: 'legacy' },
+      });
+    } catch (e) {
+      r.takeover = 'none';
+      await this.runtime.closeTakeover(r.id).catch(() => undefined);
+      throw e;
+    }
+    this.setState(r, r.state);
   }
 
   private async handoverToGame(r: SessionRecord): Promise<void> {
@@ -746,6 +847,14 @@ export class SessionManager {
   async closeGame(sessionId: string): Promise<SessionInfo> {
     const r = this.get(sessionId);
     r.wantGame = false;
+    if (r.takeover !== 'none') {
+      this.audit.record(r.identityId, 'Game closed – back to AFK', { server: r.serverName });
+      r.takeover = 'none';
+      await this.runtime.closeTakeover(r.id, 'Back to AFK').catch(() => undefined);
+      await this.game?.stopSession(r.id, 'Back to AFK');
+      this.setState(r, r.state);
+      return this.info(r);
+    }
     if (!this.game?.has(r.id)) return this.info(r);
     if (r.runtime === 'game' && this.gameSettings(r).mode === 'background') {
       await this.game.minimize(r.id);

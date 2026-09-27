@@ -5,6 +5,8 @@ export type MainToHost =
   | { cmd: 'start'; spec: RuntimeSessionSpec }
   | { cmd: 'stop'; sessionId: string; reason: string }
   | { cmd: 'chat'; sessionId: string; text: string }
+  | { cmd: 'takeover.open'; sessionId: string }
+  | { cmd: 'takeover.close'; sessionId: string; reason: string }
   | { cmd: 'auth.reply'; reqId: number; session?: JavaSession; error?: string }
   | { cmd: 'crash' } // test hook: simulates a runtime crash
   | { cmd: 'shutdown' };

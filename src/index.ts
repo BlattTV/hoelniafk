@@ -42,6 +42,9 @@ async function main(): Promise<void> {
   };
   process.on('SIGINT', stop);
   process.on('SIGTERM', stop);
+  process.on('message', (m: any) => {
+    if (m?.cmd === 'shutdown') void stop();
+  });
 }
 
 main().catch((e) => {

@@ -303,6 +303,43 @@ export class MineflayerRuntime implements MinecraftRuntime {
     this.send(h, { cmd: 'chat', sessionId, text });
   }
 
+  async openTakeover(sessionId: string): Promise<number> {
+    const h = this.requireHost(sessionId);
+    return new Promise<number>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        off();
+        reject(new Error('The session did not answer the takeover request'));
+      }, 15_000);
+      const off = this.onEvent((e) => {
+        if (e.sessionId !== sessionId || e.type !== 'takeover' || (e.status !== 'ready' && e.status !== 'error')) return;
+        clearTimeout(timer);
+        off();
+        if (e.status === 'ready' && e.port) resolve(e.port);
+        else reject(new Error(e.message ?? 'Takeover failed'));
+      });
+      this.send(h, { cmd: 'takeover.open', sessionId });
+    });
+  }
+
+  async closeTakeover(sessionId: string, reason = 'Back to AFK'): Promise<void> {
+    const h = this.sessionHost.get(sessionId);
+    if (!h) return;
+    await new Promise<void>((resolve) => {
+      const timer = setTimeout(() => {
+        off();
+        resolve();
+      }, 10_000);
+      const off = this.onEvent((e) => {
+        if (e.sessionId === sessionId && e.type === 'takeover' && e.status === 'closed') {
+          clearTimeout(timer);
+          off();
+          resolve();
+        }
+      });
+      this.send(h, { cmd: 'takeover.close', sessionId, reason });
+    });
+  }
+
   /** Test hook: crash the host that runs a session. */
   crashHostOf(sessionId: string): void {
     const h = this.requireHost(sessionId);

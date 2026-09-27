@@ -1,0 +1,34 @@
+{
+  "name": "hoelni-desktop",
+  "productName": "Hoelni Client Suite",
+  "version": "0.2.0",
+  "description": "Hoelni Client Suite – desktop program (own window, tray, real Minecraft game windows)",
+  "main": "main.cjs",
+  "private": true,
+  "license": "UNLICENSED",
+  "scripts": {
+    "start": "electron .",
+    "prepare-backend": "node prepare-backend.cjs",
+    "dist": "node prepare-backend.cjs && electron-builder --win --x64"
+  },
+  "devDependencies": {
+    "electron": "^44.4.5",
+    "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "net.hoelni.clientsuite",
+    "productName": "Hoelni Client Suite",
+    "directories": { "output": "release", "buildResources": "build" },
+    "files": ["main.cjs", "build/icon.png", "build/tray.png"],
+    "extraResources": [{ "from": "backend", "to": "backend" }],
+    "win": { "target": ["nsis"], "icon": "build/icon.png" },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Hoelni Client Suite"
+    }
+  }
+}

@@ -8,7 +8,9 @@
  * can observe it:
  *   - verifies the classpath / natives directory / asset index exist (launcher output)
  *   - joins the server given by --quickPlayMultiplayer or --server/--port with the
- *     real Minecraft protocol (minecraft-protocol) – i.e. through the local forwarder
+ *     real Minecraft protocol (mineflayer: teleport confirms, chunk batches, keep-alives
+ *     like the game) – through the local forwarder or the live-takeover endpoint
+ *   - writes emulator-state.json (spawned, position, chunks, players, inventory …)
  *   - writes logs/latest.log in the vanilla format ("[CHAT] …", disconnect reason)
  *   - stays open after a disconnect (like the game's disconnect screen) until closed
  *
@@ -19,7 +21,6 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const mc = require('minecraft-protocol');
 
 const argv = process.argv.slice(2);
 const opt = (name) => {
@@ -73,36 +74,55 @@ if (!host) {
   log('Render thread', 'INFO', 'No server given – staying in the title screen');
 } else {
   log('Render thread', 'INFO', `Connecting to ${host}, ${port}`);
-  const client = mc.createClient({ host, port, username, auth: 'offline', version: gameVersion, hideErrors: true });
-  const flatten = (c) => {
-    if (c == null) return '';
-    if (typeof c === 'string') {
-      try {
-        return flatten(JSON.parse(c));
-      } catch {
-        return c;
-      }
-    }
-    if (typeof c !== 'object') return String(c);
-    if (c.type === 'compound' || c.value) return flatten(simplify(c));
-    return (c.text ?? '') + (c.translate ?? '') + (Array.isArray(c.extra) ? c.extra.map(flatten).join('') : '') + (Array.isArray(c.with) ? ' ' + c.with.map(flatten).join(' ') : '');
-  };
-  const simplify = (n) => {
+  // mineflayer behaves like a vanilla client on the wire (teleport confirms, chunk batches, keep-alives)
+  const mineflayer = require('mineflayer');
+  const bot = mineflayer.createBot({ host, port, username, auth: 'offline', version: gameVersion, hideErrors: true, physicsEnabled: true, checkTimeoutInterval: 60_000 });
+  const stateFile = path.join(gameDir, 'emulator-state.json');
+  const writeState = () => {
     try {
-      return require('prismarine-nbt').simplify(n);
-    } catch {
-      return n;
-    }
+      const inv = bot.inventory?.items?.() ?? [];
+      fs.writeFileSync(stateFile, JSON.stringify({
+        spawned, uuid: bot.player?.uuid ?? null, entityId: bot.entity?.id ?? null,
+        position: bot.entity?.position ? { x: bot.entity.position.x, y: bot.entity.position.y, z: bot.entity.position.z } : null,
+        chunks: bot.world ? Object.keys(bot.world.async?.columns ?? {}).length : 0,
+        blockBelow: bot.entity?.position ? bot.blockAt(bot.entity.position.offset(0, -1, 0))?.name ?? null : null,
+        players: Object.keys(bot.players ?? {}), entities: Object.keys(bot.entities ?? {}).length,
+        inventory: inv.map((i) => `${i.name}x${i.count}`), health: bot.health ?? null, gameMode: bot.game?.gameMode ?? null,
+        dimension: bot.game?.dimension ?? null, ts: Date.now(),
+      }));
+    } catch {}
   };
-  client.on('packet', (data, meta) => {
-    if (meta.name === 'system_chat') log('Render thread', 'INFO', `[System] [CHAT] ${flatten(data.content ?? data.formattedMessage)}`);
-    else if (meta.name === 'player_chat') log('Render thread', 'INFO', `[CHAT] ${flatten(data.unsignedChatContent) || data.plainMessage || ''}`);
-    else if (meta.name === 'chat') log('Render thread', 'INFO', `[CHAT] ${flatten(data.message)}`);
+  let spawned = false;
+  bot.on('login', () => log('Render thread', 'INFO', 'Joined world (emulated)'));
+  bot.once('spawn', () => {
+    spawned = true;
+    writeState();
+    const actions = (process.env.EMULATOR_ACTIONS ?? '').split('|').filter(Boolean);
+    let delay = 500;
+    for (const a of actions) {
+      const [kind, arg] = a.split(':');
+      setTimeout(() => {
+        if (kind === 'chat') bot.chat(arg);
+        if (kind === 'walk') {
+          bot.setControlState('forward', true);
+          setTimeout(() => bot.setControlState('forward', false), Number(arg));
+        }
+        if (kind === 'quit') bot.quit();
+      }, delay);
+      delay += kind === 'walk' ? Number(arg) + 500 : 700;
+    }
   });
-  client.on('kick_disconnect', (p) => log('Render thread', 'INFO', `Client disconnected with reason: ${flatten(p.reason)}`));
-  client.on('login', () => log('Render thread', 'INFO', 'Joined world (emulated)'));
-  client.on('end', (reason) => log('Render thread', 'INFO', `Connection lost: ${reason ?? 'closed'}`));
-  client.on('error', (e) => log('Render thread', 'ERROR', `Network error: ${e.message}`));
+  setInterval(writeState, 300).unref();
+  bot.on('messagestr', (text, position) => {
+    if (position !== 'game_info') log('Render thread', 'INFO', `[System] [CHAT] ${text}`);
+  });
+  bot.on('kicked', (reason) => log('Render thread', 'INFO', `Client disconnected with reason: ${typeof reason === 'string' ? reason : JSON.stringify(reason)}`));
+  bot.on('end', (reason) => {
+    log('Render thread', 'INFO', `Connection lost: ${reason ?? 'closed'}`);
+    spawned = false;
+    writeState();
+  });
+  bot.on('error', (e) => log('Render thread', 'ERROR', `Network error: ${e.message}`));
 }
 
 const quit = () => {

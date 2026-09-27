@@ -56,6 +56,13 @@ export interface GameLaunch {
   visible: boolean;
   /** Runs right before the game's login goes upstream (ends the lightweight session on handover). */
   beforeLogin?: () => Promise<void>;
+  /**
+   * Live takeover: join this local endpoint (the running lightweight session) instead of the
+   * server. No forwarder, no own server connection – the session's connection is used.
+   */
+  connect?: { host: string; port: number };
+  /** Launch identity for takeover (the local endpoint is offline-mode: no Microsoft token is passed to the game). */
+  auth?: LaunchAuth;
 }
 
 interface Entry {
@@ -219,12 +226,14 @@ export class GameClientRuntime {
     const java = await this.java(installed);
     if (en.ended) return;
     this.update(en, { status: 'launching', progress: null, version: installed.id, message: 'Signing in' });
-    const auth = await this.launchAuth(spec);
+    const auth = en.launch.auth ?? (await this.launchAuth(spec));
     if (en.ended) return;
     en.secret = auth.accessToken.length > 8 ? auth.accessToken : null;
 
-    // Local forwarder: the game joins 127.0.0.1:<port>, the forwarder connects through the network profile.
-    en.forwarder = await startForwarder({
+    // Live takeover: the game joins the lightweight session's local endpoint directly.
+    // Otherwise a local forwarder: the game joins 127.0.0.1:<port>, the forwarder connects through the network profile.
+    const joinTarget = en.launch.connect ?? null;
+    if (!joinTarget) en.forwarder = await startForwarder({
       target: { host: spec.server.host, port: spec.server.port },
       network: spec.network,
       beforeLogin: en.launch.beforeLogin,
@@ -252,7 +261,7 @@ export class GameClientRuntime {
       },
     });
     if (en.ended) {
-      await en.forwarder.close();
+      await en.forwarder?.close();
       return;
     }
 
@@ -265,7 +274,7 @@ export class GameClientRuntime {
 
     const args = buildLaunchArgs(
       installed,
-      { gameDir, auth, server: { host: '127.0.0.1', port: en.forwarder.port }, memoryMb: settings.memoryMb, launcherName: 'hoelni-client-suite' },
+      { gameDir, auth, server: joinTarget ?? { host: '127.0.0.1', port: en.forwarder!.port }, memoryMb: settings.memoryMb, launcherName: 'hoelni-client-suite' },
       this.platform,
     );
     log.with({ identityId: spec.identityId, sessionId: sid }).info(`Launching Minecraft ${installed.id} (${settings.mode}) for ${spec.server.name}`);
@@ -288,9 +297,11 @@ export class GameClientRuntime {
       this.end(en, 'clientExited', `Game closed (exit ${code ?? signal})${code && tail ? `: ${tail}` : ''}`, false);
     });
     this.update(en, { status: 'starting', pid: proc.pid ?? null, message: 'Starting Minecraft' });
-    this.emit({ type: 'phase', sessionId: sid, phase: 'CONNECTING' });
+    if (!joinTarget) {
+      this.emit({ type: 'phase', sessionId: sid, phase: 'CONNECTING' });
+      this.watchStats(en, installed.gameVersion);
+    }
     this.watchWindow(en);
-    this.watchStats(en, installed.gameVersion);
     en.timers.push(
       setTimeout(() => {
         if (!en.ended && !en.loginSeen) this.end(en, 'connectFailed', 'The game did not join the server in time', false);
@@ -341,6 +352,12 @@ export class GameClientRuntime {
     }, 5000);
     t.unref?.();
     en.timers.push(t);
+  }
+
+  /** Takeover: the session reports that the game joined (stops the join timeout). */
+  notifyJoined(sessionId: string): void {
+    const en = this.entries.get(sessionId);
+    if (en) en.loginSeen = true;
   }
 
   // ------------------------------------------------------------------ window

@@ -11,6 +11,7 @@ import fs from 'node:fs';
 import { monitorEventLoopDelay } from 'node:perf_hooks';
 import type { HostChannel, MainToHost } from '../protocol.js';
 import type { JavaSession, RuntimeEvent, RuntimeSessionSpec, SessionStats } from '../types.js';
+import { StateCache, TakeoverServer } from './takeover.js';
 
 /** The subset of a mineflayer bot the host uses (fakes in tests implement parts of it). */
 export interface HostBot extends EventEmitter {
@@ -54,6 +55,8 @@ interface HostSession {
   ended: boolean;
   kicked: boolean;
   lastError: string | null;
+  cache: StateCache | null;
+  takeover: TakeoverServer | null;
 }
 
 const STATS_INTERVAL_MS = 5000;
@@ -144,6 +147,12 @@ export class RuntimeHostCore {
           if (s && !s.ended) s.bot.chat(m.text);
           return;
         }
+        case 'takeover.open':
+          void this.openTakeover(m.sessionId);
+          return;
+        case 'takeover.close':
+          void this.closeTakeover(m.sessionId, m.reason);
+          return;
         case 'auth.reply': {
           const w = this.authWaiters.get(m.reqId);
           this.authWaiters.delete(m.reqId);
@@ -188,9 +197,20 @@ export class RuntimeHostCore {
       this.emit({ type: 'ended', sessionId: spec.sessionId, reason: 'startFailed', kicked: false, error: (e as Error).message });
       return;
     }
-    const s: HostSession = { spec, bot, afkTimer: null, statsTimer: null, ended: false, kicked: false, lastError: null };
+    const s: HostSession = { spec, bot, afkTimer: null, statsTimer: null, ended: false, kicked: false, lastError: null, cache: null, takeover: null };
     this.sessions.set(spec.sessionId, s);
     const id = spec.sessionId;
+    if (spec.takeover && bot._client) {
+      const cache = new StateCache();
+      s.cache = cache;
+      bot._client.on('packet', (data: any, meta: any, raw: Buffer) => {
+        try {
+          cache.record(meta.state, meta.name, data, raw);
+        } catch {
+          /* never let the cache break the session */
+        }
+      });
+    }
 
     bot.on('login', () => this.emit({ type: 'phase', sessionId: id, phase: 'AUTHENTICATING' }));
     bot.once('spawn', () => {
@@ -226,6 +246,8 @@ export class RuntimeHostCore {
     s.ended = true;
     if (s.afkTimer) clearInterval(s.afkTimer);
     if (s.statsTimer) clearInterval(s.statsTimer);
+    void s.takeover?.close('Session ended');
+    s.takeover = null;
     if (this.sessions.get(s.spec.sessionId) === s) this.sessions.delete(s.spec.sessionId);
     this.emit({ type: 'ended', sessionId: s.spec.sessionId, reason, kicked: s.kicked, error: s.lastError });
   }
@@ -255,6 +277,40 @@ export class RuntimeHostCore {
     }, 3000).unref?.();
   }
 
+  // ------------------------------------------------------------------ live takeover by the real game
+
+  private async openTakeover(sessionId: string): Promise<void> {
+    const s = this.sessions.get(sessionId);
+    const fail = (message: string) => this.emit({ type: 'takeover', sessionId, status: 'error', message });
+    if (!s || s.ended) return fail('Session is not running');
+    if (!s.cache) return fail('This session was started without live takeover – reconnect it once');
+    try {
+      if (!s.takeover) {
+        s.takeover = new TakeoverServer(s.bot, s.cache, {
+          onAttached: () => this.emit({ type: 'takeover', sessionId, status: 'attached' }),
+          onDetached: (reason) => {
+            if (s.ended) return;
+            this.applyPhysics(s);
+            this.emit({ type: 'takeover', sessionId, status: 'detached', message: reason });
+          },
+          log: (level, msg) => this.log(level, msg, sessionId),
+        });
+      }
+      const port = await s.takeover.open();
+      this.emit({ type: 'takeover', sessionId, status: 'ready', port });
+    } catch (e) {
+      fail((e as Error).message);
+    }
+  }
+
+  private async closeTakeover(sessionId: string, reason: string): Promise<void> {
+    const s = this.sessions.get(sessionId);
+    const t = s?.takeover;
+    if (s) s.takeover = null;
+    await t?.close(reason);
+    this.emit({ type: 'takeover', sessionId, status: 'closed' });
+  }
+
   // ------------------------------------------------------------------ AFK / lightweight mode
 
   private applyPhysics(s: HostSession): void {
@@ -269,6 +325,7 @@ export class RuntimeHostCore {
     const afk = s.spec.afk;
     if (!afk.enabled || afk.action === 'none') return;
     s.afkTimer = setInterval(() => {
+      if (s.takeover?.isAttached) return; // the player is in control
       try {
         const b = s.bot;
         if (afk.action === 'look') b.look?.(Math.random() * Math.PI * 2 - Math.PI, (Math.random() - 0.5) * 0.6, false);

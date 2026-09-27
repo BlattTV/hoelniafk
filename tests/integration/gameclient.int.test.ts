@@ -111,13 +111,87 @@ afterAll(async () => {
 
 const joinsOf = (name: string) => server.joins.filter((j) => j.username === name);
 
-describe('real game client: handover mode (default)', () => {
+const emulatorState = () => {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(tmp, 'instances', `identity-${identityId}-server-${serverId}`, 'emulator-state.json'), 'utf8'));
+  } catch {
+    return null;
+  }
+};
+const dist = (a: { x: number; z: number } | null, b: { x: number; z: number } | null) => (a && b ? Math.hypot(a.x - b.x, a.z - b.z) : Infinity);
+
+describe('real game client: live takeover (default) – same connection, no re-login', () => {
   it('AFK session online in the lightweight runtime', async () => {
     await suite.sessions.startSession(identityId, serverId);
     await waitFor(() => state().state === 'ONLINE', 30_000, 'ONLINE');
     expect(state().runtime).toBe('lightweight');
     expect(joinsOf('Gamer01')).toHaveLength(1);
   }, 40_000);
+
+  it('"Open game": the game takes over the running session and is in the world', async () => {
+    process.env.EMULATOR_ACTIONS = 'chat:/stars|walk:1500';
+    await suite.sessions.openGame(sid());
+    delete process.env.EMULATOR_ACTIONS;
+    await waitFor(() => state().takeover === 'attached', 60_000, 'attached');
+    await waitFor(() => emulatorState()?.spawned === true, 20_000, 'game spawned');
+    const st = emulatorState();
+    // no second login – the server still has the one connection of the AFK client
+    expect(joinsOf('Gamer01')).toHaveLength(1);
+    expect(server.players().filter((p) => p === 'Gamer01')).toHaveLength(1);
+    expect(state().state).toBe('ONLINE');
+    expect(state().runtime).toBe('lightweight');
+    // the game is the session's player: same UUID, in the same place, world loaded
+    expect(st.chunks).toBeGreaterThan(0);
+    expect(st.blockBelow).not.toBeNull();
+    expect(st.gameMode).toBe('survival');
+    expect(st.dimension).toBe('overworld');
+    await waitFor(() => emulatorState()?.health > 0, 5000, `health (${emulatorState()?.health})`);
+    await waitFor(() => dist(emulatorState()?.position, server.positionOf('Gamer01')) < 1, 5000, 'game and server agree on the position');
+    const pid = state().game!.pid!;
+    await waitFor(() => windows.calls.some(([c, p]) => c === 'show' && p === pid), 5000, 'window shown');
+  }, 90_000);
+
+  it('the player controls the session: chat and movement go through the same connection', async () => {
+    await waitFor(() => suite.sessions.getChat(sid(), { limit: 50 }).some((l) => /You have \d+ stars/.test(l.text) && Date.parse(l.ts) > Date.now() - 30_000), 15_000, '/stars reply');
+    const before = server.positionOf('Gamer01');
+    await waitFor(() => dist(server.positionOf('Gamer01'), before) > 1 || dist(emulatorState()?.position, server.positionOf('Gamer01')) < 0.5, 10_000, 'moved');
+    await new Promise((r) => setTimeout(r, 2500));
+    const game = emulatorState().position;
+    expect(dist(server.positionOf('Gamer01'), game)).toBeLessThan(0.6); // server follows the game's movement
+    expect(joinsOf('Gamer01')).toHaveLength(1);
+  }, 30_000);
+
+  it('"Back to AFK" closes the game; the AFK client continues on the same connection from the new spot', async () => {
+    const pid = state().game!.pid!;
+    const where = server.positionOf('Gamer01');
+    await suite.sessions.closeGame(sid());
+    await waitFor(() => !alive(pid), 15_000, 'game closed');
+    expect(state().takeover).toBe('none');
+    await new Promise((r) => setTimeout(r, 2000));
+    expect(state().state).toBe('ONLINE');
+    expect(joinsOf('Gamer01')).toHaveLength(1); // still the very first login
+    expect(server.players()).toContain('Gamer01');
+    expect(dist(server.positionOf('Gamer01'), where)).toBeLessThan(0.6); // no rubber-banding back
+    await suite.sessions.sendChat(sid(), '/stars'); // AFK client owns the chat again
+  }, 30_000);
+
+  it('quitting inside the game hands control back as well', async () => {
+    process.env.EMULATOR_ACTIONS = 'quit';
+    await suite.sessions.openGame(sid());
+    delete process.env.EMULATOR_ACTIONS;
+    await waitFor(() => state().takeover === 'attached', 60_000, 'attached again');
+    await waitFor(() => state().takeover === 'none' && !state().game?.pid, 20_000, 'game quit → AFK');
+    expect(state().state).toBe('ONLINE');
+    expect(joinsOf('Gamer01')).toHaveLength(1);
+  }, 90_000);
+});
+
+describe('real game client: handover mode (re-login fallback)', () => {
+  it('switch to handover mode', async () => {
+    suite.repo.updateIdentity(identityId, { settings: { gameClient: { mode: 'handover' } } as any });
+    expect(state().state).toBe('ONLINE');
+    expect(state().runtime).toBe('lightweight');
+  });
 
   it('"Open game" installs the client, hands the account over and shows the window', async () => {
     const info = await suite.sessions.openGame(sid());
@@ -168,6 +242,7 @@ describe('real game client: handover mode (default)', () => {
     expect(joinsOf('Gamer01')).toHaveLength(3);
     expect(server.players().filter((p) => p === 'Gamer01')).toHaveLength(1);
   }, 45_000);
+
 
   it('closing the game window yourself returns to AFK automatically', async () => {
     await suite.sessions.openGame(sid());

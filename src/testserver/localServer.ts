@@ -39,6 +39,8 @@ export interface LocalServer {
   stars: Map<string, number>;
   /** Remote (source) address of a connected player – used to verify bind-IP routing. */
   _remoteOf(username: string): string | undefined;
+  /** Server-side position of a player (verifies movement arrives upstream). */
+  positionOf(username: string): { x: number; y: number; z: number } | null;
   /** Every join: username, source address and the host from the handshake. */
   joins: Array<{ username: string; remote: string | undefined; host: string | undefined; at: number }>;
   close(): Promise<void>;
@@ -150,6 +152,10 @@ export async function startLocalServer(opts: LocalServerOptions): Promise<LocalS
     get joins() {
       // username/handshake are filled in after newPlayer fires
       return joined.map((j) => ({ username: j.player.username ?? j.player._client?.username, remote: j.remote, host: j.player._client?.serverHost, at: j.at }));
+    },
+    positionOf: (name: string) => {
+      const p = findPlayer(name)?.position;
+      return p ? { x: p.x, y: p.y, z: p.z } : null;
     },
     _remoteOf: (name: string) => findPlayer(name)?._client?.socket?.remoteAddress,
     linked,

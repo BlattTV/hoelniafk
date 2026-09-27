@@ -35,12 +35,14 @@ export interface IdentitySettings {
 
 export interface GameClientSettings {
   /**
-   * handover:   AFK runs in the lightweight client; "Open game" hands the account over to the
-   *             real game (seamless re-login, ~1 s) and "Back to AFK" hands it back.
+   * takeover:   AFK runs in the lightweight client; "Open game" lets the real game take over the
+   *             SAME live connection (no re-login); closing the game leaves the AFK client in place.
+   * handover:   like takeover, but the account is handed over by a quick re-login (~1 s) – fallback
+   *             for servers/versions where takeover does not work.
    * background: the real game client itself holds the session all the time, minimized;
    *             "Open game" only brings its window to the front (same connection, no re-login).
    */
-  mode: 'handover' | 'background';
+ mode: 'takeover' | 'handover' | 'background';
   /** "auto" = server profile version, else detected by a status ping through the network profile. */
   version: string;
   loader: 'vanilla' | 'fabric';
@@ -242,6 +244,8 @@ export interface SessionInfo {
   onlineSince: string | null;
   /** Which client holds the session right now. */
   runtime: 'lightweight' | 'game';
+  /** Live takeover state: the real game plays on the lightweight session's connection. */
+  takeover: 'none' | 'launching' | 'attached';
   game: import('../runtime/types.js').GameInfo | null;
   stats: import('../runtime/types.js').SessionStats | null;
   username: string | null;
@@ -273,7 +277,7 @@ export const DEFAULT_SETTINGS: IdentitySettings = {
   networkMode: 'PER_ACCOUNT',
   networkGuard: 'warn',
   lightweight: true,
-  gameClient: { mode: 'handover', version: 'auto', loader: 'vanilla', memoryMb: 2048 },
+  gameClient: { mode: 'takeover', version: 'auto', loader: 'vanilla', memoryMb: 2048 },
   viewDistance: 'tiny',
   ui: { tags: [] },
 };

@@ -27,6 +27,8 @@ export interface RuntimeSessionSpec {
   /** Lightweight mode: physics disabled (unless the AFK action needs it). */
   lightweight: boolean;
   viewDistance: 'tiny' | 'short' | 'normal' | 'far';
+  /** Record the session state so the real game can take over the live connection ("Open game"). */
+  takeover?: boolean;
 }
 
 /** Serializable Minecraft Java session obtained by the main process (tokens never leave memory). */
@@ -62,8 +64,12 @@ export type RuntimeEvent =
   | { type: 'chat'; sessionId: string; text: string; ts: string }
   | { type: 'ended'; sessionId: string; reason: string; kicked: boolean; error: string | null }
   | { type: 'stats'; sessionId: string; stats: SessionStats }
+  /** Live takeover of a lightweight session by the real game (MineflayerRuntime only). */
+  | { type: 'takeover'; sessionId: string; status: TakeoverStatus; port?: number; message?: string }
   /** Real game client lifecycle (GameClientRuntime only). */
   | { type: 'game'; sessionId: string; game: GameInfo };
+
+export type TakeoverStatus = 'ready' | 'attached' | 'detached' | 'closed' | 'error';
 
 export type GameStatus = 'installing' | 'launching' | 'starting' | 'running' | 'closing' | 'closed' | 'failed';
 
@@ -72,7 +78,7 @@ export interface GameInfo {
   pid: number | null;
   /** The window is supposed to be in front (false = minimized in the background). */
   visible: boolean;
-  mode: 'handover' | 'background';
+  mode: 'takeover' | 'handover' | 'background';
   version: string | null;
   progress: { stage: string; done: number; total: number } | null;
   message: string | null;
@@ -101,6 +107,10 @@ export interface MinecraftRuntime {
   startSession(spec: RuntimeSessionSpec): Promise<void>;
   stopSession(sessionId: string, reason?: string): Promise<void>;
   sendChat(sessionId: string, text: string): Promise<void>;
+  /** Opens the local endpoint through which the real game takes over the live session; returns its port. */
+  openTakeover(sessionId: string): Promise<number>;
+  /** Disconnects the game from the session (the session itself stays online). */
+  closeTakeover(sessionId: string, reason?: string): Promise<void>;
   onEvent(listener: (e: RuntimeEvent) => void): () => void;
   stats(): RuntimeStats;
   shutdown(): Promise<void>;
