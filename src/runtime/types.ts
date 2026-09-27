@@ -3,11 +3,10 @@
  *
  *   MinecraftRuntime
  *   └── MineflayerRuntime      lightweight protocol client (mineflayer) running in
- *                              supervised host processes; the interactive 3D view is
- *                              attached to the SAME running session on demand.
+ *                              supervised host processes – the AFK / lightweight mode.
  *
- * The SessionManager (per session: start/stop/reconnect/sendChat/getChat/getState/
- * openInteractiveView/hideInteractiveView) only talks to this interface.
+ * The real, playable game window is provided by the ClientManager (src/client),
+ * which launches the official Minecraft Java client for a session.
  */
 import type { NetworkProfile } from '../core/types.js';
 
@@ -25,7 +24,7 @@ export interface RuntimeSessionSpec {
   auth: 'offline' | 'microsoft';
   network: RuntimeNetwork;
   afk: { enabled: boolean; action: 'none' | 'look' | 'swing' | 'jump'; intervalSec: number };
-  /** Lightweight mode: physics disabled while the interactive view is hidden (unless AFK needs it). */
+  /** Lightweight mode: physics disabled (unless the AFK action needs it). */
   lightweight: boolean;
   viewDistance: 'tiny' | 'short' | 'normal' | 'far';
 }
@@ -54,7 +53,6 @@ export interface SessionStats {
   position: { x: number; y: number; z: number } | null;
   dimension: string | null;
   physics: boolean;
-  viewOpen: boolean;
   version: string | null;
 }
 
@@ -64,25 +62,21 @@ export type RuntimeEvent =
   | { type: 'chat'; sessionId: string; text: string; ts: string }
   | { type: 'ended'; sessionId: string; reason: string; kicked: boolean; error: string | null }
   | { type: 'stats'; sessionId: string; stats: SessionStats }
-  | { type: 'view'; viewId: string; event: string; args: unknown[] };
+  /** Real game client lifecycle (GameClientRuntime only). */
+  | { type: 'game'; sessionId: string; game: GameInfo };
 
-export type ControlInput =
-  | { kind: 'state'; control: 'forward' | 'back' | 'left' | 'right' | 'jump' | 'sprint' | 'sneak'; value: boolean }
-  | { kind: 'look'; yaw: number; pitch: number }
-  | { kind: 'lookDelta'; dYaw: number; dPitch: number }
-  | { kind: 'attack' }
-  | { kind: 'use' }
-  | { kind: 'dig' }
-  | { kind: 'stopDig' }
-  | { kind: 'place' }
-  | { kind: 'hotbar'; slot: number }
-  | { kind: 'clearControls' };
+export type GameStatus = 'installing' | 'launching' | 'starting' | 'running' | 'closing' | 'closed' | 'failed';
 
-export interface InventoryItem {
-  slot: number;
-  name: string;
-  displayName: string;
-  count: number;
+export interface GameInfo {
+  status: GameStatus;
+  pid: number | null;
+  /** The window is supposed to be in front (false = minimized in the background). */
+  visible: boolean;
+  mode: 'handover' | 'background';
+  version: string | null;
+  progress: { stage: string; done: number; total: number } | null;
+  message: string | null;
+  startedAt: string | null;
 }
 
 export interface HostStats {
@@ -107,17 +101,6 @@ export interface MinecraftRuntime {
   startSession(spec: RuntimeSessionSpec): Promise<void>;
   stopSession(sessionId: string, reason?: string): Promise<void>;
   sendChat(sessionId: string, text: string): Promise<void>;
-  control(sessionId: string, input: ControlInput): Promise<void>;
-  inventory(sessionId: string): Promise<InventoryItem[]>;
-  /** Switches a running session into interactive mode (physics on, AFK paused) – no reconnect. */
-  openInteractiveView(sessionId: string): Promise<void>;
-  /** Back to lightweight mode; detaches every view stream of the session. */
-  hideInteractiveView(sessionId: string): Promise<void>;
-  /** Attaches one renderer connection (browser socket) to the session's world stream. */
-  attachView(sessionId: string, viewId: string): Promise<void>;
-  detachView(viewId: string): void;
-  /** Forwards an event of the browser renderer to the host (e.g. block clicks). */
-  viewInput(viewId: string, event: string, args: unknown[]): void;
   onEvent(listener: (e: RuntimeEvent) => void): () => void;
   stats(): RuntimeStats;
   shutdown(): Promise<void>;

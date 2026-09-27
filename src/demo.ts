@@ -2,7 +2,7 @@
  * Demo mode – runs the complete suite against LOCAL test infrastructure:
  *
  *   REAL:       mineflayer sessions in supervised runtime hosts, desired-state
- *               reconciler, interactive game view, chat/link/reward rules,
+ *               reconciler, real game client (Open game), chat/link/reward rules,
  *               source-IP binding (127.0.0.x on Linux)
  *   LOCAL:      three flying-squid Minecraft servers (offline mode) with Hoelni-like messages
  *   SIMULATED:  mailbox contents, Discord OAuth, public-IP answers (no external services)

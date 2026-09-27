@@ -8,10 +8,9 @@
  */
 import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
-import { createRequire } from 'node:module';
 import { monitorEventLoopDelay } from 'node:perf_hooks';
 import type { HostChannel, MainToHost } from '../protocol.js';
-import type { ControlInput, InventoryItem, JavaSession, RuntimeEvent, RuntimeSessionSpec, SessionStats } from '../types.js';
+import type { JavaSession, RuntimeEvent, RuntimeSessionSpec, SessionStats } from '../types.js';
 
 /** The subset of a mineflayer bot the host uses (fakes in tests implement parts of it). */
 export interface HostBot extends EventEmitter {
@@ -52,25 +51,15 @@ interface HostSession {
   bot: HostBot;
   afkTimer: NodeJS.Timeout | null;
   statsTimer: NodeJS.Timeout | null;
-  views: Set<string>;
-  viewOpen: boolean;
   ended: boolean;
   kicked: boolean;
   lastError: string | null;
-}
-
-interface ViewRelay {
-  sessionId: string;
-  worldView: any;
-  incoming: EventEmitter;
-  onMove: () => void;
 }
 
 const STATS_INTERVAL_MS = 5000;
 
 export class RuntimeHostCore {
   private readonly sessions = new Map<string, HostSession>();
-  private readonly views = new Map<string, ViewRelay>();
   private readonly authWaiters = new Map<number, { resolve: (s: JavaSession) => void; reject: (e: Error) => void }>();
   private authSeq = 1;
   private readonly lag = monitorEventLoopDelay({ resolution: 20 });
@@ -106,7 +95,6 @@ export class RuntimeHostCore {
       }
     }
     this.sessions.clear();
-    this.views.clear();
   }
 
   private emit(event: RuntimeEvent): void {
@@ -156,20 +144,6 @@ export class RuntimeHostCore {
           if (s && !s.ended) s.bot.chat(m.text);
           return;
         }
-        case 'control':
-          return this.control(m.sessionId, m.input);
-        case 'inventory':
-          this.channel.send({ evt: 'inventory.reply', reqId: m.reqId, items: this.inventory(m.sessionId) });
-          return;
-        case 'view.attach':
-          return this.attachView(m.sessionId, m.viewId);
-        case 'view.detach':
-          return this.detachView(m.viewId);
-        case 'view.in':
-          this.views.get(m.viewId)?.incoming.emit(m.event, ...m.args);
-          return;
-        case 'setViewOpen':
-          return this.setViewOpen(m.sessionId, m.open);
         case 'auth.reply': {
           const w = this.authWaiters.get(m.reqId);
           this.authWaiters.delete(m.reqId);
@@ -214,7 +188,7 @@ export class RuntimeHostCore {
       this.emit({ type: 'ended', sessionId: spec.sessionId, reason: 'startFailed', kicked: false, error: (e as Error).message });
       return;
     }
-    const s: HostSession = { spec, bot, afkTimer: null, statsTimer: null, views: new Set(), viewOpen: false, ended: false, kicked: false, lastError: null };
+    const s: HostSession = { spec, bot, afkTimer: null, statsTimer: null, ended: false, kicked: false, lastError: null };
     this.sessions.set(spec.sessionId, s);
     const id = spec.sessionId;
 
@@ -252,7 +226,6 @@ export class RuntimeHostCore {
     s.ended = true;
     if (s.afkTimer) clearInterval(s.afkTimer);
     if (s.statsTimer) clearInterval(s.statsTimer);
-    for (const v of [...s.views]) this.detachView(v);
     if (this.sessions.get(s.spec.sessionId) === s) this.sessions.delete(s.spec.sessionId);
     this.emit({ type: 'ended', sessionId: s.spec.sessionId, reason, kicked: s.kicked, error: s.lastError });
   }
@@ -286,28 +259,15 @@ export class RuntimeHostCore {
 
   private applyPhysics(s: HostSession): void {
     if (!('physicsEnabled' in s.bot)) return;
-    const needs = s.viewOpen || !s.spec.lightweight || (s.spec.afk.enabled && s.spec.afk.action === 'jump');
+    const needs = !s.spec.lightweight || (s.spec.afk.enabled && s.spec.afk.action === 'jump');
     s.bot.physicsEnabled = needs;
-  }
-
-  private setViewOpen(sessionId: string, open: boolean): void {
-    const s = this.sessions.get(sessionId);
-    if (!s) return;
-    s.viewOpen = open;
-    if (!open) s.bot.clearControlStates?.();
-    this.applyPhysics(s);
-    if (open && s.afkTimer) {
-      clearInterval(s.afkTimer); // the user is playing – no automatic AFK actions
-      s.afkTimer = null;
-    }
-    if (!open) this.startAfk(s);
   }
 
   private startAfk(s: HostSession): void {
     if (s.afkTimer) clearInterval(s.afkTimer);
     s.afkTimer = null;
     const afk = s.spec.afk;
-    if (!afk.enabled || afk.action === 'none' || s.viewOpen) return;
+    if (!afk.enabled || afk.action === 'none') return;
     s.afkTimer = setInterval(() => {
       try {
         const b = s.bot;
@@ -324,68 +284,6 @@ export class RuntimeHostCore {
     s.afkTimer.unref?.();
   }
 
-  // ------------------------------------------------------------------ interactive control
-
-  private control(sessionId: string, input: ControlInput): void {
-    const s = this.sessions.get(sessionId);
-    if (!s || s.ended) return;
-    const b = s.bot;
-    switch (input.kind) {
-      case 'state':
-        b.setControlState?.(input.control, !!input.value);
-        return;
-      case 'look':
-        void b.look?.(input.yaw, clampPitch(input.pitch), true);
-        return;
-      case 'lookDelta': {
-        const yaw = (b.entity?.yaw ?? 0) + input.dYaw;
-        const pitch = clampPitch((b.entity?.pitch ?? 0) + input.dPitch);
-        void b.look?.(yaw, pitch, true);
-        return;
-      }
-      case 'attack': {
-        const target = b.entityAtCursor?.(3.5);
-        if (target) b.attack?.(target);
-        else b.swingArm?.('right');
-        return;
-      }
-      case 'dig': {
-        const block = b.blockAtCursor?.(5);
-        if (block && b.dig) b.dig(block, 'ignore').catch(() => undefined);
-        return;
-      }
-      case 'stopDig':
-        b.stopDigging?.();
-        return;
-      case 'use':
-        b.activateItem?.();
-        setTimeout(() => b.deactivateItem?.(), 200);
-        return;
-      case 'place': {
-        const block = b.blockAtCursor?.(5);
-        if (!block || !b.placeBlock) return;
-        const face = block.face;
-        const dirs: Record<number, [number, number, number]> = { 0: [0, -1, 0], 1: [0, 1, 0], 2: [0, 0, -1], 3: [0, 0, 1], 4: [-1, 0, 0], 5: [1, 0, 0] };
-        const d = dirs[face] ?? [0, 1, 0];
-        const vec = block.position.constructor ? new block.position.constructor(d[0], d[1], d[2]) : { x: d[0], y: d[1], z: d[2] };
-        b.placeBlock(block, vec).catch(() => undefined);
-        return;
-      }
-      case 'hotbar':
-        if (input.slot >= 0 && input.slot <= 8) b.setQuickBarSlot?.(input.slot);
-        return;
-      case 'clearControls':
-        b.clearControlStates?.();
-        return;
-    }
-  }
-
-  private inventory(sessionId: string): InventoryItem[] {
-    const s = this.sessions.get(sessionId);
-    const items = s?.bot.inventory?.items?.() ?? [];
-    return items.map((i: any) => ({ slot: i.slot, name: i.name, displayName: i.displayName ?? i.name, count: i.count }));
-  }
-
   private statsOf(s: HostSession): SessionStats {
     const b = s.bot;
     const sock = b._client?.socket;
@@ -399,74 +297,10 @@ export class RuntimeHostCore {
       position: pos ? { x: round1(pos.x), y: round1(pos.y), z: round1(pos.z) } : null,
       dimension: b.game?.dimension ?? null,
       physics: b.physicsEnabled ?? false,
-      viewOpen: s.viewOpen,
       version: b.version ?? null,
     };
   }
 
-  // ------------------------------------------------------------------ view relay
-
-  private attachView(sessionId: string, viewId: string): void {
-    const s = this.sessions.get(sessionId);
-    const bot = s?.bot;
-    if (!s || !bot?.entity || !bot.world) {
-      this.emit({ type: 'view', viewId, event: 'error', args: ['Session is not online'] });
-      return;
-    }
-    const { WorldView } = requireViewer();
-    const incoming = new EventEmitter();
-    const shim = {
-      emit: (event: string, ...args: unknown[]) => this.emit({ type: 'view', viewId, event, args: sanitize(args) }),
-      on: (event: string, fn: (...a: any[]) => void) => incoming.on(event, fn),
-    };
-    const viewDistance = 6;
-    const worldView = new WorldView(bot.world, viewDistance, bot.entity.position, shim);
-    shim.emit('version', bot.version);
-    worldView.init(bot.entity.position).catch(() => undefined);
-    worldView.listenToBot(bot);
-    const onMove = () => {
-      shim.emit('position', { pos: bot.entity.position, yaw: bot.entity.yaw, pitch: bot.entity.pitch, addMesh: true });
-      worldView.updatePosition(bot.entity.position).catch(() => undefined);
-    };
-    bot.on('move', onMove);
-    onMove();
-    this.views.set(viewId, { sessionId, worldView, incoming, onMove });
-    s.views.add(viewId);
-  }
-
-  private detachView(viewId: string): void {
-    const v = this.views.get(viewId);
-    if (!v) return;
-    this.views.delete(viewId);
-    const s = this.sessions.get(v.sessionId);
-    s?.views.delete(viewId);
-    if (s) {
-      s.bot.removeListener('move', v.onMove);
-      try {
-        v.worldView.removeListenersFromBot(s.bot);
-      } catch {
-        /* ignore */
-      }
-    }
-  }
-}
-
-let viewerModule: any = null;
-function requireViewer(): any {
-  if (!viewerModule) {
-    // Loaded lazily: the viewer code is only needed while a view is open.
-    viewerModule = createRequire(import.meta.url)('prismarine-viewer/viewer/lib/worldView');
-  }
-  return viewerModule;
-}
-
-function sanitize(args: unknown[]): unknown[] {
-  // Vec3 & friends → plain objects so they survive structured cloning.
-  return JSON.parse(JSON.stringify(args));
-}
-
-function clampPitch(p: number): number {
-  return Math.max(-Math.PI / 2, Math.min(Math.PI / 2, p));
 }
 
 function round1(n: number): number {

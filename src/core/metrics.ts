@@ -12,7 +12,7 @@ export interface MetricsSample {
   ts: string;
   main: { pid: number; rss: number; heapUsed: number; cpuPercent: number; eventLoopLagMs: number; eventLoopLagP99Ms: number; threads: number | null };
   hosts: { count: number; rss: number; cpuPercent: number; maxLagMs: number; threads: number | null };
-  sessions: { total: number; online: number; connecting: number; reconnecting: number; blocked: number; stopped: number; viewsOpen: number };
+  sessions: { total: number; online: number; connecting: number; reconnecting: number; blocked: number; stopped: number; gamesOpen: number };
   network: { bytesIn: number; bytesOut: number; inPerSec: number; outPerSec: number };
   processes: number;
   system: { totalMem: number; freeMem: number; load1: number; cpus: number };
@@ -107,7 +107,7 @@ export class MetricsCollector {
         reconnecting: count(['RECONNECTING']),
         blocked: count(['BLOCKED']),
         stopped: count(['STOPPED', 'STOPPING']),
-        viewsOpen: sessions.filter((s) => s.viewOpen).length,
+        gamesOpen: sessions.filter((s) => s.runtime === 'game').length,
       },
       network: { bytesIn, bytesOut, inPerSec: Math.round(inPerSec), outPerSec: Math.round(outPerSec) },
       processes: 1 + hosts.filter((h) => h.pid !== process.pid).length,

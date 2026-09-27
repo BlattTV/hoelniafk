@@ -26,7 +26,7 @@ export async function monitoringView(root) {
       kpi('Network', `↓${fmtBytes(c.network.inPerSec)}/s ↑${fmtBytes(c.network.outPerSec)}/s`, series((s) => s.network.inPerSec + s.network.outPerSec)),
       kpi('Processes / threads', `${c.processes} / ${(c.main.threads ?? 0) + (c.hosts.threads ?? 0) || '–'}`),
       kpi('System', `${fmtBytes(c.system.totalMem - c.system.freeMem)} of ${fmtBytes(c.system.totalMem)} · load ${c.system.load1}`),
-      kpi('Game views open', String(c.sessions.viewsOpen)));
+      kpi('Game windows', String(c.sessions.gamesOpen)));
     mount(hosts, h('h2', null, `Runtime hosts (${m.hosts.length})`),
       m.hosts.length
         ? h('table', null, h('thead', null, h('tr', null, ['Host', 'PID', 'Sessions', 'RSS', 'CPU', 'Lag', 'Threads', 'Uptime'].map((t) => h('th', null, t)))),

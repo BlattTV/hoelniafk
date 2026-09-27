@@ -7,7 +7,7 @@ export interface SuiteEvent {
     | 'session.state'
     | 'session.chat'
     | 'session.stats'
-    | 'view.closed'
+    | 'session.game'
     | 'log'
     | 'link.state'
     | 'mail.updated'

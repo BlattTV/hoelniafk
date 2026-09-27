@@ -34,6 +34,21 @@ export interface AppConfig {
     idleHostTtlMs: number;
   };
   sessions: { reconcileIntervalMs: number; maxConcurrentStarts: number };
+  /** Real Minecraft client ("Open game"). */
+  client: {
+    enabled: boolean;
+    /** Shared installation directory (versions, libraries, assets, Java). Default: <dataDir>/minecraft */
+    rootDir: string;
+    /** Per-session game directories. Default: <dataDir>/instances */
+    instancesDir: string;
+    /** Use this Java instead of Mojang's runtime (empty = automatic). */
+    javaPath: string;
+    /** Host → base URL replacements for downloads (e.g. a local mirror). */
+    mirrors: Record<string, string>;
+    /** A login that stays connected this long counts as ONLINE. */
+    onlineAfterMs: number;
+    joinTimeoutMs: number;
+  };
   logging: { level: 'debug' | 'info' | 'warn' | 'error'; file: boolean; maxFileMb: number; keepFiles: number };
 }
 
@@ -53,6 +68,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   automation: { mailCheckMinutes: 10, networkCheckMinutes: 30, discordVerifyHours: 24, tokenRefreshHours: 12, restoreSessions: true },
   runtime: { mode: 'process', sessionsPerHost: 10, grouping: 'pooled', heartbeatMs: 5000, heartbeatTimeoutMs: 30000, idleHostTtlMs: 60000 },
   sessions: { reconcileIntervalMs: 3000, maxConcurrentStarts: 4 },
+  client: { enabled: true, rootDir: '', instancesDir: '', javaPath: '', mirrors: {}, onlineAfterMs: 5000, joinTimeoutMs: 300000 },
   logging: { level: 'info', file: true, maxFileMb: 10, keepFiles: 5 },
 };
 
@@ -83,6 +99,10 @@ export function validateConfig(cfg: AppConfig, raw: unknown = {}): { errors: str
   intRange(cfg.runtime?.heartbeatTimeoutMs, 5000, 600000, 'runtime.heartbeatTimeoutMs');
   intRange(cfg.sessions?.maxConcurrentStarts, 1, 100, 'sessions.maxConcurrentStarts');
   intRange(cfg.sessions?.reconcileIntervalMs, 250, 600000, 'sessions.reconcileIntervalMs');
+  if (typeof cfg.client?.enabled !== 'boolean') errors.push('client.enabled must be true or false');
+  intRange(cfg.client?.onlineAfterMs, 0, 120000, 'client.onlineAfterMs');
+  intRange(cfg.client?.joinTimeoutMs, 10000, 3600000, 'client.joinTimeoutMs');
+  if (cfg.client?.mirrors && Object.values(cfg.client.mirrors).some((u) => !/^https?:\/\//.test(String(u)))) errors.push('client.mirrors values must be http(s) URLs');
   oneOf(cfg.logging?.level, ['debug', 'info', 'warn', 'error'], 'logging.level');
   intRange(cfg.mail?.syncLimit, 1, 5000, 'mail.syncLimit');
   for (const k of ['mailCheckMinutes', 'networkCheckMinutes', 'discordVerifyHours', 'tokenRefreshHours'] as const) {

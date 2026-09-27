@@ -1,5 +1,5 @@
 import { api } from '../api.js';
-import { clear, contextMenu, guard, h, mount, openGame, pad2, relTime, stateBadge, toast } from '../ui.js';
+import { clear, contextMenu, guard, h, mount, openGame, closeGame, pad2, relTime, stateBadge, toast } from '../ui.js';
 import { openChat, openSessionLog } from './sections.js';
 
 /**
@@ -31,8 +31,8 @@ export async function matrixView(root) {
     contextMenu(e, [
       cell.desiredState === 'ONLINE' ? ['Set offline (stop)', () => setDesired(row.id, srv.id, 'OFFLINE')] : ['Set online (start)', () => setDesired(row.id, srv.id, 'ONLINE')],
       ['Reconnect now', () => guard(() => api.post(`/api/sessions/${sid}/reconnect`)).then(load)],
-      cell.state === 'ONLINE' ? ['Open game', () => openGame(api, sid)] : undefined,
-      cell.viewOpen ? ['Hide game', () => guard(() => api.del(`/api/sessions/${sid}/view`)).then(load)] : undefined,
+      ['Open game', () => openGame(api, sid).then(load)],
+      cell.runtime === 'game' || (cell.gameStatus && !['closed', 'failed'].includes(cell.gameStatus)) ? ['Back to AFK', () => closeGame(api, sid).then(load)] : undefined,
       null,
       ['Chat', () => openChat({ id: sid, serverName: srv.name }, ctx)],
       ['Session log', () => openSessionLog(sid, `${row.label} @ ${srv.name}`)],
@@ -72,7 +72,7 @@ export async function matrixView(root) {
               oncontextmenu: (e) => cellMenu(e, r, srv, c),
             },
               stateBadge(c.state, tip),
-              c.viewOpen ? h('span', { title: 'Game view open' }, ' 🎮') : null,
+              c.runtime === 'game' || (c.gameStatus && !['closed', 'failed'].includes(c.gameStatus)) ? h('span', { title: `Real game client: ${c.gameStatus ?? 'running'}` }, ' 🎮') : null,
               h('span', { class: 'desired' }, c.desiredState === 'ONLINE' ? '● should be online' : '○ should be offline', c.stars ? ` · ★${c.stars}` : ''));
           })))),
     );

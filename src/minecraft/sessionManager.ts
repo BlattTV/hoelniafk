@@ -8,12 +8,18 @@
  *   SessionRecord (actual state) ──▶ MinecraftRuntime (supervised hosts)
  *
  * Per session: startSession / stopSession / reconnect / sendChat / getChat /
- * getState / openInteractiveView / hideInteractiveView.
+ * getState / openGame / closeGame.
+ *
+ * Two runtimes can own a session:
+ *   lightweight – MineflayerRuntime (AFK, 50–100 sessions)
+ *   game        – GameClientRuntime, the real Minecraft client in a normal window
+ * "Open game" hands a running lightweight session over to the real client
+ * (handover mode) or brings the always-running minimized client to the front
+ * (background mode); "Back to AFK" reverses it.
  *
  * A session that SHOULD be online and ends is brought back according to the
  * reconnect policy from rules.yaml (backoff, delay, or block for bans/whitelist).
  */
-import crypto from 'node:crypto';
 import type { AuditLog } from '../core/audit.js';
 import type { EventBus } from '../core/events.js';
 import { nowIso } from '../core/db.js';
@@ -23,7 +29,8 @@ import { decideReconnect, parseChatLine, type RulesConfig } from '../core/rules.
 import type { ChatLine, DesiredState, SessionInfo, SessionState } from '../core/types.js';
 import type { IdentityRepository } from '../identity/repository.js';
 import type { NetworkService } from '../network/networkService.js';
-import type { ControlInput, InventoryItem, MinecraftRuntime, RuntimeEvent, RuntimeSessionSpec, SessionStats } from '../runtime/types.js';
+import type { GameInfo, MinecraftRuntime, RuntimeEvent, RuntimeSessionSpec, SessionStats } from '../runtime/types.js';
+import type { GameClientRuntime } from '../client/gameClientRuntime.js';
 import type { LinkingWorkflow } from './linking.js';
 import type { RewardTracker } from './rewards.js';
 
@@ -61,7 +68,13 @@ export class SessionRecord {
   nextAttemptAt: number | null = null;
   onlineSince: number | null = null;
   networkProfileId: number | null = null;
-  viewToken: string | null = null;
+  /** Runtime that currently owns the connection. */
+  runtime: 'lightweight' | 'game' = 'lightweight';
+  /** The user asked for the game window (handover mode). */
+  wantGame = false;
+  /** Game client is being prepared while the lightweight session still holds the account. */
+  handoverPending = false;
+  game: GameInfo | null = null;
   stats: SessionStats | null = null;
   username: string | null = null;
   startedAt: number | null = null;
@@ -81,7 +94,8 @@ export class SessionRecord {
 
 export class SessionManager {
   private readonly records = new Map<string, SessionRecord>();
-  private readonly views = new Map<string, string>(); // viewToken -> sessionId
+  private game: GameClientRuntime | null = null;
+  private offGame: (() => void) | null = null;
   private readonly opts: SessionManagerOptions;
   private reconcileTimer: NodeJS.Timeout | null = null;
   private reconciling = false;
@@ -104,7 +118,17 @@ export class SessionManager {
     opts: Partial<SessionManagerOptions> = {},
   ) {
     this.opts = { ...DEFAULTS, ...opts };
-    this.offRuntime = runtime.onEvent((e) => this.onRuntimeEvent(e));
+    this.offRuntime = runtime.onEvent((e) => this.onRuntimeEvent('lightweight', e));
+  }
+
+  /** Enables "Open game" with the real Minecraft client. */
+  attachGameClient(game: GameClientRuntime): void {
+    this.game = game;
+    this.offGame = game.onEvent((e) => this.onRuntimeEvent('game', e));
+  }
+
+  get gameClientAvailable(): boolean {
+    return !!this.game;
   }
 
   static sessionId(identityId: number, serverId: number): string {
@@ -127,8 +151,9 @@ export class SessionManager {
     this.reconcileTimer = null;
     this.flushChat();
     // Desired state is kept on purpose: sessions are restored on the next start.
-    await this.runtime.shutdown();
+    await Promise.all([this.runtime.shutdown(), this.game?.shutdown()]);
     this.offRuntime();
+    this.offGame?.();
   }
 
   // ------------------------------------------------------------------ records
@@ -160,7 +185,8 @@ export class SessionManager {
       consecutiveFailures: r.consecutiveFailures,
       nextAttemptAt: r.nextAttemptAt ? new Date(r.nextAttemptAt).toISOString() : null,
       onlineSince: r.onlineSince ? new Date(r.onlineSince).toISOString() : null,
-      viewOpen: !!r.viewToken,
+      runtime: r.runtime === 'game' ? 'game' : 'lightweight',
+      game: r.game,
       stats: r.stats,
       username: r.username,
     };
@@ -304,7 +330,8 @@ export class SessionManager {
   forgetIdentity(identityId: number): void {
     for (const [id, r] of this.records) {
       if (r.identityId !== identityId) continue;
-      if (ACTIVE.includes(r.state)) void this.runtime.stopSession(id, 'identity deleted').catch(() => undefined);
+      if (ACTIVE.includes(r.state)) void this.runtimeOf(r).stopSession(id, 'identity deleted').catch(() => undefined);
+      if (this.game?.has(id)) void this.game.stopSession(id, 'identity deleted');
       this.records.delete(id);
     }
   }
@@ -344,7 +371,7 @@ export class SessionManager {
         // Connect watchdog: a session stuck before ONLINE is restarted.
         if ((r.state === 'CONNECTING' || r.state === 'AUTHENTICATING') && r.startedAt && now - r.startedAt > this.opts.connectTimeoutMs) {
           r.lastError = 'Connect timeout';
-          void this.runtime.stopSession(r.id, 'connectTimeout').catch(() => undefined);
+          void this.runtimeOf(r).stopSession(r.id, 'connectTimeout').catch(() => undefined);
         }
         continue;
       }
@@ -447,7 +474,12 @@ export class SessionManager {
       this.setState(r, 'CONNECTING');
       this.repo.addSessionEvent(r.identityId, r.serverId, r.id, 'start', `network=${spec.network.profile?.name ?? 'direct'}`);
       r.releaseStart = release;
-      await this.runtime.startSession(spec);
+      r.runtime = this.chooseRuntime(r);
+      if (r.runtime === 'game') {
+        r.handoverPending = false;
+        await this.game!.startSession({ spec, settings: this.gameSettings(r), visible: r.wantGame });
+        this.repo.addSessionEvent(r.identityId, r.serverId, r.id, 'game-start', r.wantGame ? 'visible' : 'background');
+      } else await this.runtime.startSession(spec);
       // Release the start slot once the session is online or failed (handled in events), or after a timeout.
       setTimeout(release, this.opts.connectTimeoutMs).unref?.();
     } catch (e) {
@@ -469,22 +501,59 @@ export class SessionManager {
   }
 
   private async halt(r: SessionRecord, reason: string, keepDesired = false): Promise<void> {
-    if (r.viewToken) await this.hideInteractiveView(r.id).catch(() => undefined);
+    if (r.handoverPending) await this.game?.stopSession(r.id, reason);
     if (!ACTIVE.includes(r.state)) {
       if (!keepDesired && r.state !== 'STOPPED') this.setState(r, 'STOPPED');
       return;
     }
     this.setState(r, 'STOPPING');
-    await this.runtime.stopSession(r.id, reason);
+    await this.runtimeOf(r).stopSession(r.id, reason);
     if (r.state === 'STOPPING') this.setState(r, 'STOPPED');
   }
 
   // ------------------------------------------------------------------ runtime events
 
-  private onRuntimeEvent(e: RuntimeEvent): void {
-    if (e.type === 'view') return;
+  private runtimeOf(r: SessionRecord): { stopSession(id: string, reason?: string): Promise<void> } {
+    return r.runtime === 'game' && this.game ? this.game : this.runtime;
+  }
+
+  private gameSettings(r: SessionRecord) {
+    return this.repo.getIdentity(r.identityId).settings.gameClient;
+  }
+
+  /** Which runtime should hold this session when it is (re)started. */
+  private chooseRuntime(r: SessionRecord): 'lightweight' | 'game' {
+    if (!this.game) return 'lightweight';
+    if (r.wantGame) return 'game';
+    return this.gameSettings(r).mode === 'background' ? 'game' : 'lightweight';
+  }
+
+  private onRuntimeEvent(source: 'lightweight' | 'game', e: RuntimeEvent): void {
     const r = this.records.get(e.sessionId);
     if (!r) return;
+    if (e.type === 'game') {
+      r.game = e.game;
+      this.bus.emit({ type: 'session.game', identityId: r.identityId, data: { sessionId: r.id, game: e.game } });
+      this.bus.emit({ type: 'session.state', identityId: r.identityId, data: this.info(r) });
+      return;
+    }
+    if (source === 'game' && r.handoverPending && e.type === 'ended') {
+      // The game never reached the server – the lightweight session still holds the account.
+      r.handoverPending = false;
+      r.wantGame = false;
+      r.lastError = `Game could not be started: ${e.error ?? e.reason}`.slice(0, 500);
+      this.repo.addSessionEvent(r.identityId, r.serverId, r.id, 'game-failed', r.lastError);
+      this.setState(r, r.state, r.lastError);
+      return;
+    }
+    if (source === 'lightweight' && r.handoverPending && e.type === 'ended') {
+      // The lightweight session dropped while the game was still starting: the game takes over directly.
+      r.handoverPending = false;
+      r.runtime = 'game';
+      this.setState(r, 'CONNECTING', e.error ?? e.reason);
+      return;
+    }
+    if (source !== r.runtime) return; // late events of the runtime that handed the session over
     switch (e.type) {
       case 'phase':
         if (r.state === 'STOPPING') return;
@@ -515,12 +584,25 @@ export class SessionManager {
     const detail = [e.error, e.reason].filter(Boolean).join(' | ');
     r.lastEndReason = e.reason;
     this.repo.addSessionEvent(r.identityId, r.serverId, r.id, e.kicked ? 'kicked' : 'ended', detail);
-    if (r.viewToken) {
-      this.views.delete(r.viewToken);
-      r.viewToken = null;
-      this.bus.emit({ type: 'view.closed', identityId: r.identityId, data: { sessionId: r.id } });
-    }
     r.stats = null;
+    const fromGame = r.runtime === 'game';
+    if (fromGame) {
+      r.runtime = 'lightweight';
+      if (r.wantGame && e.reason === 'clientExited' && r.state !== 'STOPPING') {
+        // The user closed the game window: back to AFK right away.
+        r.wantGame = false;
+        const a0 = this.repo.getAssignment(r.identityId, r.serverId);
+        if (a0?.enabled && a0.desiredState === 'ONLINE' && !this.stopped && this.gameSettings(r).mode === 'handover') {
+          r.consecutiveFailures = 0;
+          r.onlineSince = null;
+          r.nextAttemptAt = Date.now();
+          this.setState(r, 'RECONNECTING', null);
+          void this.reconcile();
+          return;
+        }
+      }
+      if (e.reason !== 'clientExited') r.wantGame = false;
+    }
     const a = this.repo.getAssignment(r.identityId, r.serverId);
     const desiredOnline = !!a && a.enabled && a.desiredState === 'ONLINE';
     if (r.state === 'STOPPING' || !desiredOnline || this.stopped) {
@@ -583,52 +665,100 @@ export class SessionManager {
   async sendChat(sessionId: string, text: string): Promise<void> {
     const r = this.get(sessionId);
     if (r.state !== 'ONLINE') throw new ValidationError('Session is not online');
+    if (r.runtime === 'game') throw new ValidationError('The game window owns this session – type the message in the game');
     const msg = text.replace(/[\r\n]+/g, ' ').trim().slice(0, 256);
     if (!msg) return;
     await this.runtime.sendChat(sessionId, msg);
     this.repo.addSessionEvent(r.identityId, r.serverId, r.id, 'chat-sent', msg.startsWith('/') ? msg.split(' ')[0] : 'message');
   }
 
-  async control(sessionId: string, input: ControlInput): Promise<void> {
-    const r = this.get(sessionId);
-    if (r.state !== 'ONLINE' || !r.viewToken) throw new ValidationError('Interactive view is not open');
-    await this.runtime.control(sessionId, input);
-  }
+  // ------------------------------------------------------------------ real game window
 
-  async inventory(sessionId: string): Promise<InventoryItem[]> {
+  /**
+   * "Open game": shows the real Minecraft client for this session.
+   *  - game already running (background mode or opened before): restore + focus its window
+   *  - lightweight session online (handover mode): the game is prepared and started while the
+   *    AFK session keeps the account online; right before the game logs in, the AFK session
+   *    disconnects (~1 s gap) – the server never sees two logins
+   *  - session offline: the game starts and joins directly
+   */
+  async openGame(sessionId: string): Promise<SessionInfo> {
+    if (!this.game) throw new ValidationError('The game client is not available');
     const r = this.get(sessionId);
-    if (r.state !== 'ONLINE') throw new ValidationError('Session is not online');
-    return this.runtime.inventory(sessionId);
-  }
-
-  /** Switches the running session to interactive mode. No reconnect happens. */
-  async openInteractiveView(sessionId: string): Promise<{ token: string; url: string }> {
-    const r = this.get(sessionId);
-    if (r.state !== 'ONLINE') throw new ValidationError('Session must be online to open the game view');
-    if (!r.viewToken) {
-      r.viewToken = crypto.randomBytes(24).toString('base64url');
-      this.views.set(r.viewToken, r.id);
-      await this.runtime.openInteractiveView(sessionId);
-      this.repo.addSessionEvent(r.identityId, r.serverId, r.id, 'view-open');
-      this.bus.emit({ type: 'session.state', identityId: r.identityId, data: this.info(r) });
+    const a = this.repo.getAssignment(r.identityId, r.serverId);
+    if (!a) throw new ValidationError('Identity is not assigned to this server');
+    r.wantGame = true;
+    if (this.game.has(r.id)) {
+      await this.game.show(r.id);
+      return this.info(r);
     }
-    return { token: r.viewToken, url: `/view/${r.viewToken}/` };
+    if (a.desiredState !== 'ONLINE') this.setDesired(r.identityId, r.serverId, 'ONLINE');
+    this.audit.record(r.identityId, 'Game window opened', { server: r.serverName });
+    await this.withLock(r, async () => {
+      if (this.game!.has(r.id)) return void (await this.game!.show(r.id));
+      if (r.runtime === 'lightweight' && r.state === 'ONLINE') return this.handoverToGame(r);
+      if (ACTIVE.includes(r.state)) await this.halt(r, 'Opening game', true);
+      r.consecutiveFailures = 0;
+      r.nextAttemptAt = null;
+      await this.launch(r);
+    });
+    return this.info(r);
   }
 
-  async hideInteractiveView(sessionId: string): Promise<void> {
+  private async handoverToGame(r: SessionRecord): Promise<void> {
+    let spec: RuntimeSessionSpec;
+    try {
+      spec = await this.buildSpec(r);
+    } catch (e) {
+      r.wantGame = false;
+      throw new ValidationError((e as Error).message);
+    }
+    r.handoverPending = true;
+    this.repo.addSessionEvent(r.identityId, r.serverId, r.id, 'game-handover', 'preparing');
+    const beforeLogin = async () => {
+      if (r.handoverPending) {
+        r.handoverPending = false;
+        r.runtime = 'game';
+        r.startedAt = Date.now();
+        this.setState(r, 'AUTHENTICATING', null);
+      }
+      // Frees the account: the lightweight client disconnects before the game logs in.
+      await this.runtime.stopSession(r.id, 'Handover to game').catch(() => undefined);
+    };
+    try {
+      await this.game!.startSession({ spec, settings: this.gameSettings(r), visible: true, beforeLogin });
+    } catch (e) {
+      r.handoverPending = false;
+      r.wantGame = false;
+      throw e;
+    }
+  }
+
+  /**
+   * "Back to AFK": background mode minimizes the game (same connection stays).
+   * Handover mode closes the game and the lightweight client takes the account back.
+   */
+  async closeGame(sessionId: string): Promise<SessionInfo> {
     const r = this.get(sessionId);
-    if (!r.viewToken) return;
-    this.views.delete(r.viewToken);
-    r.viewToken = null;
-    await this.runtime.hideInteractiveView(sessionId);
-    this.repo.addSessionEvent(r.identityId, r.serverId, r.id, 'view-hide');
-    this.bus.emit({ type: 'view.closed', identityId: r.identityId, data: { sessionId } });
-    this.bus.emit({ type: 'session.state', identityId: r.identityId, data: this.info(r) });
-  }
-
-  /** Resolves a view capability token to its session (used by the web relay). */
-  sessionForViewToken(token: string): SessionRecord | null {
-    const id = this.views.get(token);
-    return id ? this.records.get(id) ?? null : null;
+    r.wantGame = false;
+    if (!this.game?.has(r.id)) return this.info(r);
+    if (r.runtime === 'game' && this.gameSettings(r).mode === 'background') {
+      await this.game.minimize(r.id);
+      return this.info(r);
+    }
+    this.audit.record(r.identityId, 'Game window closed – back to AFK', { server: r.serverName });
+    await this.withLock(r, async () => {
+      if (r.handoverPending) {
+        await this.game!.stopSession(r.id, 'Cancelled');
+        return;
+      }
+      await this.halt(r, 'Back to AFK', true);
+      const a = this.repo.getAssignment(r.identityId, r.serverId);
+      if (a?.enabled && a.desiredState === 'ONLINE') {
+        r.consecutiveFailures = 0;
+        await this.launch(r);
+      }
+    });
+    return this.info(r);
   }
 }

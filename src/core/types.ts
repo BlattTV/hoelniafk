@@ -25,10 +25,26 @@ export interface IdentitySettings {
   networkMode: NetworkMode;
   /** off: ignore exit IP; warn: start but flag; block: refuse to start sessions on IP mismatch. */
   networkGuard: 'off' | 'warn' | 'block';
-  /** Lightweight runtime mode: physics off while no interactive view is open. */
+  /** Lightweight runtime mode: physics off for the AFK protocol client. */
   lightweight: boolean;
+  /** The real Minecraft client used by "Open game". */
+  gameClient: GameClientSettings;
   viewDistance: 'tiny' | 'short' | 'normal' | 'far';
   ui: { color?: string; tags: string[]; notes?: string };
+}
+
+export interface GameClientSettings {
+  /**
+   * handover:   AFK runs in the lightweight client; "Open game" hands the account over to the
+   *             real game (seamless re-login, ~1 s) and "Back to AFK" hands it back.
+   * background: the real game client itself holds the session all the time, minimized;
+   *             "Open game" only brings its window to the front (same connection, no re-login).
+   */
+  mode: 'handover' | 'background';
+  /** "auto" = server profile version, else detected by a status ping through the network profile. */
+  version: string;
+  loader: 'vanilla' | 'fabric';
+  memoryMb: number;
 }
 
 export interface IdentityProfile {
@@ -224,7 +240,9 @@ export interface SessionInfo {
   consecutiveFailures: number;
   nextAttemptAt: string | null;
   onlineSince: string | null;
-  viewOpen: boolean;
+  /** Which client holds the session right now. */
+  runtime: 'lightweight' | 'game';
+  game: import('../runtime/types.js').GameInfo | null;
   stats: import('../runtime/types.js').SessionStats | null;
   username: string | null;
 }
@@ -255,6 +273,7 @@ export const DEFAULT_SETTINGS: IdentitySettings = {
   networkMode: 'PER_ACCOUNT',
   networkGuard: 'warn',
   lightweight: true,
+  gameClient: { mode: 'handover', version: 'auto', loader: 'vanilla', memoryMb: 2048 },
   viewDistance: 'tiny',
   ui: { tags: [] },
 };
@@ -265,6 +284,7 @@ export function mergeSettings(base: IdentitySettings, patch: Partial<IdentitySet
     ...base,
     ...patch,
     afk: { ...base.afk, ...(patch.afk ?? {}) },
+    gameClient: { ...DEFAULT_SETTINGS.gameClient, ...(base.gameClient ?? {}), ...(patch.gameClient ?? {}) },
     ui: { ...base.ui, ...(patch.ui ?? {}), tags: [...(patch.ui?.tags ?? base.ui.tags)] },
     parsers: [...(patch.parsers ?? base.parsers)],
   };

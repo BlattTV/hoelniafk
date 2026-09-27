@@ -28,6 +28,7 @@
     "@fastify/static": "^10.1.5",
     "better-sqlite3": "^13.0.3",
     "fastify": "^5.12.5",
+    "fflate": "^0.8.3",
     "flying-squid": "^1.12.0",
     "https-proxy-agent": "^9.1.0",
     "imapflow": "^2.1.0",
@@ -35,8 +36,6 @@
     "mineflayer": "^4.39.0",
     "nodemailer": "^10.0.11",
     "prismarine-auth": "^3.1.1",
-    "prismarine-viewer": "^1.33.0",
-    "socket.io": "^4.8.4",
     "socks": "^2.8.10",
     "socks-proxy-agent": "^10.1.0",
     "yaml": "^2.9.1"
@@ -50,7 +49,6 @@
     "@types/smtp-server": "^3.5.13",
     "hoodiecrow-imap": "^2.1.0",
     "smtp-server": "^3.19.14",
-    "socket.io-client": "^4.8.4",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
     "vitest": "^5.0.2"

@@ -3,7 +3,7 @@
  * ctx = { id, data, meta: { mailboxes, servers, rules, aliasProviders }, reload }
  */
 import { api, qs } from '../api.js';
-import { badge, clear, codeBox, copy, field, fmtBytes, fmtTime, formData, guard, h, modal, mount, openExternal, openGame, relTime, select, stateBadge, statusIcon, toast } from '../ui.js';
+import { badge, clear, codeBox, copy, field, fmtBytes, fmtTime, formData, guard, h, modal, mount, openExternal, openGame, closeGame, gameBadge, relTime, select, stateBadge, statusIcon, toast } from '../ui.js';
 import { openMessage } from './mailviewer.js';
 
 export async function loadMeta() {
@@ -377,7 +377,7 @@ export function sessionsSection(ctx) {
               h('td', null, h('input', { type: 'checkbox', title: 'Assign this server', checked: !!a && a.enabled, onchange: (e) => (e.target.checked ? update({ enabled: true }) : guard(async () => { await api.del(`/api/identities/${id}/servers/${s.id}`); await reload(); })) })),
               h('td', null, a ? select('desired', [['ONLINE', 'online'], ['OFFLINE', 'offline']], a.desiredState, { title: 'Desired state (SHOULD_BE_ONLINE / OFFLINE)', onchange: (e) => guard(async () => { await api.put(`/api/identities/${id}/servers/${s.id}/desired`, { state: e.target.value }); await reload(); }) }) : '–'),
               h('td', null, a ? select('np', profileOpts, a.networkProfileId ?? '', { title: 'Per-session network override', onchange: (e) => update({ networkProfileId: e.target.value ? Number(e.target.value) : null }) }) : '–'),
-              h('td', null, sess ? stateBadge(sess.state, sess.lastError ?? '') : h('span', { class: 'muted' }, '–'), sess?.viewOpen ? h('span', { title: 'Game view open' }, ' 🎮') : null),
+              h('td', null, sess ? stateBadge(sess.state, sess.lastError ?? '') : h('span', { class: 'muted' }, '–'), gameBadge(sess)),
               h('td', { class: 'muted', style: { fontSize: '12px', maxWidth: '260px' } },
                 sess?.state === 'ONLINE' && st ? `ping ${st.ping ?? '–'}ms · ❤ ${st.health ?? '–'} · ${st.physics ? 'physics' : 'lightweight'} · ↓${fmtBytes(st.bytesIn)}` : null,
                 sess?.state === 'RECONNECTING' ? `next attempt ${relTime(sess.nextAttemptAt)} · failures ${sess.consecutiveFailures}` : null,
@@ -387,8 +387,8 @@ export function sessionsSection(ctx) {
                   ? h('button', { class: 'small primary', title: 'Set desired ONLINE and connect now', onclick: () => guard(async () => { await api.post(`/api/identities/${id}/sessions/${s.id}/start`); await reload(); }) }, 'Start')
                   : h('button', { class: 'small', title: 'Set desired OFFLINE and disconnect', onclick: () => guard(async () => { await api.post(`/api/sessions/${sid}/stop`); await reload(); }) }, 'Stop'),
                 sess && sess.state !== 'STOPPED' ? h('button', { class: 'small', onclick: () => guard(async () => { await api.post(`/api/sessions/${sid}/reconnect`); await reload(); }) }, 'Reconnect') : null,
-                sess?.state === 'ONLINE' && !sess.viewOpen ? h('button', { class: 'small', title: 'Open the interactive game view of this running session', onclick: () => openGame(api, sid).then(reload) }, 'Open game') : null,
-                sess?.viewOpen ? h('button', { class: 'small', title: 'Back to lightweight AFK mode (session keeps running)', onclick: () => guard(async () => { await api.del(`/api/sessions/${sid}/view`); await reload(); }) }, 'Hide game') : null,
+                h('button', { class: 'small primary', title: 'Play in the real Minecraft client (normal game window, Alt-Tab)', onclick: () => openGame(api, sid).then(reload) }, 'Open game'),
+                sess?.runtime === 'game' || (sess?.game && !['closed', 'failed'].includes(sess.game.status)) ? h('button', { class: 'small', title: 'Close / minimize the game – the account stays online in AFK mode', onclick: () => closeGame(api, sid).then(reload) }, 'Back to AFK') : null,
                 h('button', { class: 'small', onclick: () => openChat({ id: sid, serverName: s.name }, ctx) }, 'Chat'),
                 h('button', { class: 'small', onclick: () => openSessionLog(sid, `${s.name}`) }, 'Log')) : null),
             );

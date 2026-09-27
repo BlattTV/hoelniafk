@@ -20,7 +20,7 @@ import { fileURLToPath } from 'node:url';
 import { createLogger } from '../core/logger.js';
 import type { HostChannel, HostToMain, MainToHost } from './protocol.js';
 import { RuntimeHostCore, type HostBotFactory } from './host/hostCore.js';
-import type { ControlInput, HostStats, InventoryItem, JavaSession, MinecraftRuntime, RuntimeEvent, RuntimeSessionSpec, RuntimeStats } from './types.js';
+import type { HostStats, JavaSession, MinecraftRuntime, RuntimeEvent, RuntimeSessionSpec, RuntimeStats } from './types.js';
 
 const log = createLogger('runtime');
 
@@ -65,11 +65,7 @@ export class MineflayerRuntime implements MinecraftRuntime {
   private readonly hosts = new Map<string, HostHandle>();
   private readonly sessionHost = new Map<string, HostHandle>();
   private readonly sessionIdentity = new Map<string, number>();
-  private readonly viewHost = new Map<string, HostHandle>();
-  private readonly viewSession = new Map<string, string>();
   private readonly events = new EventEmitter();
-  private readonly invWaiters = new Map<number, (items: InventoryItem[] | Error) => void>();
-  private invSeq = 1;
   private readonly watchdog: NodeJS.Timeout;
   private shuttingDown = false;
 
@@ -181,12 +177,6 @@ export class MineflayerRuntime implements MinecraftRuntime {
         log.with({ sessionId: m.sessionId, identityId })[m.level](`[${h.id}] ${m.message}`);
         return;
       }
-      case 'inventory.reply': {
-        const w = this.invWaiters.get(m.reqId);
-        this.invWaiters.delete(m.reqId);
-        w?.(m.items ?? new Error(m.error ?? 'inventory failed'));
-        return;
-      }
       case 'auth.request': {
         // Only sessions that actually live on this host may request tokens.
         const identityId = this.sessionIdentity.get(m.sessionId);
@@ -202,9 +192,7 @@ export class MineflayerRuntime implements MinecraftRuntime {
       }
       case 'runtime': {
         const e = m.event;
-        if (e.type === 'view') {
-          if (this.viewHost.get(e.viewId) !== h) return;
-        } else if (this.sessionHost.get(e.sessionId) !== h) {
+        if (this.sessionHost.get(e.sessionId) !== h) {
           return; // stale event of a session that moved or ended
         }
         if (e.type === 'ended') this.release(e.sessionId);
@@ -225,12 +213,6 @@ export class MineflayerRuntime implements MinecraftRuntime {
       const n = (h.identities.get(identityId) ?? 1) - 1;
       if (n <= 0) h.identities.delete(identityId);
       else h.identities.set(identityId, n);
-    }
-    for (const [viewId, sid] of this.viewSession) {
-      if (sid === sessionId) {
-        this.viewSession.delete(viewId);
-        this.viewHost.delete(viewId);
-      }
     }
     if (h.sessions.size === 0) h.idleSince = Date.now();
   }
@@ -319,56 +301,6 @@ export class MineflayerRuntime implements MinecraftRuntime {
   async sendChat(sessionId: string, text: string): Promise<void> {
     const h = this.requireHost(sessionId);
     this.send(h, { cmd: 'chat', sessionId, text });
-  }
-
-  async control(sessionId: string, input: ControlInput): Promise<void> {
-    this.send(this.requireHost(sessionId), { cmd: 'control', sessionId, input });
-  }
-
-  async inventory(sessionId: string): Promise<InventoryItem[]> {
-    const h = this.requireHost(sessionId);
-    const reqId = this.invSeq++;
-    const res = await new Promise<InventoryItem[] | Error>((resolve) => {
-      this.invWaiters.set(reqId, resolve);
-      this.send(h, { cmd: 'inventory', reqId, sessionId });
-      setTimeout(() => {
-        if (this.invWaiters.delete(reqId)) resolve(new Error('Inventory request timed out'));
-      }, 5000).unref?.();
-    });
-    if (res instanceof Error) throw res;
-    return res;
-  }
-
-  async openInteractiveView(sessionId: string): Promise<void> {
-    this.send(this.requireHost(sessionId), { cmd: 'setViewOpen', sessionId, open: true });
-  }
-
-  async hideInteractiveView(sessionId: string): Promise<void> {
-    const h = this.sessionHost.get(sessionId);
-    if (!h) return;
-    for (const [viewId, v] of this.viewSession) {
-      if (v === sessionId) this.detachView(viewId);
-    }
-    this.send(h, { cmd: 'setViewOpen', sessionId, open: false });
-  }
-
-  async attachView(sessionId: string, viewId: string): Promise<void> {
-    const h = this.requireHost(sessionId);
-    this.viewHost.set(viewId, h);
-    this.viewSession.set(viewId, sessionId);
-    this.send(h, { cmd: 'view.attach', sessionId, viewId });
-  }
-
-  detachView(viewId: string): void {
-    const h = this.viewHost.get(viewId);
-    this.viewHost.delete(viewId);
-    this.viewSession.delete(viewId);
-    if (h) this.send(h, { cmd: 'view.detach', viewId });
-  }
-
-  viewInput(viewId: string, event: string, args: unknown[]): void {
-    const h = this.viewHost.get(viewId);
-    if (h) this.send(h, { cmd: 'view.in', viewId, event, args });
   }
 
   /** Test hook: crash the host that runs a session. */

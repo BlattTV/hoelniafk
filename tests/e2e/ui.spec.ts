@@ -55,33 +55,6 @@ test('matrix: toggling a cell brings the session online', async ({ page }) => {
   await expect(testCell).toContainText('STOPPED', { timeout: 20_000 });
 });
 
-test('identity: open the game view of the running session, move, hide again', async ({ page, context }) => {
-  await page.goto('/#/identity/1/sessions');
-  await waitOnline(page, 1);
-  await page.goto('/#/identity/1/sessions');
-  // open the game for the SMP session explicitly
-  const smpRow = page.locator('#sec-sessions tbody tr', { hasText: 'SMP' });
-  await expect(smpRow).toContainText('ONLINE', { timeout: 30_000 });
-  const [popup] = await Promise.all([context.waitForEvent('page'), smpRow.locator('button', { hasText: 'Open game' }).click()]);
-  await popup.waitForLoadState('domcontentloaded');
-  await expect(popup.locator('#hud-title')).toContainText('Player01', { timeout: 20_000 });
-  await expect(popup.locator('canvas')).toHaveCount(1, { timeout: 20_000 });
-  // game view is flagged on the session
-  await page.goto('/#/sessions');
-  await expect(page.locator('#view h1').first()).toHaveText('Sessions');
-  const sessRow = page.locator('#view tbody tr').filter({ hasText: 'Identity01' }).filter({ hasText: 'SMP' });
-  await expect(sessRow).toContainText('view', { timeout: 10_000 });
-  // "Hide game" returns to lightweight mode and closes the game window
-  await Promise.all([popup.waitForEvent('close', { timeout: 10_000 }), popup.locator('#hide-btn').click()]);
-  await page.goto('/#/matrix');
-  await page.goto('/#/sessions');
-  await expect(page.locator('#view h1').first()).toHaveText('Sessions');
-  const row = page.locator('#view tbody tr').filter({ hasText: 'Identity01' }).filter({ hasText: 'SMP' });
-  await expect(row).toContainText('ONLINE');
-  await expect(row).not.toContainText('🎮 view', { timeout: 10_000 });
-  await expect(row).toContainText('lightweight', { timeout: 15_000 }); // physics off again, same session
-});
-
 test('global chat: command to a session and the reply shows up', async ({ page }) => {
   await page.goto('/#/chat');
   await waitOnline(page, 1);

@@ -1,5 +1,5 @@
 import { api } from '../api.js';
-import { clear, contextMenu, fmtBytes, guard, h, identityName, mount, openGame, pad2, relTime, select, stateBadge } from '../ui.js';
+import { clear, contextMenu, fmtBytes, guard, h, identityName, mount, openGame, closeGame, gameBadge, pad2, relTime, select, stateBadge } from '../ui.js';
 import { openChat, openSessionLog } from './sections.js';
 
 /** Session Manager: every session with actual vs. desired state, filters and actions. */
@@ -19,8 +19,8 @@ export async function sessionsView(root) {
     contextMenu(e, [
       s.desiredState === 'ONLINE' ? ['Stop (set offline)', () => act(() => api.post(`/api/sessions/${s.id}/stop`))] : ['Start (set online)', () => act(() => api.post(`/api/identities/${s.identityId}/sessions/${s.serverId}/start`))],
       ['Reconnect', () => act(() => api.post(`/api/sessions/${s.id}/reconnect`))],
-      s.state === 'ONLINE' && !s.viewOpen ? ['Open game', () => openGame(api, s.id)] : undefined,
-      s.viewOpen ? ['Hide game', () => act(() => api.del(`/api/sessions/${s.id}/view`))] : undefined,
+      ['Open game', () => openGame(api, s.id).then(load)],
+      s.runtime === 'game' || s.game ? ['Back to AFK', () => closeGame(api, s.id).then(load)] : undefined,
       null,
       ['Chat', () => openChat({ id: s.id, serverName: s.serverName }, ctx)],
       ['Session log', () => openSessionLog(s.id, `${names.get(s.identityId)} @ ${s.serverName}`)],
@@ -46,10 +46,10 @@ export async function sessionsView(root) {
             h('td', { class: 'mono' }, `${s.reconnects}${s.consecutiveFailures ? ` (${s.consecutiveFailures} failed)` : ''}`),
             h('td', { class: 'mono' }, s.stats?.ping !== null && s.stats?.ping !== undefined ? `${s.stats.ping} ms` : '–'),
             h('td', { class: 'mono muted' }, s.stats ? `↓${fmtBytes(s.stats.bytesIn)} ↑${fmtBytes(s.stats.bytesOut)}` : '–'),
-            h('td', null, s.viewOpen ? h('span', { class: 's-info' }, '🎮 view') : s.stats ? (s.stats.physics ? 'physics' : h('span', { class: 'muted', title: 'Physics off – lightweight AFK mode' }, 'lightweight')) : '–'),
+            h('td', null, s.runtime === 'game' || s.game ? gameBadge(s) : s.stats ? (s.stats.physics ? 'physics' : h('span', { class: 'muted', title: 'Physics off – lightweight AFK mode' }, 'lightweight')) : '–'),
             h('td', { class: s.state === 'BLOCKED' ? 's-error' : 'muted', style: { maxWidth: '320px', fontSize: '12px' } }, s.state === 'RECONNECTING' ? `next ${relTime(s.nextAttemptAt)} – ${s.lastError ?? ''}` : s.lastError ?? ''),
             h('td', null, h('div', { class: 'toolbar' },
-              s.state === 'ONLINE' ? h('button', { class: 'small', onclick: () => openGame(api, s.id) }, 'Game') : null,
+              h('button', { class: 'small', title: 'Play in the real Minecraft client', onclick: () => openGame(api, s.id).then(load) }, 'Game'),
               h('button', { class: 'small', onclick: () => openChat({ id: s.id, serverName: s.serverName }, ctx) }, 'Chat'),
               h('button', { class: 'small', title: 'More actions', onclick: (e) => menu(e, s) }, '⋯')))))))
       : h('div', { class: 'empty' }, sessions.length ? 'No session matches the filters.' : 'No sessions yet – set identities online in the Account × Server matrix.'));

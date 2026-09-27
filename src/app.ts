@@ -25,6 +25,8 @@ import { NetworkService, type IpDetector } from './network/networkService.js';
 import { detectPublicIp } from './network/publicIp.js';
 import { BulkOperations } from './ops/bulk.js';
 import { MetricsCollector } from './core/metrics.js';
+import { GameClientRuntime, type GameClientOptions } from './client/gameClientRuntime.js';
+import { createWindowController } from './client/window.js';
 
 /** Online SQLite backup into <dataDir>/backups (keeps the newest 7). */
 export async function backupDatabase(db: DB, dataDir: string): Promise<string | null> {
@@ -58,6 +60,8 @@ export interface SuiteDeps {
   discordUserFetcher?: DiscordUserFetcher;
   oauthPost?: HttpPost;
   httpJson?: HttpJson;
+  /** Overrides for the real game client (tests: emulator as java, local mirror). null = disabled. */
+  gameClient?: Partial<GameClientOptions> | null;
 }
 
 export type Suite = ReturnType<typeof createSuite>;
@@ -120,6 +124,22 @@ export function createSuite(deps: SuiteDeps) {
     maxConcurrentStarts: config.sessions.maxConcurrentStarts,
     ...(deps.sessionOptions ?? {}),
   });
+  let game: GameClientRuntime | null = null;
+  if (deps.gameClient !== null && config.client.enabled) {
+    const cc = config.client;
+    game = new GameClientRuntime({
+      rootDir: cc.rootDir || path.join(config.dataDir, 'minecraft'),
+      instancesDir: cc.instancesDir || path.join(config.dataDir, 'instances'),
+      javaPath: cc.javaPath || undefined,
+      mirrors: cc.mirrors,
+      onlineAfterMs: cc.onlineAfterMs,
+      joinTimeoutMs: cc.joinTimeoutMs,
+      authProvider: (identityId) => auth.getJavaSession(identityId),
+      window: deps.gameClient?.window ?? createWindowController(),
+      ...(deps.gameClient ?? {}),
+    });
+    sessions.attachGameClient(game);
+  }
   const mail = new MailService(repo, vault, oauth, audit, bus, getRules, deps.mailSourceFactory, deps.httpJson);
   mail.syncLimit = config.mail.syncLimit;
   const discord = new DiscordService(repo, vault, oauth, audit, bus, deps.discordUserFetcher ?? fetchDiscordUser);
@@ -194,6 +214,7 @@ export function createSuite(deps: SuiteDeps) {
     linking,
     rewards,
     runtime,
+    game,
     sessions,
     mail,
     discord,

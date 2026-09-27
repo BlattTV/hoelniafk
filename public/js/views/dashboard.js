@@ -136,7 +136,7 @@ export async function dashboardView(root) {
   const rowMenu = (e, r) => {
     const ids = selected.has(r.id) && selected.size > 1 ? [...selected] : [r.id];
     const many = ids.length > 1 ? ` (${ids.length})` : '';
-    const online = r.sessions.find((s) => s.state === 'ONLINE');
+    const online = r.sessions.find((s) => s.state === 'ONLINE') ?? r.sessions[0];
     contextMenu(e, [
       ['Open identity', () => (location.hash = `#/identity/${r.id}`)],
       ['Setup wizard', () => (location.hash = `#/wizard/${r.id}`)],

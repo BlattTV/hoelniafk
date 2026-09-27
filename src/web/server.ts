@@ -12,7 +12,6 @@ import type { LinkState, MailAccountKind } from '../core/types.js';
 import { DISCORD_APP_URL } from '../discord/discordService.js';
 import type { BulkAction } from '../ops/bulk.js';
 import { refs } from '../vault/refs.js';
-import { registerViewRelay } from './viewRelay.js';
 
 const log = createLogger('web');
 const PUBLIC_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../public');
@@ -86,7 +85,6 @@ export async function buildServer(suite: Suite, opts: ServerOptions = {}): Promi
   });
 
   app.addHook('onSend', async (req, reply, payload) => {
-    if (req.url.startsWith('/view/')) return payload; // view pages set their own CSP
     reply.header('Content-Security-Policy', CSP);
     reply.header('X-Content-Type-Options', 'nosniff');
     reply.header('X-Frame-Options', 'SAMEORIGIN');
@@ -107,8 +105,6 @@ export async function buildServer(suite: Suite, opts: ServerOptions = {}): Promi
     log.error('Unhandled error:', err);
     reply.code(500).send({ error: 'Internal error – see log' });
   });
-
-  registerViewRelay(app, suite, (h) => allowedHosts.has(h), (o) => allowedOrigins.has(o));
 
   // ------------------------------------------------------------------ UI
   const indexHtml = () =>
@@ -554,12 +550,15 @@ export async function buildServer(suite: Suite, opts: ServerOptions = {}): Promi
     return { ok: true };
   });
   app.get('/api/sessions/:sessionId/events', async (req: Req) => suite.repo.sessionEvents({ sessionId: req.params.sessionId, limit: 200 }));
-  app.post('/api/sessions/:sessionId/view', async (req: Req) => suite.sessions.openInteractiveView(req.params.sessionId));
-  app.delete('/api/sessions/:sessionId/view', async (req: Req) => {
-    await suite.sessions.hideInteractiveView(req.params.sessionId);
-    return { ok: true };
+  // Real Minecraft client window: open (handover / restore) and back to AFK
+  app.post('/api/sessions/:sessionId/game', async (req: Req) => suite.sessions.openGame(req.params.sessionId));
+  app.delete('/api/sessions/:sessionId/game', async (req: Req) => suite.sessions.closeGame(req.params.sessionId));
+  app.post('/api/identities/:id/servers/:serverId/game', async (req: Req) => {
+    const identityId = num(req.params.id);
+    const serverId = num(req.params.serverId);
+    suite.sessions.list(identityId);
+    return suite.sessions.openGame(`${identityId}:${serverId}`);
   });
-  app.get('/api/sessions/:sessionId/inventory', async (req: Req) => suite.sessions.inventory(req.params.sessionId));
 
   // Global chat across all sessions
   app.get('/api/chat', async (req: Req) =>
@@ -611,7 +610,8 @@ export async function buildServer(suite: Suite, opts: ServerOptions = {}): Promi
                 state: sess?.state ?? 'STOPPED',
                 lastError: sess?.lastError ?? null,
                 nextAttemptAt: sess?.nextAttemptAt ?? null,
-                viewOpen: sess?.viewOpen ?? false,
+                runtime: sess?.runtime ?? 'lightweight',
+                gameStatus: sess?.game?.status ?? null,
                 stars: rw?.stars ?? 0,
               }
             : { serverId: srv.id, assigned: false };
@@ -688,14 +688,15 @@ export async function buildServer(suite: Suite, opts: ServerOptions = {}): Promi
     checks.push({ key: 'mail', label: 'Mailboxes', status: mb.length ? (mb.every((m) => m.credentialRef) ? 'ok' : 'warn') : 'warn', detail: mb.length ? `${mb.filter((m) => m.credentialRef).length}/${mb.length} with credentials` : 'No mailbox configured', action: '#/mailboxes' });
     const noNet = ids.filter((i) => i.settings.networkMode !== 'DIRECT' && !i.networkProfileId).length;
     checks.push({ key: 'network', label: 'Network profiles', status: noNet ? 'warn' : 'ok', detail: noNet ? `${noNet} identities without a network profile` : 'All identities have a network profile' });
-    let viewerOk = true;
-    try {
-      const { createRequire } = await import('node:module');
-      createRequire(import.meta.url).resolve('prismarine-viewer/public/index.js');
-    } catch {
-      viewerOk = false;
-    }
-    checks.push({ key: 'viewer', label: 'Interactive game view', status: viewerOk ? 'ok' : 'error', detail: viewerOk ? 'prismarine-viewer assets available' : 'prismarine-viewer not installed (npm install)' });
+    const g = suite.game;
+    checks.push({
+      key: 'game',
+      label: 'Minecraft game client',
+      status: g ? (g.windowControl === 'none' ? 'warn' : 'ok') : 'error',
+      detail: g
+        ? `Official client, installed on first "Open game" into ${suite.config.client.rootDir || 'data/minecraft'}; Java: ${suite.config.client.javaPath || 'Mojang runtime (automatic)'}; window control: ${g.windowControl === 'none' ? 'not available on this system (use Alt-Tab)' : g.windowControl}`
+        : 'Game client disabled (client.enabled: false)',
+    });
     const hosts = suite.runtime.stats().hosts.length;
     checks.push({ key: 'runtime', label: 'Minecraft runtime', status: 'ok', detail: `${suite.config.runtime.mode} mode, ${suite.config.runtime.sessionsPerHost} sessions/host, ${hosts} host process(es) running` });
     return { checks, ok: !checks.some((c) => c.status === 'error') };

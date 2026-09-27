@@ -237,10 +237,31 @@ export function contextMenu(ev, items) {
   setTimeout(() => document.addEventListener('click', () => { menu.remove(); if (openMenu === menu) openMenu = null; }, { once: true }));
 }
 
-/** Opens the interactive game view of a running session in its own window. */
+/**
+ * "Open game": starts (or brings to the front) the real Minecraft client for the session.
+ * The game is a normal desktop window – reachable with Alt-Tab like any other program.
+ */
 export async function openGame(api, sessionId) {
-  const r = await guard(() => api.post(`/api/sessions/${encodeURIComponent(sessionId)}/view`));
-  if (!r) return;
-  const w = window.open(r.url, `hoelni-view-${sessionId.replace(/\W/g, '_')}`, 'width=1280,height=760');
-  if (!w) toast('Popup blocked – allow popups for this page', 'error');
+  const r = await guard(() => api.post(`/api/sessions/${encodeURIComponent(sessionId)}/game`));
+  if (!r) return r;
+  const st = r.game?.status;
+  toast(st === 'running' ? 'Game window brought to the front' : st === 'installing' ? 'Installing Minecraft – the game window opens when it is ready' : 'Minecraft is starting – the game window opens in a moment', 'ok');
+  return r;
+}
+
+/** "Back to AFK": closes (handover mode) or minimizes (background mode) the game window. */
+export async function closeGame(api, sessionId) {
+  const r = await guard(() => api.del(`/api/sessions/${encodeURIComponent(sessionId)}/game`));
+  if (r) toast('Back to AFK', 'ok');
+  return r;
+}
+
+/** Small indicator for a session held by the real game client. */
+export function gameBadge(sess) {
+  const g = sess?.game;
+  const active = g && !['closed', 'failed'].includes(g.status);
+  if (!active && sess?.runtime !== 'game') return g?.status === 'failed' && g.message ? h('span', { class: 's-error', title: g.message }, ' 🎮✕') : null;
+  const pct = g?.progress && g.progress.total ? ` ${Math.floor((g.progress.done / g.progress.total) * 100)}%` : '';
+  const label = !g ? 'game' : g.status === 'running' ? (g.visible ? 'game' : 'game (minimized)') : `${g.status}${pct}`;
+  return h('span', { class: 's-info', title: g?.message ?? 'Held by the real Minecraft client' }, ` 🎮 ${label}`);
 }
