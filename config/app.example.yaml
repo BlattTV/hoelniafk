@@ -1,0 +1,39 @@
+# Copy to config/app.yaml and adjust. This file contains NO secrets –
+# client secrets, passwords and tokens are entered in the UI and stored in the vault.
+
+host: 127.0.0.1          # loopback only
+port: 7420
+dataDir: data
+rulesFile: config/rules.yaml
+
+vault:
+  # auto | dpapi | credman | passphrase
+  #  auto:       Windows → DPAPI; otherwise HOELNI_VAULT_PASSPHRASE or OS keyring
+  #  credman:    master key in Windows Credential Manager (via @napi-rs/keyring)
+  keyProvider: auto
+
+oauth:
+  # Register your own OAuth apps. Redirect URI for all providers:
+  #   http://127.0.0.1:7420/oauth/callback
+  microsoft:
+    clientId: ""          # Azure app registration ("Mobile and desktop" / public client)
+    tenant: consumers     # consumers | common | organizations | <tenant id>
+  google:
+    clientId: ""          # Google Cloud "Desktop app" OAuth client
+  discord:
+    clientId: ""          # Discord Developer Portal → OAuth2 (client secret goes into the vault via UI)
+
+network:
+  ipEndpoints:
+    - https://api.ipify.org
+    - https://ifconfig.me/ip
+    - https://icanhazip.com
+
+mail:
+  syncLimit: 100          # newest N messages per mailbox are indexed (headers only)
+
+automation:
+  mailCheckMinutes: 10     # 0 = disabled
+  networkCheckMinutes: 30  # 0 = disabled
+  discordVerifyHours: 24   # 0 = disabled
+  autoStartSessions: false # start assignments marked "auto start" when the suite launches

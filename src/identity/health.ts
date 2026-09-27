@@ -1,0 +1,168 @@
+import type { CheckStatus, HealthLevel, IdentityProfile, SessionInfo } from '../core/types.js';
+import type { IdentityRepository } from './repository.js';
+import type { NetworkConflict } from '../network/networkService.js';
+
+export type HealthTarget = 'minecraft' | 'mail' | 'discord' | 'network' | 'sessions';
+
+export interface HealthCheck {
+  key: 'minecraftAuth' | 'mailAccess' | 'discordOAuth' | 'discordLinked' | 'networkProfile' | 'expectedIp' | 'sessions';
+  label: string;
+  status: CheckStatus;
+  detail: string;
+  /** Section of the identity view the UI navigates to when the check is clicked. */
+  target: HealthTarget;
+}
+
+export interface HealthReport {
+  identityId: number;
+  level: HealthLevel;
+  checks: HealthCheck[];
+  /** First milestone: all six green. */
+  milestone: Array<{ label: string; ok: boolean; target: HealthTarget }>;
+  ready: boolean;
+}
+
+export function computeHealth(
+  repo: IdentityRepository,
+  identity: IdentityProfile,
+  sessions: SessionInfo[],
+  conflicts: NetworkConflict[],
+): HealthReport {
+  const id = identity.id;
+  const s = identity.settings;
+  const checks: HealthCheck[] = [];
+
+  // Minecraft
+  const mc = repo.getMinecraft(id);
+  if (!mc) checks.push({ key: 'minecraftAuth', label: 'Minecraft auth', status: 'error', detail: 'No Minecraft account configured', target: 'minecraft' });
+  else if (mc.authType === 'offline') checks.push({ key: 'minecraftAuth', label: 'Minecraft auth', status: 'ok', detail: 'Offline mode (test server)', target: 'minecraft' });
+  else {
+    const map: Record<string, CheckStatus> = { AUTHENTICATED: 'ok', PENDING: 'warn', NONE: 'warn', EXPIRED: 'error', ERROR: 'error' };
+    checks.push({
+      key: 'minecraftAuth',
+      label: 'Minecraft auth',
+      status: map[mc.authStatus] ?? 'unknown',
+      detail: mc.authStatus === 'AUTHENTICATED' ? `${mc.username} (${mc.uuid ?? 'no uuid'})` : mc.lastError ?? mc.authStatus,
+      target: 'minecraft',
+    });
+  }
+
+  // Mail
+  if (!s.mailEnabled) checks.push({ key: 'mailAccess', label: 'Mail access', status: 'skipped', detail: 'Mail disabled for this identity', target: 'mail' });
+  else {
+    const mail = repo.getMailIdentity(id);
+    if (!mail) checks.push({ key: 'mailAccess', label: 'Mail access', status: 'error', detail: 'No mailbox assigned', target: 'mail' });
+    else {
+      const st: CheckStatus = mail.accessStatus === 'OK' ? 'ok' : mail.accessStatus === 'ERROR' ? 'error' : 'warn';
+      checks.push({
+        key: 'mailAccess',
+        label: 'Mail access',
+        status: st,
+        detail: st === 'ok' ? `${mail.address} · ${mail.unreadCount} unread` : mail.lastError ?? `${mail.address} · not checked yet`,
+        target: 'mail',
+      });
+    }
+  }
+
+  // Discord
+  const d = repo.getDiscord(id);
+  if (s.discordLinking === 'disabled') {
+    checks.push({ key: 'discordOAuth', label: 'Discord OAuth', status: 'skipped', detail: 'Discord disabled', target: 'discord' });
+    checks.push({ key: 'discordLinked', label: 'Discord linked', status: 'skipped', detail: 'Discord disabled', target: 'discord' });
+  } else {
+    const required = s.discordLinking === 'required';
+    const oauth = d?.oauthState ?? 'NONE';
+    const oauthStatus: CheckStatus = oauth === 'CONNECTED' ? 'ok' : oauth === 'PENDING' ? 'warn' : oauth === 'NONE' ? (required ? 'error' : 'warn') : 'error';
+    checks.push({
+      key: 'discordOAuth',
+      label: 'Discord OAuth',
+      status: oauthStatus,
+      detail: oauth === 'CONNECTED' ? `@${d?.username}` : d?.lastError ?? (oauth === 'NONE' ? 'Not connected' : oauth),
+      target: 'discord',
+    });
+    const link = d?.linkState ?? 'UNKNOWN';
+    const linkStatus: CheckStatus = link === 'LINKED' ? 'ok' : link === 'WAITING' ? 'warn' : link === 'ERROR' ? 'error' : required ? 'error' : 'warn';
+    checks.push({
+      key: 'discordLinked',
+      label: 'Discord linked',
+      status: linkStatus,
+      detail: link === 'LINKED' ? 'Linked on Minecraft server' : link === 'WAITING' ? 'Link code received – waiting for confirmation' : link === 'ERROR' ? d?.lastError ?? 'Link error' : 'Not linked',
+      target: 'discord',
+    });
+  }
+
+  // Network
+  const profile = identity.networkProfileId ? repo.getNetworkProfile(identity.networkProfileId) : null;
+  if (s.networkMode === 'DIRECT') {
+    checks.push({ key: 'networkProfile', label: 'Network profile', status: 'ok', detail: 'Direct connection (no dedicated exit)', target: 'network' });
+  } else if (!profile) {
+    checks.push({ key: 'networkProfile', label: 'Network profile', status: 'error', detail: 'No network profile configured', target: 'network' });
+  } else {
+    const shared = conflicts.filter((c) => c.field !== 'expectedPublicIp' || s.networkMode === 'PER_ACCOUNT');
+    checks.push({
+      key: 'networkProfile',
+      label: 'Network profile',
+      status: shared.length && s.networkMode === 'PER_ACCOUNT' ? 'warn' : 'ok',
+      detail: shared.length && s.networkMode === 'PER_ACCOUNT'
+        ? `Shares ${shared[0].field} ${shared[0].value} with identity ${shared[0].otherIdentityId}`
+        : `${profile.name} (${profile.kind}${profile.localBindIp ? ' ' + profile.localBindIp : ''})`,
+      target: 'network',
+    });
+  }
+  if (s.networkMode === 'DIRECT' && !profile) {
+    checks.push({ key: 'expectedIp', label: 'Expected public IP', status: 'skipped', detail: 'Direct mode', target: 'network' });
+  } else if (!profile) {
+    checks.push({ key: 'expectedIp', label: 'Expected public IP', status: 'error', detail: 'No network profile', target: 'network' });
+  } else if (!profile.expectedPublicIp) {
+    checks.push({
+      key: 'expectedIp',
+      label: 'Expected public IP',
+      status: 'warn',
+      detail: profile.actualPublicIp ? `No expected IP set (actual ${profile.actualPublicIp})` : 'No expected IP set',
+      target: 'network',
+    });
+  } else {
+    const map: Record<string, CheckStatus> = { OK: 'ok', MISMATCH: 'error', ERROR: 'error', UNKNOWN: 'warn' };
+    checks.push({
+      key: 'expectedIp',
+      label: 'Expected public IP',
+      status: map[profile.checkStatus],
+      detail:
+        profile.checkStatus === 'OK'
+          ? `${profile.actualPublicIp} ✓`
+          : profile.checkStatus === 'UNKNOWN'
+            ? `Expected ${profile.expectedPublicIp} – not verified yet`
+            : profile.lastError ?? profile.checkStatus,
+      target: 'network',
+    });
+  }
+
+  // Sessions
+  const assignments = repo.listAssignments(id).filter((a) => a.enabled);
+  const online = sessions.filter((x) => x.state === 'ONLINE' && assignments.some((a) => a.serverId === x.serverId)).length;
+  const errored = sessions.filter((x) => x.state === 'ERROR').length;
+  checks.push({
+    key: 'sessions',
+    label: 'Minecraft sessions',
+    status: assignments.length === 0 ? 'warn' : online === assignments.length ? 'ok' : errored ? 'error' : 'warn',
+    detail: assignments.length === 0 ? 'No server assignments' : `${online}/${assignments.length} online`,
+    target: 'sessions',
+  });
+
+  const statuses = checks.map((c) => c.status);
+  const level: HealthLevel = statuses.includes('error') ? 'ERROR' : statuses.some((x) => x === 'warn' || x === 'unknown') ? 'WARNING' : 'HEALTHY';
+
+  const ok = (k: HealthCheck['key']) => {
+    const c = checks.find((x) => x.key === k)!;
+    return c.status === 'ok' || c.status === 'skipped';
+  };
+  const milestone = [
+    { label: 'Minecraft', ok: ok('minecraftAuth'), target: 'minecraft' as const },
+    { label: 'Mail', ok: ok('mailAccess'), target: 'mail' as const },
+    { label: 'Discord', ok: ok('discordOAuth'), target: 'discord' as const },
+    { label: 'Discord Link', ok: ok('discordLinked'), target: 'discord' as const },
+    { label: 'Exit IP', ok: ok('networkProfile') && ok('expectedIp'), target: 'network' as const },
+    { label: 'Session', ok: ok('sessions'), target: 'sessions' as const },
+  ];
+  return { identityId: id, level, checks, milestone, ready: milestone.every((m) => m.ok) };
+}

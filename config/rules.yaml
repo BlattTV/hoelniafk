@@ -1,0 +1,96 @@
+# Hoelni Client Suite – recognition rules
+#
+# All detection of verification mails, link codes and reward messages is
+# configured here. Nothing is hard-coded in the application.
+# Changes are picked up via "Reload rules" in the UI (Settings) or on restart.
+
+# ------------------------------------------------------------------ Mail
+# senders:          glob patterns. "*.discord.com" matches discord.com and all
+#                   subdomains; patterns containing "@" match full addresses.
+# subjectContains:  case-insensitive substrings (any of them)
+# bodyContains:     case-insensitive substrings (any of them, checked when the body is loaded)
+# category:         verification | security | account | info
+# codePatterns:     regexes to extract codes (named group "code" or first group)
+# All given conditions must match; within a list, any entry matches.
+mailRules:
+  discord:
+    provider: Discord
+    category: verification
+    senders:
+      - "*.discord.com"
+    subjectContains:
+      - "verify"
+      - "verification"
+      - "bestätige"
+
+  microsoft-security:
+    provider: Microsoft
+    category: security
+    senders:
+      - "*.microsoft.com"
+      - "*.live.com"
+      - "*.outlook.com"
+    subjectContains:
+      - "security code"
+      - "sicherheitscode"
+    codePatterns:
+      - "(?:code|Sicherheitscode)[^0-9]{0,40}(?<code>\\d{6,8})"
+
+  microsoft-account:
+    provider: Microsoft
+    category: account
+    senders:
+      - "*.microsoft.com"
+      - "*.live.com"
+
+  minecraft:
+    provider: Minecraft
+    category: account
+    senders:
+      - "*.mojang.com"
+      - "*.minecraft.net"
+      - "*.xbox.com"
+
+  hoelni:
+    provider: Hoelni
+    category: account
+    senders:
+      - "*.hoelni.de"
+    codePatterns:
+      - "(?:code|Code)[:\\s]+(?<code>[A-Z0-9]{4,10})"
+
+# Fallback code patterns if a matching rule defines none.
+defaultCodePatterns:
+  - "(?:code|Code|CODE)[^A-Za-z0-9]{1,20}(?<code>[A-Z0-9]{4,10})\\b"
+  - "\\b(?<code>\\d{6})\\b"
+
+# ------------------------------------------------------------------ Minecraft chat
+# Rule-sets are activated per identity (IdentitySettings.parsers).
+chatRules:
+  hoelni-linking:
+    type: linking
+    # named group "code" is shown in the Identity Dashboard
+    linkCode:
+      - "Link your account using code (?<code>[A-Za-z0-9]{4,12})"
+      - "Verknüpfe deinen Account mit dem Code (?<code>[A-Za-z0-9]{4,12})"
+    linked:
+      - "Discord linked successfully"
+      - "Discord erfolgreich verknüpft"
+      - "already linked"
+    unlinked:
+      - "Discord (account )?unlinked"
+    error:
+      - "link(ing)? (failed|expired)"
+
+  hoelni-rewards:
+    type: rewards
+    set:
+      - "You have (?<stars>\\d+) stars?"
+      - "Du hast (?<stars>\\d+) Sterne?"
+    add:
+      - "You (received|earned) (?<delta>\\d+) stars?"
+      - "Du hast (?<delta>\\d+) Sterne? erhalten"
+    eligible:
+      - "You are eligible for rewards"
+    notEligible:
+      - "You are not eligible"
