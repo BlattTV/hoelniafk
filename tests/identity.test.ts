@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from 'vitest';
-import { createTestSuite, tick } from './helpers.js';
+import { describe, expect, it } from 'vitest';
+import { createTestSuite, settle, tick, waitFor } from './helpers.js';
 
 async function fullIdentity() {
   const t = await createTestSuite();
@@ -28,6 +28,7 @@ async function fullIdentity() {
   // Server + session
   suite.repo.assignServer(id, { serverId: smp.id, autoStart: true });
   await suite.sessions.start(id, smp.id);
+  await waitFor(() => t.bots.length === 1, 2000, 'bot');
   return { ...t, id, smp, box };
 }
 
@@ -36,16 +37,19 @@ describe('Phase F – one complete identity', () => {
     const { suite, id, bots } = await fullIdentity();
     expect(suite.identities.health(id).ready).toBe(false);
     bots[0].join();
+    await settle();
     let h = suite.identities.health(id);
     expect(h.milestone.find((m) => m.label === 'Discord Link')!.ok).toBe(false);
     expect(h.level).toBe('ERROR'); // linking is "required"
 
     bots[0].say('Link your account using code ABC123');
+    await settle();
     expect(suite.linking.pendingFor(id)!.code).toBe('ABC123');
     expect(suite.identities.dashboard()[0].discord.pendingLinkCode).toBe('ABC123');
     expect(suite.repo.getDiscord(id)!.linkState).toBe('WAITING');
 
     bots[0].say('Discord linked successfully');
+    await settle();
     h = suite.identities.health(id);
     expect(suite.repo.getDiscord(id)!.linkedToMinecraft).toBe(true);
     expect(h.milestone).toEqual([
@@ -70,13 +74,26 @@ describe('Phase F – one complete identity', () => {
     expect(suite.audit.list().some((e) => e.action === 'Network IP changed')).toBe(true);
   });
 
-  it('tracks rewards from chat', async () => {
-    const { suite, id, bots } = await fullIdentity();
+  it('tracks rewards per server from configurable chat rules', async () => {
+    const { suite, id, bots, smp } = await fullIdentity();
     bots[0].join();
     bots[0].say('You have 20 stars');
     bots[0].say('You received 4 stars');
-    expect(suite.repo.getRewards(id).stars).toBe(24);
-    expect(suite.repo.rewardHistory(id).map((h) => h.delta)).toEqual([4, 20]);
+    bots[0].say('You are eligible for rewards');
+    bots[0].say('Reward pending – please wait');
+    await settle();
+    let st = suite.repo.getServerReward(id, smp.id);
+    expect(st).toMatchObject({ stars: 24, eligible: true, waiting: true, received: null });
+    bots[0].say('Reward received!');
+    bots[0].say('Discord linked successfully');
+    await settle();
+    st = suite.repo.getServerReward(id, smp.id);
+    expect(st).toMatchObject({ received: true, waiting: false, discordLinked: true });
+    expect(st.lastMessage).toBe('Discord linked successfully');
+    expect(suite.repo.getRewards(id)).toMatchObject({ stars: 24, eligible: true });
+    const hist = suite.repo.rewardHistory(id, 50, smp.id);
+    expect(hist.filter((h) => h.kind === 'stars').map((h) => h.delta)).toEqual([4, 20]);
+    expect(hist.map((h) => h.kind)).toEqual(expect.arrayContaining(['eligible', 'waiting', 'received', 'discordLinked']));
   });
 });
 
@@ -134,24 +151,40 @@ describe('templates and clone', () => {
 });
 
 describe('sessions', () => {
-  it('auto-reconnects after a disconnect and can be stopped', async () => {
-    vi.useFakeTimers();
-    try {
-      const { suite, id, smp, bots } = await fullIdentity();
-      bots[0].join();
-      bots[0].emit('end', 'socketClosed');
-      expect(suite.sessions.list(id)[0].state).toBe('RECONNECTING');
-      await vi.advanceTimersByTimeAsync(16_000);
-      expect(bots).toHaveLength(2);
-      bots[1].join();
-      expect(suite.sessions.list(id)[0].state).toBe('ONLINE');
-      suite.sessions.stop(`${id}:${smp.id}`);
-      await vi.runAllTimersAsync();
-      expect(suite.sessions.list(id)[0].state).toBe('STOPPED');
-      expect(bots).toHaveLength(2);
-    } finally {
-      vi.useRealTimers();
-    }
+  it('keeps a desired-online session online (reconnect after disconnect) and stops on request', async () => {
+    const { suite, id, smp, bots } = await fullIdentity();
+    const sid = `${id}:${smp.id}`;
+    bots[0].join();
+    await settle();
+    expect(suite.sessions.getState(sid).state).toBe('ONLINE');
+    bots[0].emit('end', 'socketClosed');
+    await settle();
+    expect(suite.sessions.getState(sid).state).toBe('RECONNECTING');
+    await waitFor(() => bots.length === 2, 3000, 'reconnect');
+    bots[1].join();
+    await settle();
+    expect(suite.sessions.getState(sid)).toMatchObject({ state: 'ONLINE', reconnects: 1, desiredState: 'ONLINE' });
+    await suite.sessions.stopSession(sid);
+    expect(suite.sessions.getState(sid)).toMatchObject({ state: 'STOPPED', desiredState: 'OFFLINE' });
+    await new Promise((r) => setTimeout(r, 400));
+    expect(bots).toHaveLength(2);
+  });
+
+  it('blocks automatic reconnects when the kick reason matches a block rule', async () => {
+    const { suite, id, smp, bots } = await fullIdentity();
+    const sid = `${id}:${smp.id}`;
+    bots[0].join();
+    bots[0].emit('kicked', '{"text":"You are banned from this server"}');
+    bots[0].emit('end', 'kicked');
+    await settle();
+    const st = suite.sessions.getState(sid);
+    expect(st.state).toBe('BLOCKED');
+    expect(st.lastError).toMatch(/banned/);
+    await new Promise((r) => setTimeout(r, 300));
+    expect(bots).toHaveLength(1);
+    // explicit user action overrides the block
+    await suite.sessions.startSession(id, smp.id);
+    await waitFor(() => bots.length === 2);
   });
 
   it('supports several servers per identity at the same time', async () => {
@@ -159,9 +192,26 @@ describe('sessions', () => {
     const ev = suite.repo.upsertServer({ name: 'Event', host: 'event.example.com' });
     suite.repo.assignServer(id, { serverId: ev.id });
     await suite.sessions.startAll(id);
+    await waitFor(() => bots.length === 2);
     bots.forEach((b) => b.join());
+    await settle();
     expect(suite.sessions.list(id).map((s) => s.state)).toEqual(['ONLINE', 'ONLINE']);
     expect(suite.identities.health(id).checks.find((c) => c.key === 'sessions')!.detail).toBe('2/2 online');
+  });
+
+  it('restores desired sessions through the reconciler and isolates a crashed runtime host', async () => {
+    const { suite, id, smp, bots } = await fullIdentity();
+    bots[0].join();
+    await settle();
+    const sid = `${id}:${smp.id}`;
+    (suite.runtime as any).crashHostOf(sid);
+    await settle();
+    expect(suite.sessions.getState(sid).state).toBe('RECONNECTING');
+    expect(suite.sessions.getState(sid).lastEndReason).toBe('runtimeCrash');
+    await waitFor(() => bots.length === 2, 3000, 'restart after crash');
+    bots[1].join();
+    await settle();
+    expect(suite.sessions.getState(sid).state).toBe('ONLINE');
   });
 });
 

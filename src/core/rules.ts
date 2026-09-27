@@ -41,6 +41,33 @@ export interface RewardRuleSet {
   add: string[];
   eligible: string[];
   notEligible: string[];
+  /** Reward was handed out. */
+  received: string[];
+  /** Reward is pending / waiting for a condition. */
+  waiting: string[];
+  /** Server reports the Discord link state relevant for rewards. */
+  discordLinked: string[];
+  discordNotLinked: string[];
+}
+
+export type ReconnectAction = 'retry' | 'delay' | 'block';
+
+export interface ReconnectRule {
+  /** Case-insensitive regexes matched against the kick/disconnect reason. */
+  match: string[];
+  action: ReconnectAction;
+  /** For action "delay": minimum delay before the next attempt. */
+  delaySec?: number;
+  label: string;
+}
+
+export interface ReconnectPolicy {
+  baseDelaySec: number;
+  maxDelaySec: number;
+  /** Online for this long → the failure counter resets. */
+  stableAfterSec: number;
+  /** Retries after a runtime crash use the base delay without escalation. */
+  rules: ReconnectRule[];
 }
 
 export type ChatRuleSet = LinkingRuleSet | RewardRuleSet;
@@ -49,7 +76,15 @@ export interface RulesConfig {
   mailRules: MailRule[];
   defaultCodePatterns: string[];
   chatRules: ChatRuleSet[];
+  reconnect: ReconnectPolicy;
 }
+
+export const DEFAULT_RECONNECT: ReconnectPolicy = {
+  baseDelaySec: 10,
+  maxDelaySec: 600,
+  stableAfterSec: 300,
+  rules: [],
+};
 
 function arr(v: unknown): string[] {
   if (v === undefined || v === null) return [];
@@ -106,15 +141,39 @@ export function parseRules(text: string): RulesConfig {
         add: arr(r.add).map((p) => checkRegex(p, `chatRules.${id}.add`)),
         eligible: arr(r.eligible).map((p) => checkRegex(p, `chatRules.${id}.eligible`)),
         notEligible: arr(r.notEligible).map((p) => checkRegex(p, `chatRules.${id}.notEligible`)),
+        received: arr(r.received).map((p) => checkRegex(p, `chatRules.${id}.received`)),
+        waiting: arr(r.waiting).map((p) => checkRegex(p, `chatRules.${id}.waiting`)),
+        discordLinked: arr(r.discordLinked).map((p) => checkRegex(p, `chatRules.${id}.discordLinked`)),
+        discordNotLinked: arr(r.discordNotLinked).map((p) => checkRegex(p, `chatRules.${id}.discordNotLinked`)),
       });
     } else {
       throw new ValidationError(`chatRules.${id}.type must be "linking" or "rewards"`);
     }
   }
+  const rc = raw.reconnect ?? {};
+  const reconnect: ReconnectPolicy = {
+    baseDelaySec: Number(rc.baseDelaySec ?? DEFAULT_RECONNECT.baseDelaySec),
+    maxDelaySec: Number(rc.maxDelaySec ?? DEFAULT_RECONNECT.maxDelaySec),
+    stableAfterSec: Number(rc.stableAfterSec ?? DEFAULT_RECONNECT.stableAfterSec),
+    rules: (Array.isArray(rc.rules) ? rc.rules : []).map((r: any, i: number) => {
+      const action = String(r?.action ?? 'retry') as ReconnectAction;
+      if (!['retry', 'delay', 'block'].includes(action)) throw new ValidationError(`reconnect.rules[${i}].action must be retry|delay|block`);
+      return {
+        match: arr(r?.match).map((p) => checkRegex(p, `reconnect.rules[${i}].match`)),
+        action,
+        delaySec: r?.delaySec !== undefined ? Number(r.delaySec) : undefined,
+        label: String(r?.label ?? action),
+      };
+    }),
+  };
+  if (!(reconnect.baseDelaySec > 0) || !(reconnect.maxDelaySec >= reconnect.baseDelaySec)) {
+    throw new ValidationError('reconnect: baseDelaySec must be > 0 and maxDelaySec >= baseDelaySec');
+  }
   return {
     mailRules,
     defaultCodePatterns: arr(raw.defaultCodePatterns).map((p) => checkRegex(p, 'defaultCodePatterns')),
     chatRules,
+    reconnect,
   };
 }
 
@@ -191,7 +250,10 @@ export type ChatEvent =
   | { kind: 'linkError'; ruleSet: string; message: string }
   | { kind: 'starsSet'; ruleSet: string; stars: number }
   | { kind: 'starsAdd'; ruleSet: string; delta: number }
-  | { kind: 'eligible'; ruleSet: string; eligible: boolean };
+  | { kind: 'eligible'; ruleSet: string; eligible: boolean }
+  | { kind: 'received'; ruleSet: string }
+  | { kind: 'waiting'; ruleSet: string }
+  | { kind: 'rewardDiscord'; ruleSet: string; linked: boolean };
 
 /** Strip Minecraft § formatting codes. */
 export function stripFormatting(s: string): string {
@@ -232,9 +294,46 @@ export function parseChatLine(rules: RulesConfig, activeRuleSets: string[], rawL
           break;
         }
       }
-      if (rs.eligible.some((p) => new RegExp(p, 'i').test(line))) out.push({ kind: 'eligible', ruleSet: rs.id, eligible: true });
       if (rs.notEligible.some((p) => new RegExp(p, 'i').test(line))) out.push({ kind: 'eligible', ruleSet: rs.id, eligible: false });
+      else if (rs.eligible.some((p) => new RegExp(p, 'i').test(line))) out.push({ kind: 'eligible', ruleSet: rs.id, eligible: true });
+      if (rs.received.some((p) => new RegExp(p, 'i').test(line))) out.push({ kind: 'received', ruleSet: rs.id });
+      if (rs.waiting.some((p) => new RegExp(p, 'i').test(line))) out.push({ kind: 'waiting', ruleSet: rs.id });
+      if (rs.discordNotLinked.some((p) => new RegExp(p, 'i').test(line))) out.push({ kind: 'rewardDiscord', ruleSet: rs.id, linked: false });
+      else if (rs.discordLinked.some((p) => new RegExp(p, 'i').test(line))) out.push({ kind: 'rewardDiscord', ruleSet: rs.id, linked: true });
     }
   }
   return out;
+}
+
+// ---------------------------------------------------------------- reconnect policy
+
+export interface ReconnectDecision {
+  action: ReconnectAction;
+  delaySec: number;
+  label: string;
+}
+
+/**
+ * Decides how to react to a session end. `failures` is the number of consecutive
+ * failed attempts (0 after a stable online period).
+ */
+export function decideReconnect(policy: ReconnectPolicy, reason: string, failures: number, crash = false): ReconnectDecision {
+  const text = reason ?? '';
+  for (const r of policy.rules) {
+    if (r.match.some((p) => new RegExp(p, 'i').test(text))) {
+      if (r.action === 'block') return { action: 'block', delaySec: 0, label: r.label };
+      if (r.action === 'delay') {
+        const d = Math.max(r.delaySec ?? policy.baseDelaySec, backoff(policy, failures));
+        return { action: 'delay', delaySec: Math.min(d, Math.max(policy.maxDelaySec, r.delaySec ?? 0)), label: r.label };
+      }
+      return { action: 'retry', delaySec: backoff(policy, failures), label: r.label };
+    }
+  }
+  return { action: 'retry', delaySec: crash ? policy.baseDelaySec : backoff(policy, failures), label: crash ? 'runtime crash' : 'disconnect' };
+}
+
+function backoff(policy: ReconnectPolicy, failures: number): number {
+  const exp = policy.baseDelaySec * 2 ** Math.min(Math.max(failures - 1, 0), 10);
+  const jitter = 0.85 + Math.random() * 0.3;
+  return Math.round(Math.min(exp, policy.maxDelaySec) * jitter);
 }

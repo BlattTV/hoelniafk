@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import Database from 'better-sqlite3';
 
 export type DB = Database.Database;
@@ -175,22 +176,80 @@ const MIGRATIONS: string[] = [
     value TEXT NOT NULL
   );
   `,
+  // v2: desired-state sessions, session/chat logs, per-server rewards
+  `
+  ALTER TABLE server_assignments ADD COLUMN desired_state TEXT NOT NULL DEFAULT 'OFFLINE';
+  UPDATE server_assignments SET desired_state = 'ONLINE' WHERE auto_start = 1;
+
+  CREATE TABLE session_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts TEXT NOT NULL,
+    identity_id INTEGER NOT NULL,
+    server_id INTEGER NOT NULL,
+    session_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    detail TEXT NOT NULL DEFAULT ''
+  );
+  CREATE INDEX idx_session_events ON session_events(session_id, id);
+
+  CREATE TABLE chat_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    identity_id INTEGER NOT NULL,
+    server_id INTEGER NOT NULL,
+    text TEXT NOT NULL
+  );
+  CREATE INDEX idx_chat_log_session ON chat_log(session_id, id);
+  CREATE INDEX idx_chat_log_ts ON chat_log(id);
+
+  CREATE TABLE reward_server_states (
+    identity_id INTEGER NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
+    server_id INTEGER NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+    stars INTEGER NOT NULL DEFAULT 0,
+    eligible INTEGER,
+    received INTEGER,
+    waiting INTEGER,
+    discord_linked INTEGER,
+    last_change TEXT,
+    last_message TEXT,
+    PRIMARY KEY (identity_id, server_id)
+  );
+
+  ALTER TABLE reward_history ADD COLUMN server_id INTEGER;
+  ALTER TABLE reward_history ADD COLUMN kind TEXT NOT NULL DEFAULT 'stars';
+  `,
 ];
+
+export const SCHEMA_VERSION = MIGRATIONS.length;
 
 export function openDatabase(file: string): DB {
   const db = new Database(file);
+  db.pragma('busy_timeout = 5000');
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
+  backupBeforeMigration(db, file);
   migrate(db);
   return db;
 }
 
-export function migrate(db: DB): void {
+/** Copies the database file before pending migrations touch an existing database. */
+function backupBeforeMigration(db: DB, file: string): void {
+  if (file === ':memory:') return;
+  const hasTable = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='schema_version'").get();
+  if (!hasTable) return;
+  const current = schemaVersion(db);
+  if (current === 0 || current >= MIGRATIONS.length) return;
+  db.pragma('wal_checkpoint(TRUNCATE)');
+  fs.copyFileSync(file, `${file}.pre-v${current + 1}.bak`);
+}
+
+export function migrate(db: DB, upTo = MIGRATIONS.length): void {
   db.exec('CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)');
   const row = db.prepare('SELECT version FROM schema_version').get() as { version: number } | undefined;
   let version = row?.version ?? 0;
   if (!row) db.prepare('INSERT INTO schema_version (version) VALUES (0)').run();
-  while (version < MIGRATIONS.length) {
+  while (version < upTo) {
     const sql = MIGRATIONS[version];
     db.transaction(() => {
       db.exec(sql);
@@ -198,6 +257,10 @@ export function migrate(db: DB): void {
     })();
     version++;
   }
+}
+
+export function schemaVersion(db: DB): number {
+  return (db.prepare('SELECT version FROM schema_version').get() as { version: number }).version;
 }
 
 export function nowIso(): string {

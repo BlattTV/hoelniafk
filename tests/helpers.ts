@@ -4,13 +4,17 @@ import { openDatabase } from '../src/core/db.js';
 import { parseRules } from '../src/core/rules.js';
 import type { MailAccount, NetworkProfile } from '../src/core/types.js';
 import type { MessageHeader, MessageSource, RawMessage } from '../src/mail/provider.js';
-import type { BotLike, SessionLaunchSpec } from '../src/minecraft/sessionManager.js';
+import type { HostBot } from '../src/runtime/host/hostCore.js';
+import type { JavaSession, RuntimeSessionSpec } from '../src/runtime/types.js';
 import { StaticKeyProvider } from '../src/vault/keyProviders.js';
 import { EncryptedFileVault } from '../src/vault/vault.js';
 import fs from 'node:fs';
 import path from 'node:path';
 
-export const TEST_RULES = parseRules(fs.readFileSync(path.resolve('config/rules.yaml'), 'utf8'));
+const PARSED_RULES = parseRules(fs.readFileSync(path.resolve('config/rules.yaml'), 'utf8'));
+/** Project rules with very short reconnect delays so reconnect tests run in real time. */
+export const TEST_RULES = { ...PARSED_RULES, reconnect: { ...PARSED_RULES.reconnect, baseDelaySec: 0.05, maxDelaySec: 0.3, stableAfterSec: 0.5 } };
+export const PROJECT_RULES = PARSED_RULES;
 
 // ------------------------------------------------------------------ fake mail server
 
@@ -112,13 +116,25 @@ export class FakeMailServer {
 
 // ------------------------------------------------------------------ fake bots
 
-export class FakeBot extends EventEmitter implements BotLike {
+export class FakeBot extends EventEmitter implements HostBot {
   readonly sent: string[] = [];
   quitCalled = false;
-  constructor(readonly spec: SessionLaunchSpec) {
+  javaSession: JavaSession | null = null;
+  authError: string | null = null;
+  constructor(
+    readonly spec: RuntimeSessionSpec,
+    readonly getJavaSession: () => Promise<JavaSession>,
+  ) {
     super();
+    if (spec.auth === 'microsoft') {
+      getJavaSession().then(
+        (js) => (this.javaSession = js),
+        (e) => (this.authError = (e as Error).message),
+      );
+    }
   }
   quit(): void {
+    if (this.quitCalled) return;
     this.quitCalled = true;
     setImmediate(() => this.emit('end', 'quit'));
   }
@@ -144,11 +160,12 @@ export async function createTestSuite(overrides: Partial<SuiteDeps> = {}) {
   const oauthPosts: Array<{ url: string; form: Record<string, string> }> = [];
   const suite = createSuite({
     config: { port: 7420 },
+    sessionOptions: { reconcileIntervalMs: 60_000 },
     db: openDatabase(':memory:'),
     store,
     rules: TEST_RULES,
-    botFactory: (spec) => {
-      const b = new FakeBot(spec);
+    botFactory: (spec, getJavaSession) => {
+      const b = new FakeBot(spec, getJavaSession);
       bots.push(b);
       return b;
     },
@@ -162,7 +179,11 @@ export async function createTestSuite(overrides: Partial<SuiteDeps> = {}) {
       const cache = cacheFactory({ username: msaAccount, cacheName: 'mca' });
       await cache.setCached({ token: `mc-token-for-${msaAccount}`, obtainedOn: Date.now() });
       const n = msaAccount.replace(/\D/g, '').padStart(2, '0');
-      return { id: `0000000000000000000000000000${n.padStart(4, '0')}`, name: `Player${n}` };
+      return {
+        profile: { id: `0000000000000000000000000000${n.padStart(4, '0')}`, name: `Player${n}` },
+        accessToken: `mc-token-for-${msaAccount}`,
+        profileKeys: null,
+      };
     },
     mailSourceFactory: mailServer.factory,
     discordUserFetcher: async (accessToken) => {
@@ -183,3 +204,16 @@ export async function createTestSuite(overrides: Partial<SuiteDeps> = {}) {
 }
 
 export const tick = () => new Promise((r) => setImmediate(r));
+
+/** Lets queued inline-runtime messages (setImmediate based) settle. */
+export async function settle(rounds = 6): Promise<void> {
+  for (let i = 0; i < rounds; i++) await tick();
+}
+
+export async function waitFor(cond: () => boolean, timeoutMs = 5000, what = 'condition'): Promise<void> {
+  const start = Date.now();
+  while (!cond()) {
+    if (Date.now() - start > timeoutMs) throw new Error(`Timed out waiting for ${what}`);
+    await new Promise((r) => setTimeout(r, 5));
+  }
+}

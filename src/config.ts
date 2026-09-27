@@ -20,8 +20,21 @@ export interface AppConfig {
     mailCheckMinutes: number;
     networkCheckMinutes: number;
     discordVerifyHours: number;
-    autoStartSessions: boolean;
+    tokenRefreshHours: number;
+    /** Start the desired-state reconciler on launch (restores sessions that should be online). */
+    restoreSessions: boolean;
   };
+  runtime: {
+    /** process: supervised child processes (production); inline: in the main process. */
+    mode: 'process' | 'inline';
+    sessionsPerHost: number;
+    grouping: 'identity' | 'pooled';
+    heartbeatMs: number;
+    heartbeatTimeoutMs: number;
+    idleHostTtlMs: number;
+  };
+  sessions: { reconcileIntervalMs: number; maxConcurrentStarts: number };
+  logging: { level: 'debug' | 'info' | 'warn' | 'error'; file: boolean; maxFileMb: number; keepFiles: number };
 }
 
 export const DEFAULT_CONFIG: AppConfig = {
@@ -37,7 +50,10 @@ export const DEFAULT_CONFIG: AppConfig = {
   },
   network: { ipEndpoints: ['https://api.ipify.org', 'https://ifconfig.me/ip', 'https://icanhazip.com'] },
   mail: { syncLimit: 100 },
-  automation: { mailCheckMinutes: 10, networkCheckMinutes: 30, discordVerifyHours: 24, autoStartSessions: false },
+  automation: { mailCheckMinutes: 10, networkCheckMinutes: 30, discordVerifyHours: 24, tokenRefreshHours: 12, restoreSessions: true },
+  runtime: { mode: 'process', sessionsPerHost: 10, grouping: 'pooled', heartbeatMs: 5000, heartbeatTimeoutMs: 30000, idleHostTtlMs: 60000 },
+  sessions: { reconcileIntervalMs: 3000, maxConcurrentStarts: 4 },
+  logging: { level: 'info', file: true, maxFileMb: 10, keepFiles: 5 },
 };
 
 function deepMerge<T>(base: T, patch: any): T {

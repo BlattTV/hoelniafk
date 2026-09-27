@@ -5,5 +5,8 @@ export default defineConfig({
     include: ['tests/**/*.test.ts'],
     environment: 'node',
     testTimeout: 15000,
+    hookTimeout: 60000,
+    // Integration tests start real servers and child processes.
+    fileParallelism: false,
   },
 });

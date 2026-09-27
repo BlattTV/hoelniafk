@@ -1,49 +1,79 @@
+import crypto from 'node:crypto';
 import mineflayer from 'mineflayer';
 import { openSocket, resolveMinecraftTarget } from '../network/connector.js';
-import type { BotFactory, BotLike } from './sessionManager.js';
+import type { HostBot, HostBotFactory } from '../runtime/host/hostCore.js';
+import type { JavaSession } from '../runtime/types.js';
 
 /**
- * Real bot factory based on mineflayer. The TCP connection (including the
- * version-detection ping) is always opened through the identity's own network
- * profile, and the token cache is the identity-scoped vault cache.
+ * Real bot factory based on mineflayer (runs inside a runtime host).
+ *  - The TCP connection (incl. the version-detection ping) is always opened through
+ *    the session's own network profile (bind IP / SOCKS5 / HTTP CONNECT).
+ *  - Microsoft sessions get their access token + chat-signing keys from the main
+ *    process via `getJavaSession()`; the host never sees the refresh tokens.
  */
-export const mineflayerBotFactory: BotFactory = (spec) => {
+export const mineflayerBotFactory: HostBotFactory = (spec, getJavaSession) => {
   const { network, server } = spec;
+  const connect = (client: any) => {
+    resolveMinecraftTarget(server.host, server.port)
+      .then((target) => openSocket(network.profile, network.secret, target))
+      .then((socket) => {
+        client.setSocket(socket);
+        client.emit('connect');
+      })
+      .catch((err) => {
+        client.emit('error', err);
+        client.emit('end', 'connectFailed');
+      });
+  };
+
+  const microsoftAuth = (client: any, options: any) => {
+    getJavaSession()
+      .then((js) => {
+        applyJavaSession(client, options, js);
+        options.connect(client);
+      })
+      .catch((err) => {
+        client.emit('error', err);
+        client.emit('end', 'authFailed');
+      });
+  };
+
   const bot = mineflayer.createBot({
     host: server.host,
     port: server.port,
     username: spec.username,
-    auth: spec.authType,
+    auth: spec.auth === 'microsoft' ? microsoftAuth : 'offline',
     version: server.version || undefined,
-    profilesFolder: (spec.cacheFactory ?? undefined) as any,
-    onMsaCode: spec.onMsaCode as any,
     hideErrors: true,
     checkTimeoutInterval: 60_000,
-    connect: (client: any) => {
-      resolveMinecraftTarget(server.host, server.port)
-        .then((target) => openSocket(network.profile, network.secret, target))
-        .then((socket) => {
-          client.setSocket(socket);
-          client.emit('connect');
-        })
-        .catch((err) => {
-          client.emit('error', err);
-          client.emit('end', 'connectFailed');
-        });
-    },
-  } as any) as unknown as BotLike & { look: Function; swingArm: Function; setControlState: Function; entity?: any };
-
-  bot.antiAfk = (action) => {
-    if (action === 'look') {
-      const yaw = Math.random() * Math.PI * 2 - Math.PI;
-      const pitch = (Math.random() - 0.5) * 0.6;
-      (bot as any).look(yaw, pitch, false);
-    } else if (action === 'swing') {
-      (bot as any).swingArm('right');
-    } else if (action === 'jump') {
-      (bot as any).setControlState('jump', true);
-      setTimeout(() => (bot as any).setControlState('jump', false), 400);
-    }
-  };
-  return bot;
+    viewDistance: spec.viewDistance,
+    connect,
+  } as any);
+  return bot as unknown as HostBot;
 };
+
+/** Mirrors minecraft-protocol's microsoftAuth.authenticate() with a pre-fetched session. */
+export function applyJavaSession(client: any, options: any, js: JavaSession): void {
+  const session = {
+    accessToken: js.accessToken,
+    selectedProfile: js.profile,
+    availableProfile: [js.profile],
+  };
+  client.session = session;
+  client.username = js.profile.name;
+  options.haveCredentials = true;
+  options.accessToken = js.accessToken;
+  if (js.profileKeys) {
+    const k = js.profileKeys;
+    client.profileKeys = {
+      publicPEM: k.publicPEM,
+      privatePEM: k.privatePEM,
+      public: crypto.createPublicKey(k.publicPEM),
+      private: crypto.createPrivateKey(k.privatePEM),
+      signature: Buffer.from(k.signature, 'base64'),
+      signatureV2: Buffer.from(k.signatureV2, 'base64'),
+      expiresOn: new Date(k.expiresOn),
+    };
+  }
+  client.emit('session', session);
+}

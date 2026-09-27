@@ -17,6 +17,8 @@ import {
   type RewardHistoryEntry,
   type RewardState,
   type ServerAssignment,
+  type ServerRewardState,
+  type DesiredState,
 } from '../core/types.js';
 
 type Row = Record<string, any>;
@@ -126,6 +128,22 @@ function mapAssignment(r: Row): ServerAssignment {
     enabled: bool(r.enabled),
     autoStart: bool(r.auto_start),
     networkProfileId: r.network_profile_id,
+    desiredState: r.desired_state === 'ONLINE' ? 'ONLINE' : 'OFFLINE',
+  };
+}
+
+function mapServerReward(r: Row): ServerRewardState {
+  const tri = (v: unknown) => (v === null || v === undefined ? null : v === 1);
+  return {
+    identityId: r.identity_id,
+    serverId: r.server_id,
+    stars: r.stars,
+    eligible: tri(r.eligible),
+    received: tri(r.received),
+    waiting: tri(r.waiting),
+    discordLinked: tri(r.discord_linked),
+    lastChange: r.last_change,
+    lastMessage: r.last_message,
   };
 }
 
@@ -542,19 +560,31 @@ export class IdentityRepository {
     return r ? mapAssignment(r) : null;
   }
 
-  assignServer(identityId: number, input: { serverId: number; enabled?: boolean; autoStart?: boolean; networkProfileId?: number | null }): ServerAssignment {
+  assignServer(
+    identityId: number,
+    input: { serverId: number; enabled?: boolean; autoStart?: boolean; networkProfileId?: number | null; desiredState?: DesiredState },
+  ): ServerAssignment {
     this.getIdentity(identityId);
     this.getServer(input.serverId);
     if (input.networkProfileId) this.assertNetworkOwned(input.networkProfileId, identityId);
+    const cur = this.getAssignment(identityId, input.serverId);
+    const desired = input.desiredState ?? cur?.desiredState ?? (input.autoStart ? 'ONLINE' : 'OFFLINE');
     this.db
       .prepare(
-        `INSERT INTO server_assignments (identity_id, server_id, enabled, auto_start, network_profile_id) VALUES (?, ?, ?, ?, ?)
+        `INSERT INTO server_assignments (identity_id, server_id, enabled, auto_start, network_profile_id, desired_state) VALUES (?, ?, ?, ?, ?, ?)
          ON CONFLICT(identity_id, server_id) DO UPDATE SET enabled=excluded.enabled, auto_start=excluded.auto_start,
-           network_profile_id=excluded.network_profile_id`,
+           network_profile_id=excluded.network_profile_id, desired_state=excluded.desired_state`,
       )
-      .run(identityId, input.serverId, input.enabled === false ? 0 : 1, input.autoStart ? 1 : 0, input.networkProfileId ?? null);
+      .run(identityId, input.serverId, input.enabled === false ? 0 : 1, input.autoStart ? 1 : 0, input.networkProfileId ?? null, desired);
     this.touch(identityId);
     return this.getAssignment(identityId, input.serverId)!;
+  }
+
+  setDesiredState(identityId: number, serverId: number, desired: DesiredState): ServerAssignment {
+    const a = this.getAssignment(identityId, serverId);
+    if (!a) throw new ValidationError('Identity is not assigned to this server');
+    this.db.prepare('UPDATE server_assignments SET desired_state = ? WHERE id = ?').run(desired, a.id);
+    return this.getAssignment(identityId, serverId)!;
   }
 
   unassignServer(identityId: number, serverId: number): void {
@@ -580,16 +610,133 @@ export class IdentityRepository {
          ON CONFLICT(identity_id) DO UPDATE SET stars=excluded.stars, eligible=excluded.eligible, last_update=excluded.last_update`,
       )
       .run(identityId, stars, eligible ? 1 : 0, ts);
-    if (stars !== cur.stars) {
-      this.db.prepare('INSERT INTO reward_history (identity_id, ts, delta, stars, reason) VALUES (?, ?, ?, ?, ?)').run(identityId, ts, stars - cur.stars, stars, reason);
-    }
+    if (stars !== cur.stars) this.addRewardHistory(identityId, null, 'stars', stars - cur.stars, stars, reason);
+    if (eligible !== cur.eligible) this.addRewardHistory(identityId, null, 'eligible', 0, stars, `${reason}: ${eligible ? 'eligible' : 'not eligible'}`);
     return this.getRewards(identityId);
   }
 
-  rewardHistory(identityId: number, limit = 50): RewardHistoryEntry[] {
+  addRewardHistory(identityId: number, serverId: number | null, kind: RewardHistoryEntry['kind'], delta: number, stars: number, reason: string): void {
+    this.db
+      .prepare('INSERT INTO reward_history (identity_id, server_id, ts, kind, delta, stars, reason) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run(identityId, serverId, nowIso(), kind, delta, stars, reason.slice(0, 300));
+  }
+
+  rewardHistory(identityId: number, limit = 50, serverId?: number): RewardHistoryEntry[] {
+    const where = serverId === undefined ? '' : ' AND server_id = ?';
+    const params: unknown[] = serverId === undefined ? [identityId, limit] : [identityId, serverId, limit];
     return this.db
-      .prepare('SELECT id, identity_id AS identityId, ts, delta, stars, reason FROM reward_history WHERE identity_id = ? ORDER BY id DESC LIMIT ?')
-      .all(identityId, limit) as RewardHistoryEntry[];
+      .prepare(
+        `SELECT id, identity_id AS identityId, server_id AS serverId, ts, kind, delta, stars, reason FROM reward_history
+         WHERE identity_id = ?${where} ORDER BY id DESC LIMIT ?`,
+      )
+      .all(...params) as RewardHistoryEntry[];
+  }
+
+  listServerRewards(identityId?: number): ServerRewardState[] {
+    const rows =
+      identityId === undefined
+        ? (this.db.prepare('SELECT * FROM reward_server_states').all() as Row[])
+        : (this.db.prepare('SELECT * FROM reward_server_states WHERE identity_id = ?').all(identityId) as Row[]);
+    return rows.map(mapServerReward);
+  }
+
+  getServerReward(identityId: number, serverId: number): ServerRewardState {
+    const r = this.db.prepare('SELECT * FROM reward_server_states WHERE identity_id = ? AND server_id = ?').get(identityId, serverId) as Row | undefined;
+    return r
+      ? mapServerReward(r)
+      : { identityId, serverId, stars: 0, eligible: null, received: null, waiting: null, discordLinked: null, lastChange: null, lastMessage: null };
+  }
+
+  saveServerReward(state: ServerRewardState): void {
+    const b = (v: boolean | null) => (v === null ? null : v ? 1 : 0);
+    this.db
+      .prepare(
+        `INSERT INTO reward_server_states (identity_id, server_id, stars, eligible, received, waiting, discord_linked, last_change, last_message)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(identity_id, server_id) DO UPDATE SET stars=excluded.stars, eligible=excluded.eligible, received=excluded.received,
+           waiting=excluded.waiting, discord_linked=excluded.discord_linked, last_change=excluded.last_change, last_message=excluded.last_message`,
+      )
+      .run(state.identityId, state.serverId, state.stars, b(state.eligible), b(state.received), b(state.waiting), b(state.discordLinked), state.lastChange, state.lastMessage);
+  }
+
+  // ------------------------------------------------------------ session & chat logs
+
+  addSessionEvent(identityId: number, serverId: number, sessionId: string, kind: string, detail = ''): void {
+    this.db
+      .prepare('INSERT INTO session_events (ts, identity_id, server_id, session_id, kind, detail) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(nowIso(), identityId, serverId, sessionId, kind, detail.slice(0, 500));
+  }
+
+  sessionEvents(filter: { sessionId?: string; identityId?: number; limit?: number }): Array<{ id: number; ts: string; identityId: number; serverId: number; sessionId: string; kind: string; detail: string }> {
+    const where: string[] = [];
+    const params: unknown[] = [];
+    if (filter.sessionId) {
+      where.push('session_id = ?');
+      params.push(filter.sessionId);
+    }
+    if (filter.identityId !== undefined) {
+      where.push('identity_id = ?');
+      params.push(filter.identityId);
+    }
+    params.push(Math.min(filter.limit ?? 200, 2000));
+    return this.db
+      .prepare(
+        `SELECT id, ts, identity_id AS identityId, server_id AS serverId, session_id AS sessionId, kind, detail FROM session_events
+         ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY id DESC LIMIT ?`,
+      )
+      .all(...params) as any[];
+  }
+
+  insertChat(lines: Array<{ ts: string; sessionId: string; identityId: number; serverId: number; text: string }>): void {
+    if (!lines.length) return;
+    const stmt = this.db.prepare('INSERT INTO chat_log (ts, session_id, identity_id, server_id, text) VALUES (?, ?, ?, ?, ?)');
+    this.db.transaction(() => {
+      for (const l of lines) stmt.run(l.ts, l.sessionId, l.identityId, l.serverId, l.text);
+    })();
+  }
+
+  chatLog(filter: { sessionId?: string; identityId?: number; serverId?: number; q?: string; before?: number; limit?: number }): Array<{ id: number; ts: string; sessionId: string; identityId: number; serverId: number; text: string }> {
+    const where: string[] = [];
+    const params: unknown[] = [];
+    if (filter.sessionId) {
+      where.push('session_id = ?');
+      params.push(filter.sessionId);
+    }
+    if (filter.identityId !== undefined) {
+      where.push('identity_id = ?');
+      params.push(filter.identityId);
+    }
+    if (filter.serverId !== undefined) {
+      where.push('server_id = ?');
+      params.push(filter.serverId);
+    }
+    if (filter.q) {
+      where.push('text LIKE ?');
+      params.push(`%${filter.q}%`);
+    }
+    if (filter.before) {
+      where.push('id < ?');
+      params.push(filter.before);
+    }
+    params.push(Math.min(filter.limit ?? 200, 2000));
+    const rows = this.db
+      .prepare(
+        `SELECT id, ts, session_id AS sessionId, identity_id AS identityId, server_id AS serverId, text FROM chat_log
+         ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY id DESC LIMIT ?`,
+      )
+      .all(...params) as any[];
+    return rows.reverse();
+  }
+
+  /** Keeps the logs bounded (called periodically). */
+  pruneLogs(keepChatPerSession = 2000, keepEventsDays = 30): void {
+    this.db
+      .prepare(
+        `DELETE FROM chat_log WHERE id IN (
+           SELECT id FROM (SELECT id, ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY id DESC) AS rn FROM chat_log) WHERE rn > ?)`,
+      )
+      .run(keepChatPerSession);
+    this.db.prepare("DELETE FROM session_events WHERE ts < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', ?)").run(`-${keepEventsDays} days`);
   }
 
   // ------------------------------------------------------------ templates

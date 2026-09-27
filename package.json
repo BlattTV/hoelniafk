@@ -14,7 +14,9 @@
     "dev": "tsx src/index.ts",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "demo": "tsx src/demo.ts"
+    "demo": "tsx src/demo.ts",
+    "test:unit": "vitest run --exclude \"tests/integration/**\"",
+    "test:integration": "vitest run tests/integration"
   },
   "license": "UNLICENSED",
   "dependencies": {
@@ -27,9 +29,12 @@
     "mineflayer": "^4.39.0",
     "nodemailer": "^10.0.11",
     "prismarine-auth": "^3.1.1",
+    "prismarine-viewer": "^1.33.0",
+    "socket.io": "^4.8.4",
     "socks": "^2.8.10",
     "socks-proxy-agent": "^10.1.0",
-    "yaml": "^2.9.1"
+    "yaml": "^2.9.1",
+    "flying-squid": "^1.12.0"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^9.6.0",

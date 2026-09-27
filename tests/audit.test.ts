@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { maskCode } from '../src/core/audit.js';
 import { createLogger, redact, setLogSink } from '../src/core/logger.js';
-import { createTestSuite } from './helpers.js';
+import { createTestSuite, settle, waitFor } from './helpers.js';
 
 describe('audit log', () => {
   it('masks codes', () => {
@@ -24,9 +24,11 @@ describe('audit log', () => {
     await suite.auth.authenticate(id);
     suite.repo.assignServer(id, { serverId: server.id });
     await suite.sessions.start(id, server.id);
+    await waitFor(() => bots.length === 1);
     bots[0].join();
     bots[0].say('Link your account using code XYZ789');
     bots[0].say('Discord linked successfully');
+    await settle();
     const text = suite.audit.list().map((e) => `${e.action} ${e.detail}`).join('\n');
     expect(text).toContain('Discord linked');
     expect(text).toContain('XY****');

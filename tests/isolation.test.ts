@@ -8,7 +8,7 @@
 import { describe, expect, it } from 'vitest';
 import { ConflictError, IsolationError } from '../src/core/errors.js';
 import { refs } from '../src/vault/refs.js';
-import { createTestSuite, tick } from './helpers.js';
+import { createTestSuite, tick, waitFor } from './helpers.js';
 
 async function twoIdentities() {
   const t = await createTestSuite();
@@ -173,7 +173,10 @@ describe('network isolation', () => {
     suite.repo.assignServer(a.id, { serverId: s1.id });
     suite.repo.assignServer(a.id, { serverId: s2.id, networkProfileId: alt.id });
     await suite.sessions.startAll(a.id);
-    expect(bots.map((x) => x.spec.network.profile!.id)).toEqual([main.id, alt.id]);
+    await waitFor(() => bots.length === 2, 2000, 'two bots');
+    const byServer = (sid: number) => bots.find((b) => b.spec.server.id === sid)!;
+    expect(byServer(s1.id).spec.network.profile!.id).toBe(main.id);
+    expect(byServer(s2.id).spec.network.profile!.id).toBe(alt.id);
     expect(bots.every((x) => x.spec.identityId === a.id)).toBe(true);
   });
 });
@@ -194,7 +197,7 @@ describe('minecraft token isolation', () => {
     await expect(suite.vault.forIdentity(b.id).get(refs.identity(a.id, 'minecraft'))).rejects.toBeInstanceOf(IsolationError);
   });
 
-  it('a session launch spec carries the cache of its own identity only', async () => {
+  it('a running session only ever receives the Minecraft token of its own identity', async () => {
     const { suite, a, b, bots } = await twoIdentities();
     for (const [id, n] of [[a.id, '01'], [b.id, '02']] as const) {
       suite.repo.upsertMinecraft(id, { username: `Player${n}`, authType: 'microsoft', msaAccount: `acc${n}@example.com` });
@@ -202,11 +205,16 @@ describe('minecraft token isolation', () => {
     }
     const server = suite.repo.upsertServer({ name: 'SMP', host: 'smp.example.com' });
     suite.repo.assignServer(a.id, { serverId: server.id });
+    suite.repo.assignServer(b.id, { serverId: server.id });
     await suite.sessions.start(a.id, server.id);
-    const spec = bots[0].spec;
-    expect(spec.username).toBe('acc01@example.com');
-    const cached = await spec.cacheFactory!({ username: spec.username, cacheName: 'mca' }).getCached();
-    expect(cached.token).toBe('mc-token-for-acc01@example.com');
+    await suite.sessions.start(b.id, server.id);
+    await waitFor(() => bots.length === 2 && bots.every((x) => x.javaSession), 2000, 'java sessions');
+    const botA = bots.find((x) => x.spec.identityId === a.id)!;
+    const botB = bots.find((x) => x.spec.identityId === b.id)!;
+    expect(botA.spec.username).toBe('acc01@example.com');
+    expect(botA.javaSession!.accessToken).toBe('mc-token-for-acc01@example.com');
+    expect(botB.javaSession!.accessToken).toBe('mc-token-for-acc02@example.com');
+    expect(botA.javaSession!.profile.name).toBe('Player01');
   });
 
   it('the same Minecraft account (UUID) cannot belong to two identities', async () => {

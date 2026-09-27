@@ -11,7 +11,8 @@ import { DEFAULT_CONFIG } from './config.js';
 import { openDatabase } from './core/db.js';
 import { createLogger } from './core/logger.js';
 import type { MessageHeader, MessageSource } from './mail/provider.js';
-import type { BotLike, SessionLaunchSpec } from './minecraft/sessionManager.js';
+import type { HostBot } from './runtime/host/hostCore.js';
+import type { RuntimeSessionSpec } from './runtime/types.js';
 import { StaticKeyProvider } from './vault/keyProviders.js';
 import { EncryptedFileVault } from './vault/vault.js';
 import { buildServer } from './web/server.js';
@@ -56,9 +57,9 @@ const demoSource = (username: string): MessageSource => ({
   },
 });
 
-class DemoBot extends EventEmitter implements BotLike {
+class DemoBot extends EventEmitter implements HostBot {
   private timers: NodeJS.Timeout[] = [];
-  constructor(spec: SessionLaunchSpec) {
+  constructor(spec: RuntimeSessionSpec) {
     super();
     const n = spec.identityId;
     this.timers.push(setTimeout(() => { this.emit('login'); this.emit('spawn'); this.emit('messagestr', `Welcome to ${spec.server.name}, ${spec.username}!`); }, 800 + Math.random() * 1500));
@@ -95,7 +96,7 @@ async function main() {
     tokenFetcher: async ({ msaAccount, cacheFactory }) => {
       await cacheFactory({ username: msaAccount, cacheName: 'mca' }).setCached({ token: 'demo', obtainedOn: Date.now() });
       const n = msaAccount.replace(/\D/g, '').padStart(2, '0');
-      return { id: `d3m0000000000000000000000000${n.padStart(4, '0')}`.replace(/[^0-9a-f]/g, '0'), name: `Player${n}` };
+      return { profile: { id: `d3m0000000000000000000000000${n.padStart(4, '0')}`.replace(/[^0-9a-f]/g, '0'), name: `Player${n}` }, accessToken: 'demo', profileKeys: null };
     },
     mailSourceFactory: (account) => demoSource(account.username),
     discordUserFetcher: async (token) => {

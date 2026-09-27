@@ -23,6 +23,11 @@ export interface IdentitySettings {
   discordLinking: 'required' | 'optional' | 'disabled';
   mailEnabled: boolean;
   networkMode: NetworkMode;
+  /** off: ignore exit IP; warn: start but flag; block: refuse to start sessions on IP mismatch. */
+  networkGuard: 'off' | 'warn' | 'block';
+  /** Lightweight runtime mode: physics off while no interactive view is open. */
+  lightweight: boolean;
+  viewDistance: 'tiny' | 'short' | 'normal' | 'far';
   ui: { color?: string; tags: string[]; notes?: string };
 }
 
@@ -143,7 +148,11 @@ export interface ServerAssignment {
   autoStart: boolean;
   /** Optional per-session network override. Must be owned by the same identity. */
   networkProfileId: number | null;
+  /** Desired state maintained by the reconciler. */
+  desiredState: DesiredState;
 }
+
+export type DesiredState = 'ONLINE' | 'OFFLINE';
 
 export interface RewardState {
   identityId: number;
@@ -155,10 +164,25 @@ export interface RewardState {
 export interface RewardHistoryEntry {
   id: number;
   identityId: number;
+  serverId: number | null;
   ts: string;
+  kind: 'stars' | 'eligible' | 'received' | 'waiting' | 'discordLinked';
   delta: number;
   stars: number;
   reason: string;
+}
+
+/** Reward status of one identity on one server (all fields driven by chat rules). */
+export interface ServerRewardState {
+  identityId: number;
+  serverId: number;
+  stars: number;
+  eligible: boolean | null;
+  received: boolean | null;
+  waiting: boolean | null;
+  discordLinked: boolean | null;
+  lastChange: string | null;
+  lastMessage: string | null;
 }
 
 export interface IdentityTemplateConfig {
@@ -175,7 +199,15 @@ export interface IdentityTemplate {
   config: IdentityTemplateConfig;
 }
 
-export type SessionState = 'IDLE' | 'CONNECTING' | 'AUTHENTICATING' | 'ONLINE' | 'RECONNECTING' | 'STOPPED' | 'ERROR';
+/**
+ * STOPPED       not running, not desired
+ * STARTING      preflight (network guard, auth)
+ * CONNECTING / AUTHENTICATING / ONLINE   runtime phases
+ * STOPPING      stop requested
+ * RECONNECTING  desired ONLINE, waiting for the next attempt (backoff)
+ * BLOCKED       desired ONLINE but the reconnect policy forbids automatic retries
+ */
+export type SessionState = 'STOPPED' | 'STARTING' | 'CONNECTING' | 'AUTHENTICATING' | 'ONLINE' | 'STOPPING' | 'RECONNECTING' | 'BLOCKED';
 
 export interface SessionInfo {
   id: string;
@@ -183,10 +215,18 @@ export interface SessionInfo {
   serverId: number;
   serverName: string;
   networkProfileId: number | null;
+  desiredState: DesiredState;
   state: SessionState;
   since: string;
   lastError: string | null;
+  lastEndReason: string | null;
   reconnects: number;
+  consecutiveFailures: number;
+  nextAttemptAt: string | null;
+  onlineSince: string | null;
+  viewOpen: boolean;
+  stats: import('../runtime/types.js').SessionStats | null;
+  username: string | null;
 }
 
 export interface ChatLine {
@@ -213,6 +253,9 @@ export const DEFAULT_SETTINGS: IdentitySettings = {
   discordLinking: 'optional',
   mailEnabled: true,
   networkMode: 'PER_ACCOUNT',
+  networkGuard: 'warn',
+  lightweight: true,
+  viewDistance: 'tiny',
   ui: { tags: [] },
 };
 

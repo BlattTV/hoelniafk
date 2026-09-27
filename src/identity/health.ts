@@ -137,17 +137,25 @@ export function computeHealth(
     });
   }
 
-  // Sessions
+  // Sessions: actual vs. desired state
   const assignments = repo.listAssignments(id).filter((a) => a.enabled);
-  const online = sessions.filter((x) => x.state === 'ONLINE' && assignments.some((a) => a.serverId === x.serverId)).length;
-  const errored = sessions.filter((x) => x.state === 'ERROR').length;
-  checks.push({
-    key: 'sessions',
-    label: 'Minecraft sessions',
-    status: assignments.length === 0 ? 'warn' : online === assignments.length ? 'ok' : errored ? 'error' : 'warn',
-    detail: assignments.length === 0 ? 'No server assignments' : `${online}/${assignments.length} online`,
-    target: 'sessions',
-  });
+  const desired = assignments.filter((a) => a.desiredState === 'ONLINE');
+  const onlineIds = new Set(sessions.filter((x) => x.state === 'ONLINE').map((x) => x.serverId));
+  const online = desired.filter((a) => onlineIds.has(a.serverId)).length;
+  const blocked = sessions.filter((x) => x.state === 'BLOCKED' && desired.some((a) => a.serverId === x.serverId));
+  let sessionStatus: CheckStatus;
+  let sessionDetail: string;
+  if (assignments.length === 0) {
+    sessionStatus = 'warn';
+    sessionDetail = 'No server assignments';
+  } else if (desired.length === 0) {
+    sessionStatus = 'warn';
+    sessionDetail = `0 of ${assignments.length} assignment(s) set to online`;
+  } else {
+    sessionStatus = blocked.length ? 'error' : online === desired.length ? 'ok' : 'warn';
+    sessionDetail = `${online}/${desired.length} online` + (blocked.length ? ` · ${blocked.length} blocked (${blocked[0].lastError ?? 'see session'})` : '');
+  }
+  checks.push({ key: 'sessions', label: 'Minecraft sessions', status: sessionStatus, detail: sessionDetail, target: 'sessions' });
 
   const statuses = checks.map((c) => c.status);
   const level: HealthLevel = statuses.includes('error') ? 'ERROR' : statuses.some((x) => x === 'warn' || x === 'unknown') ? 'WARNING' : 'HEALTHY';

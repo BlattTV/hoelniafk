@@ -16,7 +16,11 @@ import type { HttpJson } from './mail/aliases/cloudflare.js';
 import { MinecraftAuthService, prismarineTokenFetcher, type TokenFetcher } from './minecraft/authService.js';
 import { LinkingWorkflow } from './minecraft/linking.js';
 import { RewardTracker } from './minecraft/rewards.js';
-import { SessionManager, type BotFactory } from './minecraft/sessionManager.js';
+import { SessionManager, type SessionManagerOptions } from './minecraft/sessionManager.js';
+import { mineflayerBotFactory } from './minecraft/mineflayerBot.js';
+import { MineflayerRuntime } from './runtime/mineflayerRuntime.js';
+import type { HostBotFactory } from './runtime/host/hostCore.js';
+import type { MinecraftRuntime } from './runtime/types.js';
 import { NetworkService, type IpDetector } from './network/networkService.js';
 import { detectPublicIp } from './network/publicIp.js';
 import { BulkOperations } from './ops/bulk.js';
@@ -30,7 +34,11 @@ export interface SuiteDeps {
   db?: DB;
   store: SecretStore;
   rules?: RulesConfig;
-  botFactory?: BotFactory;
+  /** Inline runtime with this bot factory (tests / demo). */
+  botFactory?: HostBotFactory;
+  /** Fully custom runtime. */
+  runtime?: MinecraftRuntime;
+  sessionOptions?: Partial<SessionManagerOptions>;
   ipDetector?: IpDetector;
   tokenFetcher?: TokenFetcher;
   mailSourceFactory?: SourceFactory;
@@ -75,12 +83,24 @@ export function createSuite(deps: SuiteDeps) {
   const linking = new LinkingWorkflow(repo, audit, bus);
   const rewards = new RewardTracker(repo, bus);
 
-  const botFactory: BotFactory =
-    deps.botFactory ??
-    ((spec) => {
-      throw new Error(`No bot factory configured (session for identity ${spec.identityId})`);
+  const rc = config.runtime;
+  const runtime: MinecraftRuntime =
+    deps.runtime ??
+    new MineflayerRuntime({
+      mode: deps.botFactory ? 'inline' : rc.mode,
+      botFactory: deps.botFactory ?? mineflayerBotFactory,
+      sessionsPerHost: rc.sessionsPerHost,
+      grouping: rc.grouping,
+      heartbeatMs: rc.heartbeatMs,
+      heartbeatTimeoutMs: rc.heartbeatTimeoutMs,
+      idleHostTtlMs: rc.idleHostTtlMs,
+      authProvider: (identityId) => auth.getJavaSession(identityId),
     });
-  const sessions = new SessionManager(repo, network, auth, linking, rewards, audit, bus, botFactory, getRules);
+  const sessions = new SessionManager(repo, network, runtime, linking, rewards, audit, bus, getRules, {
+    reconcileIntervalMs: config.sessions.reconcileIntervalMs,
+    maxConcurrentStarts: config.sessions.maxConcurrentStarts,
+    ...(deps.sessionOptions ?? {}),
+  });
   const mail = new MailService(repo, vault, oauth, audit, bus, getRules, deps.mailSourceFactory, deps.httpJson);
   mail.syncLimit = config.mail.syncLimit;
   const discord = new DiscordService(repo, vault, oauth, audit, bus, deps.discordUserFetcher ?? fetchDiscordUser);
@@ -117,16 +137,24 @@ export function createSuite(deps: SuiteDeps) {
       const ids = repo.listIdentities().filter((i) => repo.getDiscord(i.id)?.credentialRef).map((i) => i.id);
       if (ids.length) await bulk.run('verifyDiscord', ids);
     });
-    if (a.autoStartSessions) {
+    everyMinutes(a.tokenRefreshHours * 60, 'token refresh', async () => {
+      // Keeps Microsoft refresh tokens alive (they expire after long inactivity).
       for (const i of repo.listIdentities()) {
-        sessions.startAll(i.id, true).catch((e) => log.warn(`Auto-start failed for identity ${i.id}: ${(e as Error).message}`));
+        const mc = repo.getMinecraft(i.id);
+        if (mc?.authType === 'microsoft' && mc.credentialRef) await auth.authenticate(i.id).catch(() => undefined);
       }
-    }
+    });
+    everyMinutes(60, 'log pruning', async () => repo.pruneLogs());
+    // Desired-state reconciler: restores every session that should be online.
+    if (a.restoreSessions) sessions.startReconciler();
   }
 
-  function shutdown(): void {
+  let closed = false;
+  async function shutdown(): Promise<void> {
+    if (closed) return;
+    closed = true;
     for (const t of timers) clearInterval(t);
-    sessions.stopAll();
+    await sessions.shutdown();
     db.close();
   }
 
@@ -142,6 +170,7 @@ export function createSuite(deps: SuiteDeps) {
     auth,
     linking,
     rewards,
+    runtime,
     sessions,
     mail,
     discord,

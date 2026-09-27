@@ -94,3 +94,43 @@ chatRules:
       - "You are eligible for rewards"
     notEligible:
       - "You are not eligible"
+    received:
+      - "Reward (received|claimed)"
+      - "Belohnung erhalten"
+    waiting:
+      - "Reward (pending|waiting)"
+      - "Belohnung ausstehend"
+    discordLinked:
+      - "Rewards: Discord linked"
+    discordNotLinked:
+      - "Link your Discord (account )?to (receive|get) rewards"
+
+# ------------------------------------------------------------------ Reconnect policy
+# Used by the desired-state reconciler when a session that SHOULD be online ends.
+# match: case-insensitive regexes against the kick/disconnect reason.
+# action: retry (exponential backoff) | delay (at least delaySec) | block (no automatic retry)
+reconnect:
+  baseDelaySec: 10
+  maxDelaySec: 600
+  stableAfterSec: 300
+  rules:
+    - label: banned
+      action: block
+      match: ["\\bbanned\\b", "gebannt"]
+    - label: not whitelisted
+      action: block
+      match: ["white-?list"]
+    - label: duplicate login
+      action: block
+      match: ["logged in from another location", "already (online|connected)"]
+    - label: authentication
+      action: block
+      match: ["authFailed", "Failed to verify username", "Invalid session"]
+    - label: throttled
+      action: delay
+      delaySec: 60
+      match: ["throttl", "too many", "wait before reconnecting"]
+    - label: server restart
+      action: delay
+      delaySec: 30
+      match: ["restart", "server closed", "Server is shutting down"]
