@@ -51,8 +51,18 @@ export class ImapMessageSource implements MessageSource {
       logger: false,
       emitLogs: false,
       disableAutoIdle: true,
+      connectionTimeout: 15_000,
+      greetingTimeout: 15_000,
+      socketTimeout: 60_000,
     } as any);
-    await client.connect();
+    // Late socket errors (e.g. timeouts after a failed login) must never become unhandled.
+    client.on('error', () => undefined);
+    try {
+      await client.connect();
+    } catch (e) {
+      client.close();
+      throw e;
+    }
     try {
       const lock = await client.getMailboxLock('INBOX');
       try {

@@ -29,7 +29,9 @@ export interface DiscordUser {
 export type DiscordUserFetcher = (accessToken: string) => Promise<DiscordUser>;
 
 export const fetchDiscordUser: DiscordUserFetcher = async (accessToken) => {
-  const res = await fetch('https://discord.com/api/v10/users/@me', { headers: { Authorization: `Bearer ${accessToken}` } });
+  // API base overridable for local integration tests only.
+  const base = process.env.HOELNI_DISCORD_API_BASE || 'https://discord.com/api/v10';
+  const res = await fetch(`${base}/users/@me`, { headers: { Authorization: `Bearer ${accessToken}` }, signal: AbortSignal.timeout(15000) });
   if (!res.ok) throw new SuiteError(`Discord API returned ${res.status}`, 502);
   return (await res.json()) as DiscordUser;
 };

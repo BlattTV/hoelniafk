@@ -19,6 +19,9 @@ export interface OAuthProviderConfig {
   clientSecret?: string | null;
   tenant?: string;
   scopes?: string[];
+  /** Optional endpoint overrides (self-hosted identity providers, local integration tests). */
+  authorizeUrl?: string | null;
+  tokenUrl?: string | null;
 }
 
 interface ProviderPreset {
@@ -75,6 +78,7 @@ export const defaultHttpPost: HttpPost = async (url, form) => {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
     body: new URLSearchParams(form).toString(),
+    signal: AbortSignal.timeout(20000),
   });
   let json: any = null;
   try {
@@ -121,7 +125,7 @@ export class OAuthManager {
       ...(preset.extraParams ?? {}),
     });
     if (opts.loginHint && provider !== 'discord') params.set('login_hint', opts.loginHint);
-    return { url: `${preset.authorizeUrl(cfg)}?${params.toString()}`, state };
+    return { url: `${cfg.authorizeUrl || preset.authorizeUrl(cfg)}?${params.toString()}`, state };
   }
 
   /** Completes a flow started with begin(). The state value is single-use. */
@@ -153,7 +157,7 @@ export class OAuthManager {
   }
 
   private async tokenRequest(provider: OAuthProviderName, cfg: OAuthProviderConfig, form: Record<string, string>): Promise<TokenSet> {
-    const res = await this.post(OAUTH_PRESETS[provider].tokenUrl(cfg), form);
+    const res = await this.post(cfg.tokenUrl || OAUTH_PRESETS[provider].tokenUrl(cfg), form);
     if (res.status >= 400 || !res.json?.access_token) {
       // Only the error code is surfaced – never the request or response bodies.
       throw new SuiteError(`OAuth token request failed (${res.status}${res.json?.error ? `: ${res.json.error}` : ''})`, 502);

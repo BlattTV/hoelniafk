@@ -84,7 +84,13 @@ export function createSuite(deps: SuiteDeps) {
       if (!clientId) return null;
       const clientSecret = await vault.store.get(refs.app(`oauth-${p}`));
       const tenant = repo.getSetting('oauth.microsoft.tenant') || config.oauth.microsoft.tenant;
-      return { clientId, clientSecret, tenant };
+      return {
+        clientId,
+        clientSecret,
+        tenant,
+        authorizeUrl: repo.getSetting(`oauth.${p}.authorizeUrl`),
+        tokenUrl: repo.getSetting(`oauth.${p}.tokenUrl`),
+      };
     },
     () => `http://127.0.0.1:${config.port}/oauth/callback`,
     deps.oauthPost ?? defaultHttpPost,
