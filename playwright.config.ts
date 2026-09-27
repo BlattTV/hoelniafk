@@ -21,7 +21,6 @@ export default defineConfig({
     viewport: { width: 1400, height: 900 },
     launchOptions: {
       executablePath: process.env.PW_CHROMIUM_PATH || undefined,
-      args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'],
     },
   },
   webServer: {
@@ -29,7 +28,7 @@ export default defineConfig({
     url: `http://127.0.0.1:${PORT}/api/status`,
     reuseExistingServer: false,
     timeout: 120_000,
-    env: { HOELNI_PORT: String(PORT), HOELNI_DEMO_MC_PORT: String(PORT + 18200), HOELNI_DEMO_IDENTITIES: '5' },
+    env: { HOELNI_PORT: String(PORT), HOELNI_DEMO_MC_PORT: String(PORT + 18200), HOELNI_DEMO_IDENTITIES: '5', HOELNI_DEMO_FAKE_GAME: '1' },
     ignoreHTTPSErrors: true,
   },
 });

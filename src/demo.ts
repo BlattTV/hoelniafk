@@ -8,6 +8,11 @@
  *   SIMULATED:  mailbox contents, Discord OAuth, public-IP answers (no external services)
  *
  *   npm run demo   →  http://127.0.0.1:7421
+ *
+ * "Open game" launches the real Minecraft 1.20.1 client (downloaded from Mojang into
+ * data/minecraft on first use) and joins the local offline-mode server – no account needed.
+ * HOELNI_DEMO_FAKE_GAME=1 serves the downloads from a local fake mirror and runs the client
+ * emulator instead of Java (used by the automated tests in environments without Mojang access).
  */
 import { createSuite } from './app.js';
 import { DEFAULT_CONFIG } from './config.js';
@@ -69,6 +74,21 @@ async function main() {
   }
   log.info(`Local Minecraft servers: ${servers.map((s, i) => `${names[i]}=127.0.0.1:${s.port}`).join(', ')}`);
 
+  let clientConfig = DEFAULT_CONFIG.client;
+  let closeFake: (() => Promise<void>) | null = null;
+  if (process.env.HOELNI_DEMO_FAKE_GAME === '1') {
+    const fixture = '../tests/fixtures/fakeMojang.js';
+    const { startFakeMojang } = await import(fixture);
+    const fake = await startFakeMojang();
+    closeFake = () => fake.close();
+    const os = await import('node:os');
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hoelni-demo-game-'));
+    clientConfig = { ...clientConfig, mirrors: fake.mirrors, rootDir: path.join(dir, 'minecraft'), instancesDir: path.join(dir, 'instances'), onlineAfterMs: 1500 };
+    log.info('Game client: fake Mojang mirror + client emulator (HOELNI_DEMO_FAKE_GAME=1)');
+  }
+
   const store = await EncryptedFileVault.open(null, new StaticKeyProvider());
   const suite = createSuite({
     config: {
@@ -76,6 +96,7 @@ async function main() {
       port: PORT,
       automation: { ...DEFAULT_CONFIG.automation, mailCheckMinutes: 0, networkCheckMinutes: 0, discordVerifyHours: 0, tokenRefreshHours: 0, restoreSessions: true },
       runtime: { ...DEFAULT_CONFIG.runtime, mode: 'process', sessionsPerHost: 10 },
+      client: clientConfig,
     },
     db: openDatabase(':memory:'),
     store,
@@ -155,6 +176,7 @@ async function main() {
     await app.close().catch(() => undefined);
     await suite.shutdown().catch(() => undefined);
     for (const s of servers) await s.close();
+    await closeFake?.();
     process.exit(0);
   };
   process.on('SIGINT', stop);

@@ -262,6 +262,8 @@ export function gameBadge(sess) {
   const active = g && !['closed', 'failed'].includes(g.status);
   if (!active && sess?.runtime !== 'game') return g?.status === 'failed' && g.message ? h('span', { class: 's-error', title: g.message }, ' 🎮✕') : null;
   const pct = g?.progress && g.progress.total ? ` ${Math.floor((g.progress.done / g.progress.total) * 100)}%` : '';
-  const label = !g ? 'game' : g.status === 'running' ? (g.visible ? 'game' : 'game (minimized)') : `${g.status}${pct}`;
+  const label = sess?.runtime === 'game'
+    ? (!g || g.status === 'running' ? (g && !g.visible ? 'game (minimized)' : 'game') : g.status)
+    : g.status === 'running' ? 'joining…' : `${g.status}${pct}…`;
   return h('span', { class: 's-info', title: g?.message ?? 'Held by the real Minecraft client' }, ` 🎮 ${label}`);
 }

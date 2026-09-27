@@ -145,7 +145,7 @@ export function createSuite(deps: SuiteDeps) {
   const discord = new DiscordService(repo, vault, oauth, audit, bus, deps.discordUserFetcher ?? fetchDiscordUser);
   const identities = new IdentityService(repo, vault, network, sessions, linking, audit, bus);
   const bulk = new BulkOperations(repo, mail, network, sessions, discord, audit, auth);
-  const metrics = new MetricsCollector(sessions, runtime);
+  const metrics = new MetricsCollector(sessions, runtime, 180, () => game?.stats().hosts ?? []);
 
   // ----------------------------------------------------------- automation / monitoring
   const timers: NodeJS.Timeout[] = [];

@@ -55,6 +55,36 @@ test('matrix: toggling a cell brings the session online', async ({ page }) => {
   await expect(testCell).toContainText('STOPPED', { timeout: 20_000 });
 });
 
+test('identity: "Open game" hands the session to the real client and "Back to AFK" returns', async ({ page }) => {
+  await page.goto('/#/identity/1/sessions');
+  await waitOnline(page, 1);
+  await page.goto('/#/identity/1/sessions');
+  const smpRow = page.locator('#sec-sessions tbody tr', { hasText: 'SMP' });
+  await expect(smpRow).toContainText('ONLINE', { timeout: 30_000 });
+  await smpRow.locator('button', { hasText: 'Open game' }).click();
+  await expect(page.locator('.toast').last()).toContainText(/Minecraft|game/i);
+  // the session is now held by the game client (emulated binary in this environment)
+  await page.goto('/#/sessions');
+  const row = () => page.locator('#view tbody tr').filter({ hasText: 'Identity01' }).filter({ hasText: 'SMP' });
+  await expect(async () => {
+    await page.goto('/#/matrix');
+    await page.goto('/#/sessions');
+    await expect(row()).toContainText('🎮 game', { timeout: 2000 });
+    await expect(row()).not.toContainText('joining', { timeout: 2000 });
+    await expect(row()).toContainText('ONLINE', { timeout: 2000 });
+  }).toPass({ timeout: 60_000 });
+  // back to AFK
+  await row().locator('button', { hasText: '⋯' }).click();
+  await page.locator('.ctx-menu').getByText('Back to AFK').click();
+  await expect(async () => {
+    await page.goto('/#/matrix');
+    await page.goto('/#/sessions');
+    await expect(row()).not.toContainText('🎮', { timeout: 2000 });
+    await expect(row()).toContainText('ONLINE', { timeout: 2000 });
+    await expect(row()).toContainText('lightweight', { timeout: 2000 });
+  }).toPass({ timeout: 60_000 });
+});
+
 test('global chat: command to a session and the reply shows up', async ({ page }) => {
   await page.goto('/#/chat');
   await waitOnline(page, 1);

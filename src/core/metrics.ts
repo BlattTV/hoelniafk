@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import { monitorEventLoopDelay } from 'node:perf_hooks';
 import type { SessionManager } from '../minecraft/sessionManager.js';
-import type { MinecraftRuntime } from '../runtime/types.js';
+import type { HostStats, MinecraftRuntime } from '../runtime/types.js';
 
 export interface MetricsSample {
   ts: string;
@@ -46,6 +46,8 @@ export class MetricsCollector {
     private readonly sessions: SessionManager,
     private readonly runtime: MinecraftRuntime,
     private readonly maxSamples = 180,
+    /** Additional processes (real game clients) shown with the runtime hosts. */
+    private readonly extraHosts: () => HostStats[] = () => [],
   ) {
     this.lag.enable();
   }
@@ -67,7 +69,7 @@ export class MetricsCollector {
     this.lastCpu = process.cpuUsage();
     this.lastAt = now;
     const mem = process.memoryUsage();
-    const hosts = this.runtime.stats().hosts;
+    const hosts = [...this.runtime.stats().hosts, ...this.extraHosts()];
     const sessions = this.sessions.list();
     const count = (st: string[]) => sessions.filter((s) => st.includes(s.state)).length;
     let bytesIn = 0;
@@ -123,7 +125,7 @@ export class MetricsCollector {
     return {
       current: this.history.at(-1) ?? this.sample(),
       history: this.history,
-      hosts: this.runtime.stats().hosts,
+      hosts: [...this.runtime.stats().hosts, ...this.extraHosts()],
     };
   }
 }

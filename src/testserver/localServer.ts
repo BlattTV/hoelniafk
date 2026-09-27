@@ -39,6 +39,8 @@ export interface LocalServer {
   stars: Map<string, number>;
   /** Remote (source) address of a connected player – used to verify bind-IP routing. */
   _remoteOf(username: string): string | undefined;
+  /** Every join: username, source address and the host from the handshake. */
+  joins: Array<{ username: string; remote: string | undefined; host: string | undefined; at: number }>;
   close(): Promise<void>;
 }
 
@@ -76,6 +78,10 @@ export async function startLocalServer(opts: LocalServerOptions): Promise<LocalS
   const stars = new Map<string, number>();
   const codes = new Map<string, string>();
   const findPlayer = (name: string) => serv.players.find((p: any) => p.username === name);
+  const joined: Array<{ player: any; remote: string | undefined; at: number }> = [];
+  serv.on('newPlayer', (player: any) => {
+    joined.push({ player, remote: player._client?.socket?.remoteAddress, at: Date.now() });
+  });
 
   if (opts.hoelniPlugin !== false) {
     serv.on('newPlayer', (player: any) => {
@@ -141,6 +147,10 @@ export async function startLocalServer(opts: LocalServerOptions): Promise<LocalS
   return {
     port: opts.port,
     version,
+    get joins() {
+      // username/handshake are filled in after newPlayer fires
+      return joined.map((j) => ({ username: j.player.username ?? j.player._client?.username, remote: j.remote, host: j.player._client?.serverHost, at: j.at }));
+    },
     _remoteOf: (name: string) => findPlayer(name)?._client?.socket?.remoteAddress,
     linked,
     stars,

@@ -256,6 +256,13 @@ export async function buildServer(suite: Suite, opts: ServerOptions = {}): Promi
   app.patch('/api/identities/:id', async (req: Req) => {
     const id = num(req.params.id);
     const { label, settings, networkProfileId } = bodyOf(req);
+    const gc = settings?.gameClient;
+    if (gc) {
+      if (gc.mode !== undefined && !['handover', 'background'].includes(gc.mode)) throw new ValidationError('gameClient.mode must be handover or background');
+      if (gc.loader !== undefined && !['vanilla', 'fabric'].includes(gc.loader)) throw new ValidationError('gameClient.loader must be vanilla or fabric');
+      if (gc.version !== undefined && !/^(auto|latest-release|latest-snapshot|[0-9A-Za-z._-]{1,40})$/.test(String(gc.version))) throw new ValidationError('gameClient.version is invalid');
+      if (gc.memoryMb !== undefined && (!Number.isInteger(gc.memoryMb) || gc.memoryMb < 1024 || gc.memoryMb > 32768)) throw new ValidationError('gameClient.memoryMb must be 1024–32768');
+    }
     const updated = suite.repo.updateIdentity(id, { label, settings, networkProfileId });
     suite.bus.emit({ type: 'identity.changed', identityId: id });
     return updated;

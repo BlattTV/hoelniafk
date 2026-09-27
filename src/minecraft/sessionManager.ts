@@ -541,6 +541,11 @@ export class SessionManager {
       // The game never reached the server – the lightweight session still holds the account.
       r.handoverPending = false;
       r.wantGame = false;
+      if (e.reason === 'Cancelled') {
+        this.repo.addSessionEvent(r.identityId, r.serverId, r.id, 'game-cancelled');
+        this.setState(r, r.state);
+        return;
+      }
       r.lastError = `Game could not be started: ${e.error ?? e.reason}`.slice(0, 500);
       this.repo.addSessionEvent(r.identityId, r.serverId, r.id, 'game-failed', r.lastError);
       this.setState(r, r.state, r.lastError);
