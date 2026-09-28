@@ -197,3 +197,45 @@ describe('supervisor with updates', () => {
     await sup.stop();
   }, 30_000);
 });
+
+describe('updates through the backend (https://afk.hoelni.de/updates)', () => {
+  it('passes signed releases to signed-in devices only and never exposes the admin API', async () => {
+    const { Accounts } = await import('../backend/src/accounts.mjs' as string);
+    const { openDb } = await import('../backend/src/db.mjs' as string);
+    const { Relay } = await import('../backend/src/relay.mjs' as string);
+    const { createBackendServer } = await import('../backend/src/server.mjs' as string);
+    const accounts = new Accounts(openDb(path.join(tmp, 'backend.db')));
+    const user = accounts.createUser('niklas', 'admin-password-1', 'admin');
+    const { token } = accounts.registerDevice(user, 'manager', 'pc');
+    const quiet = { info: () => undefined, error: () => undefined };
+    const relay = new Relay(accounts, quiet);
+    const backend = createBackendServer({ accounts, relay, config: { updatesUpstream: url }, log: quiet });
+    await new Promise<void>((r) => backend.listen(0, '127.0.0.1', () => r()));
+    const updatesUrl = `http://127.0.0.1:${(backend.address() as any).port}/updates`;
+    try {
+      // anonymous: refused; admin API of the update server: not reachable at all
+      expect((await fetch(`${updatesUrl}/api/public-key`)).status).toBe(401);
+      expect((await fetch(`${updatesUrl}/api/releases`, { headers: { Authorization: `Bearer ${token}` } })).status).toBe(404);
+      expect((await fetch(`${updatesUrl}/api/build`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } })).status).toBe(405);
+
+      const root2 = path.join(tmp, 'install-via-backend');
+      makeInstall(root2);
+      const up = new Updater(fakeRepo(), fakeAudit, fakeBus, root2);
+      up.authHeaders = async (u) => (u.startsWith(updatesUrl) ? { Authorization: `Bearer ${token}` } : {});
+      const probe = await up.probe(updatesUrl);
+      expect(probe.fingerprint).toBe(fingerprint(publicKey));
+      up.configure({ url: updatesUrl, publicKey: probe.publicKey });
+      const st = await up.check();
+      expect(st.error).toBeNull();
+      expect(st.available).toBe(true);
+      expect((await up.download()).state).toBe('staged');
+
+      // a revoked device gets nothing
+      accounts.revokeDevice(accounts.deviceByToken(token).id);
+      expect((await up.check()).error).toMatch(/401/);
+    } finally {
+      relay.close();
+      await new Promise<void>((r) => backend.close(() => r()));
+    }
+  }, 60_000);
+});

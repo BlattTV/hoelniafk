@@ -22,7 +22,7 @@ export async function settingsView(root) {
     mount(root, 
       h('div', { class: 'page-head' }, h('h1', null, 'Settings & Credential Vault')),
       backendCard(backend, render),
-      updatesCard(updates, render),
+      updatesCard(updates, render, backend),
       h('section', { class: 'card' }, h('h2', null, 'This PC'),
         h('div', { class: 'toolbar' },
           h('label', { class: 'check', title: 'Session blocked or disconnected, link code received, update ready' }, h('input', { type: 'checkbox', checked: notificationsEnabled(), onchange: (e) => setNotifications(e.target.checked) }), 'Desktop notifications'),

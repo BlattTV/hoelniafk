@@ -8,6 +8,10 @@
  *   POST /api/logout           revokes this device
  *   GET  /api/agents           the user's agents (manager)
  *   WS   /relay                manager / agent relay
+ * Updates (optional, config.updatesUpstream = local hoelni-updates server, e.g. http://127.0.0.1:8787):
+ *   GET  /updates/api/public-key, /updates/api/channels/<ch>/latest, /updates/files/<build>/<file>
+ *        read-only pass-through for signed-in managers/agents (Bearer device token); the update
+ *        server's admin API is never exposed. Releases stay Ed25519-signed end to end.
  * Admin API (Bearer token of a MANAGER signed in with an ADMIN account – the manager shows the
  * account administration only then):
  *   GET    /api/admin/overview            accounts, signed-in devices, activity
@@ -44,6 +48,28 @@ function readBody(req, limit = 64 * 1024) {
   });
 }
 
+/** Streams one GET from the local update server (no request headers are forwarded). */
+function proxyUpdates(target, res) {
+  return new Promise((resolve) => {
+    const up = http.get(target, { timeout: 15_000 }, (r) => {
+      const headers = { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' };
+      for (const h of ['content-type', 'content-length', 'content-disposition']) if (r.headers[h]) headers[h] = r.headers[h];
+      res.writeHead(r.statusCode ?? 502, headers);
+      r.pipe(res);
+      r.on('end', resolve);
+      r.on('error', () => { res.destroy(); resolve(); });
+    });
+    up.on('timeout', () => up.destroy(new Error('timeout')));
+    up.on('error', () => {
+      if (!res.headersSent) {
+        res.writeHead(502, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Update server not reachable' }));
+      } else res.destroy();
+      resolve();
+    });
+  });
+}
+
 export function createBackendServer({ accounts, relay, config, version = '1.0.0', log = console }) {
   // Behind a reverse proxy the LAST X-Forwarded-For entry is the one the proxy added (earlier
   // entries come from the client and can be forged – they must not bypass the sign-in lockout).
@@ -61,7 +87,18 @@ export function createBackendServer({ accounts, relay, config, version = '1.0.0'
     const p = url.pathname;
     const ip = clientIp(req);
     try {
-      if (req.method === 'GET' && p === '/health') return send(res, 200, { ok: true, service: 'hoelni-backend', version });
+      if (req.method === 'GET' && p === '/health') return send(res, 200, { ok: true, service: 'hoelni-backend', version, updates: !!config.updatesUpstream });
+
+      // ------------------------------------------------------------ updates pass-through
+      if (p === '/updates' || p.startsWith('/updates/')) {
+        if (!config.updatesUpstream) throw new HttpError(404, 'This backend does not distribute updates');
+        if (req.method !== 'GET') throw new HttpError(405, 'Method not allowed');
+        const sub = p.slice('/updates'.length) || '/';
+        const allowed = sub === '/health' || sub === '/api/public-key' || /^\/api\/channels\/[a-z][a-z0-9-]{0,30}\/latest$/.test(sub) || /^\/files\/\d+\/[^/]+$/.test(sub);
+        if (!allowed) throw new HttpError(404, 'Not found');
+        if (sub !== '/health' && !accounts.deviceByToken(bearer(req))) throw new HttpError(401, 'Sign in to the backend to receive updates');
+        return proxyUpdates(`${config.updatesUpstream.replace(/\/+$/, '')}${sub}`, res);
+      }
 
       // ------------------------------------------------------------ app API
       if (req.method === 'POST' && p === '/api/login') {

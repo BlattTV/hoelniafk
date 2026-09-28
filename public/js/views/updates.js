@@ -2,7 +2,7 @@ import { api } from '../api.js';
 import { field, fmtBytes, fmtTime, guard, h, modal, relTime } from '../ui.js';
 
 /** Settings → Updates: self-hosted update server (update-server/ in a LXC). */
-export function updatesCard(st, rerender) {
+export function updatesCard(st, rerender, backend = null) {
   const s = st.settings;
   const url = h('input', { value: s.url, placeholder: 'http://192.168.1.50:8787', style: { width: '100%' } });
   const channel = h('input', { value: s.channel, style: { width: '100%' } });
@@ -24,6 +24,11 @@ export function updatesCard(st, rerender) {
     await api.post('/api/updates/check');
     await rerender();
   }, 'Update server connected');
+  const viaBackend = backend && backend.state !== 'signed-out' && backend.updatesUrl;
+  const useBackend = () => {
+    url.value = backend.updatesUrl;
+    return connect();
+  };
   const cur = st.current;
   return h('section', { class: 'card', id: 'updates-card' },
     h('h2', null, 'Updates'),
@@ -44,7 +49,7 @@ export function updatesCard(st, rerender) {
     h('div', { class: 'form-actions' },
       st.available ? h('button', { class: 'primary', title: 'Downloads, verifies (signature + SHA-256) and restarts the suite; sessions come back automatically', onclick: () => guard(async () => { await api.post('/api/updates/install'); await rerender(); }, st.supervised ? 'Installing – the suite restarts in a moment' : 'Downloaded – restart the suite to apply') }, st.pending ? 'Restart & install' : 'Install update') : null,
       h('button', { disabled: !s.url || !s.keyFingerprint, onclick: () => guard(async () => { await api.post('/api/updates/check'); await rerender(); }) }, 'Check now'),
-      st.installerUrl ? h('a', { class: 'btn-link', href: st.installerUrl, target: '_blank', rel: 'noopener', title: 'New desktop program installer (window/tray program itself)' }, `Desktop installer ${m?.installer?.desktopVersion ?? ''}`) : null,
+      st.installerUrl ? h('a', { class: 'btn-link', href: api.downloadUrl(st.installerUrl), title: 'New desktop program installer (window/tray program itself)' }, `Desktop installer ${m?.installer?.desktopVersion ?? ''}`) : null,
       st.lastApplied ? h('button', { class: 'danger', title: 'Restore the version before the last update', onclick: () => guard(async () => { await api.post('/api/updates/rollback'); await rerender(); }, 'Rolling back – the suite restarts') }, 'Roll back last update') : null),
     h('h3', null, 'Update server'),
     h('div', { class: 'form-grid' }, field('URL', url), field('Channel', channel)),
@@ -52,7 +57,8 @@ export function updatesCard(st, rerender) {
       h('label', { class: 'check' }, autoCheck, 'Check automatically'),
       h('label', { class: 'check', title: 'Only while no game window is open' }, autoInstall, 'Install automatically')),
     h('div', { class: 'form-actions' },
-      h('button', { class: 'primary', onclick: connect }, s.keyFingerprint ? 'Reconnect / confirm key' : 'Connect'),
+      viaBackend && s.url !== backend.updatesUrl ? h('button', { class: 'primary', title: `Receive updates from ${backend.updatesUrl} (signed-in devices only)`, onclick: useBackend }, 'Get updates via the backend') : null,
+      h('button', { class: viaBackend && s.url !== backend.updatesUrl ? '' : 'primary', onclick: connect }, s.keyFingerprint ? 'Reconnect / confirm key' : 'Connect'),
       h('button', { onclick: () => guard(async () => { await api.put('/api/updates/settings', { channel: channel.value, autoCheck: autoCheck.checked, autoInstall: autoInstall.checked }); await rerender(); }, 'Saved') }, 'Save options')),
     h('p', { class: 'muted' }, 'Install the update server in your LXC with one command – see update-server/README.md. Releases are Ed25519-signed; the suite only installs releases signed with the confirmed key, applies them during a restart and restores the previous version automatically if the new one fails to start.'));
 }

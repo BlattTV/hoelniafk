@@ -238,6 +238,12 @@ export async function buildServer(suite: Suite, opts: ServerOptions = {}): Promi
 
   // ------------------------------------------------------------------ updates (self-hosted update server)
   app.get('/api/updates', async () => suite.updater.status());
+  app.get('/api/updates/installer', async (_req: Req, reply: FastifyReply) => {
+    const { file, content } = await suite.updater.downloadInstaller();
+    reply.header('Content-Disposition', `attachment; filename="${file.replace(/[^\w.\- ]+/g, '_')}"`);
+    reply.type('application/octet-stream');
+    return reply.send(content);
+  });
   app.post('/api/updates/probe', async (req: Req) => suite.updater.probe(String(bodyOf(req).url ?? '')));
   app.put('/api/updates/settings', async (req: Req) => {
     const b = bodyOf(req);

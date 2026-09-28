@@ -400,7 +400,42 @@ Hinweise:
   Karte ein (`socks5://…` oder `http://…`). Er wird im Tresor gespeichert und nur maskiert angezeigt.
 * **Übernommen von einem anderen Manager?** In der Karte auf *Reconnect* klicken, um wieder zu übernehmen.
 
-### C6. Betrieb und Wartung
+### C6. Updates über das Backend verteilen
+
+Statt eines eigenen Update-Containers (Teil B) kann der Update-Server **im Backend-Container** laufen.
+Er ist dort nur lokal erreichbar (`127.0.0.1:8787`). Das Backend gibt seine signierten Releases unter
+`https://afk.hoelni.de/updates` weiter, und zwar **nur an Geräte, die an deinem Backend angemeldet
+sind**. Eine weitere Portfreigabe oder einen weiteren Proxy-Host brauchst du nicht.
+
+1. Dem Container **2 GB RAM** geben, denn der Build (`npm ci` + TypeScript) braucht das:
+   `pct set 211 --memory 2048`. Die ID ersetzt du durch deine.
+2. Im Container den Installer erneut ausführen, mit `UPDATES=1` und deiner bisherigen Variante
+   (hier `TLS=proxy` für Nginx Proxy Manager):
+
+   ```bash
+   curl -fsSL https://raw.githubusercontent.com/BlattTV/hoelniafk/claude/practical-hopper-o4bpyw/backend/install.sh \
+     | TLS=proxy UPDATES=1 DOMAIN=afk.hoelni.de bash
+   ```
+
+   Bei privatem Repository wie in C3 mit `-H "Authorization: token …"` und `GIT_TOKEN=…`. Den Token
+   braucht der Update-Server auch später, um neue Versionen zu bauen.
+   Der erste Build dauert einige Minuten. Am Ende steht der **Fingerabdruck des Signaturschlüssels**
+   in der Ausgabe; später zeigt `hoelni-updates info` ihn erneut.
+3. Prüfen:
+
+   ```bash
+   hoelni-backend info        # "Updates: https://afk.hoelni.de/updates → http://127.0.0.1:8787"
+   hoelni-updates list        # mindestens ein Build im Kanal stable
+   ```
+
+4. **In der Suite** (angemeldet am Backend): *Settings & vault → Updates → **Get updates via the backend***.
+   Den angezeigten Fingerabdruck mit `hoelni-updates info` vergleichen und bestätigen. Fertig: Die Suite
+   prüft automatisch, *Install update* installiert mit Neustart, und bei Problemen rollt sie zurück.
+
+Neue Versionen baut der Update-Server automatisch aus dem Branch, standardmäßig alle 15 Minuten.
+Von Hand geht es mit `hoelni-updates build`.
+
+### C7. Betrieb und Wartung
 
 | Aufgabe | Befehl |
 |---|---|
@@ -410,7 +445,7 @@ Hinweise:
 | Sicherung | Datei `/var/lib/hoelni-backend/backend.db` (plus `/etc/hoelni-backend/`) sichern – oder den Container per Proxmox-Backup |
 | Admin-Passwort vergessen | `hoelni-backend user passwd <name>` im Container |
 
-### C7. Wenn etwas nicht klappt
+### C8. Wenn etwas nicht klappt
 
 | Problem | Lösung |
 |---|---|
@@ -420,6 +455,8 @@ Hinweise:
 | Suite: *another manager of this account took over* | Ein zweiter Manager mit demselben Konto hat sich verbunden – dort abmelden |
 | „Too many failed sign-ins“ | 10 Fehlversuche von derselben Adresse → 10 Minuten warten |
 | Nginx Proxy Manager zeigt **502 Bad Gateway**, `hoelni-backend info` zeigt `127.0.0.1:8480` | Backend wurde in der Variante *caddy* installiert und lauscht nur lokal → Installer erneut mit `TLS=proxy` ausführen (stellt auf `0.0.0.0` um und schaltet Caddy ab) |
+| Updates: „401“ in der Update-Karte | Die Suite ist nicht (mehr) am Backend angemeldet → *Backend & account* → *Sign in* |
+| Updates: „502“ / „Update server not reachable“ | `systemctl status hoelni-updates` im Container; der Build läuft evtl. noch → `journalctl -u hoelni-updates -f` |
 | Hinter Nginx Proxy Manager: Agents verbinden nicht | Im Proxy-Host **Websockets Support** einschalten |
 
 ---

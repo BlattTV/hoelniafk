@@ -120,7 +120,8 @@ export class Updater {
       lastApplied: read('applied.json'),
       lastFailed: read('failed.json'),
       pending: read('pending.json'),
-      installerUrl: this.latest?.installer && s.url ? `${s.url}/files/${this.latest.build}/${encodeURIComponent(this.latest.installer.file)}` : null,
+      // Downloaded through the suite (sign-in header for the backend, SHA-256 from the signed manifest).
+      installerUrl: this.latest?.installer && s.url ? '/api/updates/installer' : null,
     };
   }
 
@@ -134,10 +135,27 @@ export class Updater {
     return url;
   }
 
+  /** Extra request headers per URL – the backend's /updates needs this device's sign-in token. */
+  authHeaders: (url: string) => Promise<Record<string, string>> = async () => ({});
+
   private async getJson<T>(url: string): Promise<T> {
-    const res = await this.fetchImpl(url, { signal: AbortSignal.timeout(15_000) });
+    const res = await this.fetchImpl(url, { headers: await this.authHeaders(url), signal: AbortSignal.timeout(15_000) });
     if (!res.ok) throw new Error(`${res.status} ${res.statusText} – ${url}`);
     return (await res.json()) as T;
+  }
+
+  /** Desktop installer of the latest verified release, checked against the signed SHA-256. */
+  async downloadInstaller(): Promise<{ file: string; content: Buffer }> {
+    const m = this.latest;
+    if (!m?.installer) throw new Error('The latest release has no desktop installer');
+    const url = `${this.base()}/files/${m.build}/${encodeURIComponent(m.installer.file)}`;
+    const res = await this.fetchImpl(url, { headers: await this.authHeaders(url), signal: AbortSignal.timeout(10 * 60_000) });
+    if (!res.ok) throw new Error(`Download failed: ${res.status}`);
+    const content = Buffer.from(await res.arrayBuffer());
+    if (content.length !== m.installer.size || crypto.createHash('sha256').update(content).digest('hex') !== m.installer.sha256) {
+      throw new Error('Installer does not match the signed release (size/SHA-256) – not offered');
+    }
+    return { file: m.installer.file, content };
   }
 
   /** Reads the server's public key so the user can compare the fingerprint before pinning it. */
@@ -217,7 +235,8 @@ export class Updater {
       const dir = path.join(this.root, UPDATE_DIR);
       const staging = path.join(dir, `staging-${m.build}`);
       try {
-        const res = await this.fetchImpl(`${this.base()}/files/${m.build}/${encodeURIComponent(m.backend.file)}`, { signal: AbortSignal.timeout(10 * 60_000) });
+        const fileUrl = `${this.base()}/files/${m.build}/${encodeURIComponent(m.backend.file)}`;
+        const res = await this.fetchImpl(fileUrl, { headers: await this.authHeaders(fileUrl), signal: AbortSignal.timeout(10 * 60_000) });
         if (!res.ok || !res.body) throw new Error(`Download failed: ${res.status}`);
         const chunks: Buffer[] = [];
         let size = 0;

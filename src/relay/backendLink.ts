@@ -104,6 +104,7 @@ export class BackendLink {
   status() {
     return {
       url: this.url,
+      updatesUrl: this.updatesUrl,
       isDefault: !this.repo.getSetting('backend.url'),
       state: this.state,
       lastError: this.lastError,
@@ -178,6 +179,18 @@ export class BackendLink {
     this.audit.record(null, 'Backend address changed', { to: target, confirmedBy: adminUser });
     this.changed();
     return this.status();
+  }
+
+  /** The backend's update distribution (pass-through to its local update server). */
+  get updatesUrl(): string {
+    return `${this.url}/updates`;
+  }
+
+  /** Sign-in header for requests to this backend's /updates (never sent to other hosts). */
+  async authHeadersFor(url: string): Promise<Record<string, string>> {
+    if (!(url === this.updatesUrl || url.startsWith(`${this.updatesUrl}/`))) return {};
+    const token = await this.token();
+    return token ? { Authorization: `Bearer ${token}` } : {};
   }
 
   /** Manual reconnect (after "another manager took over" or a long outage). */

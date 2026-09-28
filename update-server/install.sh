@@ -10,6 +10,7 @@
 #   BRANCH=<branch>        branch to build releases from   (default: claude/practical-hopper-o4bpyw)
 #   REPO=<git url>         repository                       (default: https://github.com/BlattTV/hoelniafk.git)
 #   PORT=8787              HTTP port
+#   HOST=0.0.0.0           listen address (127.0.0.1 when only the local hoelni-backend passes updates on)
 #   CHANNEL=stable         channel new builds are published to
 #   AUTO_BUILD_MINUTES=15  poll the branch and build new commits (0 = only manual builds)
 #   RUN_TESTS=0            1 = run the unit tests before publishing
@@ -21,6 +22,7 @@ set -euo pipefail
 REPO="${REPO:-https://github.com/BlattTV/hoelniafk.git}"
 BRANCH="${BRANCH:-claude/practical-hopper-o4bpyw}"
 PORT="${PORT:-8787}"
+HOST="${HOST:-0.0.0.0}"
 CHANNEL="${CHANNEL:-stable}"
 AUTO_BUILD_MINUTES="${AUTO_BUILD_MINUTES:-15}"
 RUN_TESTS="${RUN_TESTS:-0}"
@@ -89,7 +91,7 @@ FIRST_RUN=0
 if [ ! -f "$CONF_DIR/config.json" ]; then
   FIRST_RUN=1
   say "Creating configuration, signing key and admin token"
-  INIT_ARGS=(--repo "$REPO" --branch "$BRANCH" --port "$PORT" --channel "$CHANNEL" --auto-build-minutes "$AUTO_BUILD_MINUTES" --data-dir "$DATA_DIR")
+  INIT_ARGS=(--repo "$REPO" --branch "$BRANCH" --host "$HOST" --port "$PORT" --channel "$CHANNEL" --auto-build-minutes "$AUTO_BUILD_MINUTES" --data-dir "$DATA_DIR")
   [ "$RUN_TESTS" = "1" ] && INIT_ARGS+=(--run-tests)
   [ -n "$GIT_TOKEN" ] && INIT_ARGS+=(--git-token "$GIT_TOKEN")
   INIT_OUT="$(hoelni-updates init "${INIT_ARGS[@]}")"

@@ -101,7 +101,7 @@ Discord / Cloudflare / public IP endpoints), **REAL ACCOUNT** (real Minecraft ac
 
 ## TESTED
 
-`npm test` – 24 test files / 164 tests green, `npm run test:e2e` – 11 Playwright tests green; typecheck clean, production build OK:
+`npm test` – 24 test files / 165 tests green, `npm run test:e2e` – 11 Playwright tests green; typecheck clean, production build OK:
 
 | Area | Level | Tests |
 |---|---|---|

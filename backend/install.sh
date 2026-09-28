@@ -18,6 +18,9 @@
 #                                   needed; apps confirm the fingerprint once)
 #   PORT=8480              internal port of the backend
 #   ADMIN=niklas           admin account created on the first install (password is asked)
+#   UPDATES=1              also install the update server in this container (local only, 127.0.0.1:8787)
+#                          and distribute its signed releases at https://DOMAIN/updates to signed-in
+#                          managers/agents (builds need ~2 GB RAM for the container)
 #   BRANCH / REPO          source of the backend
 #
 # Running the script again upgrades the backend and keeps config, database and certificates.
@@ -29,6 +32,7 @@ DOMAIN="${DOMAIN:-afk.hoelni.de}"
 TLS="${TLS:-caddy}"
 PORT="${PORT:-8480}"
 ADMIN="${ADMIN:-}"
+UPDATES="${UPDATES:-0}"
 GIT_TOKEN="${GIT_TOKEN:-}"
 APP_DIR=/opt/hoelni-backend
 DATA_DIR=/var/lib/hoelni-backend
@@ -199,6 +203,13 @@ if ! hoelni-backend user list 2>/dev/null | grep -q $'\tadmin\t'; then
   else
     echo "No terminal – create the admin later: hoelni-backend user add <name> --admin"
   fi
+fi
+
+if [ "$UPDATES" = "1" ]; then
+  say "Update server (local, distributed through the backend at /updates)"
+  HOST=127.0.0.1 REPO="$REPO" BRANCH="$BRANCH" GIT_TOKEN="$GIT_TOKEN" bash "$APP_DIR/repo/update-server/install.sh"
+  hoelni-backend config set updatesUpstream http://127.0.0.1:8787 >/dev/null
+  systemctl restart hoelni-backend
 fi
 
 sleep 1

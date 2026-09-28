@@ -11,6 +11,7 @@
  *   hoelni-backend user list
  *   hoelni-backend devices                                      signed-in managers and agents
  *   hoelni-backend info                                         address, certificate fingerprint, accounts
+ *   hoelni-backend config set <key> <value>                     host | port | trustProxy | publicUrl | updatesUpstream
  *
  * Config: $HOELNI_BACKEND_CONFIG or /etc/hoelni-backend/config.json
  */
@@ -135,6 +136,16 @@ switch (cmd) {
     for (const d of accounts.listDevices()) if (!d.revoked) console.log(`#${d.id}\t${d.username}\t${d.kind}\t${d.name}\tlast ${d.lastSeenAt ?? '–'} ${d.lastIp ?? ''}`);
     break;
   }
+  case 'config': {
+    const keys = { host: String, port: Number, trustProxy: (v) => v === 'true' || v === '1', publicUrl: String, updatesUpstream: String };
+    if (sub !== 'set' || !(name in keys) || extra === undefined) die(`usage: config set <${Object.keys(keys).join('|')}> <value>   ("" clears)`);
+    const cfg = JSON.parse(fs.readFileSync(CONFIG, 'utf8'));
+    cfg[name] = keys[name](extra);
+    if (name === 'updatesUpstream' && cfg[name] && !/^https?:\/\/[^/]+$/.test(cfg[name])) die('updatesUpstream must look like http://127.0.0.1:8787');
+    fs.writeFileSync(CONFIG, JSON.stringify(cfg, null, 2), { mode: 0o600 });
+    console.log(`${name} = ${JSON.stringify(cfg[name])} – restart: systemctl restart hoelni-backend`);
+    break;
+  }
   case 'info': {
     const { cfg, accounts } = openAccounts();
     const users = accounts.listUsers();
@@ -142,6 +153,7 @@ switch (cmd) {
     console.log(`hoelni-backend ${pkg.version}`);
     console.log(`Listening:     ${cfg.host}:${cfg.port}${cfg.tls?.cert ? ' (TLS)' : cfg.trustProxy ? ' (behind a reverse proxy)' : ' (plain HTTP)'}`);
     if (cfg.publicUrl) console.log(`Public URL:    ${cfg.publicUrl}`);
+    console.log(`Updates:       ${cfg.updatesUpstream ? `${cfg.publicUrl || ''}/updates  → ${cfg.updatesUpstream}` : 'not distributed (hoelni-backend config set updatesUpstream http://127.0.0.1:8787)'}`);
     if (cfg.tls?.cert) {
       const cert = new crypto.X509Certificate(fs.readFileSync(cfg.tls.cert));
       console.log(`Certificate:   ${cert.subject.replace(/\n/g, ', ')} (valid until ${cert.validTo})`);
@@ -154,6 +166,6 @@ switch (cmd) {
     break;
   }
   default:
-    console.log(fs.readFileSync(new URL(import.meta.url), 'utf8').split('\n').slice(2, 16).map((l) => l.replace(/^ \* ?/, '')).filter((l) => l !== '/').join('\n'));
+    console.log(fs.readFileSync(new URL(import.meta.url), 'utf8').split('\n').slice(2, 17).map((l) => l.replace(/^ \* ?/, '')).filter((l) => l !== '/').join('\n'));
     if (cmd && cmd !== 'help') process.exit(1);
 }
