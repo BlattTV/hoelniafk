@@ -17,6 +17,7 @@ import { auditView } from './views/audit.js';
 import { settingsView } from './views/settings.js';
 import { schedulesView } from './views/schedules.js';
 import { accountsView, agentsView } from './views/remote.js';
+import { proxiesView } from './views/proxies.js';
 import { openPalette, toggleTheme } from './palette.js';
 import { handleEvent, primeStates } from './notify.js';
 
@@ -39,6 +40,7 @@ const routes = [
   [/^\/settings$/, 'settings', settingsView],
   [/^\/schedules$/, 'schedules', schedulesView],
   [/^\/agents$/, 'agents', agentsView],
+  [/^\/proxies$/, 'proxies', proxiesView],
   [/^\/accounts$/, 'accounts', accountsView],
 ];
 

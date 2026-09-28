@@ -23,6 +23,7 @@ import { openDatabase } from '../../src/core/db.js';
 import { startLocalServer, type LocalServer } from '../../src/testserver/localServer.js';
 import { StaticKeyProvider } from '../../src/vault/keyProviders.js';
 import { EncryptedFileVault } from '../../src/vault/vault.js';
+import { startSocks5 } from '../fixtures/socks5.js';
 import { TEST_RULES, waitFor } from '../helpers.js';
 
 async function freePort(): Promise<number> {
@@ -129,6 +130,27 @@ describe('backend relay: manager and agent of the same account', () => {
     await waitFor(() => mc.linked.has('Remote01'), 5000, 'command reached server');
     await waitFor(() => suite.sessions.getChat(sid, { limit: 50 }).some((l) => /Discord linked successfully/.test(l.text)), 5000, 'answer reached manager');
   }, 45_000);
+
+  it('a pool proxy assigned to the identity is used by the session on the agent', async () => {
+    const sid = `${identityId}:${serverId}`;
+    const exit = process.platform === 'linux' ? '127.0.0.6' : '127.0.0.1';
+    const socks = await startSocks5({ password: 'pool-secret', exitAddress: exit });
+    try {
+      await suite.sessions.stopSession(sid);
+      await waitFor(() => !mc.players().includes('Remote01'), 10_000, 'stopped');
+      await suite.proxies.import(`socks5://pooluser:pool-secret@127.0.0.1:${socks.port}`);
+      const proxy = suite.proxies.list()[0];
+      await suite.proxies.assign(identityId, proxy.id);
+      await suite.sessions.startSession(identityId, serverId);
+      await waitFor(() => suite.sessions.getState(sid).state === 'ONLINE', 30_000, 'ONLINE via agent + proxy');
+      expect(suite.runtime.isRemoteSession?.(sid)).toBe(true);
+      expect(socks.auths).toContain('pooluser:pool-secret');
+      if (process.platform === 'linux') expect(mc._remoteOf('Remote01')).toMatch(/127\.0\.0\.6$/);
+    } finally {
+      for (const p of suite.proxies.list()) await suite.proxies.remove(p.id); // later tests connect directly again
+      socks.close();
+    }
+  }, 60_000);
 
   it('the household can pause: sessions stop and no new ones start there', async () => {
     agent.pause();

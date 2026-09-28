@@ -27,6 +27,7 @@ import { BulkOperations } from './ops/bulk.js';
 import { MetricsCollector } from './core/metrics.js';
 import { Updater } from './ops/updater.js';
 import { BackendLink } from './relay/backendLink.js';
+import { ProxyPool } from './network/proxyPool.js';
 import { GameClientRuntime, type GameClientOptions } from './client/gameClientRuntime.js';
 import { createWindowController } from './client/window.js';
 
@@ -104,6 +105,7 @@ export function createSuite(deps: SuiteDeps) {
 
   const network = new NetworkService(repo, vault, audit, bus, deps.ipDetector ?? detectPublicIp);
   network.endpoints = config.network.ipEndpoints;
+  const proxies = new ProxyPool(db, repo, vault, network, audit, bus, deps.ipDetector ?? detectPublicIp, () => network.endpoints);
   const auth = new MinecraftAuthService(repo, vault, audit, bus, deps.tokenFetcher ?? prismarineTokenFetcher);
   const linking = new LinkingWorkflow(repo, audit, bus);
   const rewards = new RewardTracker(repo, bus);
@@ -219,6 +221,7 @@ export function createSuite(deps: SuiteDeps) {
     repo,
     oauth,
     network,
+    proxies,
     auth,
     linking,
     rewards,

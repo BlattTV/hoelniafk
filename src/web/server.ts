@@ -206,6 +206,32 @@ export async function buildServer(suite: Suite, opts: ServerOptions = {}): Promi
   app.delete('/api/backend/admin/users/:id', async (req: Req) => suite.backend.admin('DELETE', `users/${num(req.params.id)}`));
   app.delete('/api/backend/admin/devices/:id', async (req: Req) => suite.backend.admin('DELETE', `devices/${num(req.params.id)}`));
 
+  // ------------------------------------------------------------------ proxy pool
+  app.get('/api/proxies', async () => suite.proxies.list());
+  app.post('/api/proxies/import', async (req: Req) => {
+    const b = bodyOf(req);
+    const kind = b.kind === 'HTTP' ? 'HTTP' : 'SOCKS5';
+    return suite.proxies.import(String(b.text ?? ''), { kind, label: b.label ? String(b.label) : undefined });
+  });
+  app.post('/api/proxies/test', async (req: Req) => {
+    const ids = bodyOf(req).ids;
+    return suite.proxies.testAll(Array.isArray(ids) ? ids.map(Number) : undefined);
+  });
+  app.post('/api/proxies/:id/test', async (req: Req) => suite.proxies.test(num(req.params.id)));
+  app.post('/api/proxies/auto-assign', async (req: Req) => {
+    const ids = bodyOf(req).identityIds;
+    return suite.proxies.autoAssign(Array.isArray(ids) ? ids.map(Number) : undefined);
+  });
+  app.post('/api/proxies/:id/assign', async (req: Req) => suite.proxies.assign(num(bodyOf(req).identityId), num(req.params.id)));
+  app.post('/api/proxies/:id/release', async (req: Req) => {
+    await suite.proxies.release(num(req.params.id));
+    return { ok: true };
+  });
+  app.delete('/api/proxies/:id', async (req: Req) => {
+    await suite.proxies.remove(num(req.params.id));
+    return { ok: true };
+  });
+
   // ------------------------------------------------------------------ updates (self-hosted update server)
   app.get('/api/updates', async () => suite.updater.status());
   app.post('/api/updates/probe', async (req: Req) => suite.updater.probe(String(bodyOf(req).url ?? '')));

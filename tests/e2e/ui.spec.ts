@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 
-const PAGES = ['/', '/matrix', '/sessions', '/chat', '/inbox', '/verification', '/mailboxes', '/servers', '/templates', '/monitoring', '/logs', '/audit', '/setup', '/settings', '/wizard', '/identity/1', '/wizard/1/5', '/schedules', '/agents', '/accounts'];
+const PAGES = ['/', '/matrix', '/sessions', '/chat', '/inbox', '/verification', '/mailboxes', '/servers', '/templates', '/monitoring', '/logs', '/audit', '/setup', '/settings', '/wizard', '/identity/1', '/wizard/1/5', '/schedules', '/agents', '/accounts', '/proxies'];
 
 function trackErrors(page: Page): string[] {
   const errors: string[] = [];
@@ -187,4 +187,20 @@ test('backend: account administration is only shown to admins; agents appear', a
   await expect(page.locator('select[name=agentId]')).toContainText('Demo agent');
   // The only failed request is the rejected address change (400) above.
   expect(errors.filter((e) => !/status of 400/.test(e))).toEqual([]);
+});
+
+test('proxy pool: import hides passwords and a proxy can be assigned', async ({ page }) => {
+  const errors = trackErrors(page);
+  await page.goto('/#/proxies');
+  await page.getByLabel('Proxy list').fill('socks5://pooluser:very-secret-pw@127.0.0.1:1\n10.9.9.9:1080\nbroken line');
+  page.once('dialog', (d) => d.accept());
+  await page.getByRole('button', { name: 'Import' }).click();
+  await expect(page.locator('#view tbody tr')).toHaveCount(2);
+  await expect(page.locator('#view')).toContainText('pooluser:•••@127.0.0.1:1');
+  await expect(page.locator('#view')).not.toContainText('very-secret-pw');
+  await page.locator('#view tbody tr').first().locator('select').selectOption({ label: 'Identity05' });
+  await expect(page.locator('#view tbody tr').first()).toContainText('Identity05');
+  await page.locator('#view tbody tr').first().getByRole('button', { name: 'Release' }).click();
+  await expect(page.locator('#view tbody tr').first().locator('select')).toBeVisible();
+  expect(errors).toEqual([]);
 });
