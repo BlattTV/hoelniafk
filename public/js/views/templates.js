@@ -6,14 +6,14 @@ export async function templatesView(root) {
     const [templates, servers, rules] = await Promise.all([api.get('/api/templates'), api.get('/api/servers'), api.get('/api/rules')]);
     mount(root, 
       h('div', { class: 'page-head' }, h('div', null, h('h1', null, 'Identity Templates'), h('div', { class: 'sub' }, 'Templates never contain credentials, accounts or concrete IP addresses.')),
-        h('button', { class: 'primary', onclick: () => edit(null, servers, rules, render) }, '＋ New template')),
+        h('button', { class: 'primary', onclick: () => edit(null, servers, rules, render) }, 'New template')),
       templates.length
         ? templates.map((t) => h('section', { class: 'card' },
             h('div', { class: 'page-head', style: { marginBottom: '6px' } }, h('h1', null, t.name),
               h('div', { class: 'toolbar' },
                 h('button', { class: 'small primary', onclick: () => guard(async () => { const r = await api.post('/api/identities', { templateId: t.id }); location.hash = `#/wizard/${r.identity.id}/0`; }) }, 'Create identity'),
                 h('button', { class: 'small', onclick: () => edit(t, servers, rules, render) }, 'Edit'),
-                h('button', { class: 'small danger', onclick: () => confirm('Delete template?') && guard(async () => { await api.del(`/api/templates/${t.id}`); await render(); }) }, '✕'))),
+                h('button', { class: 'small danger', onclick: () => confirm('Delete template?') && guard(async () => { await api.del(`/api/templates/${t.id}`); await render(); }) }, 'Delete'))),
             h('pre', { class: 'mono muted', style: { margin: 0 } }, describe(t.config))))
         : h('div', { class: 'card empty' }, 'No templates yet.'),
     );

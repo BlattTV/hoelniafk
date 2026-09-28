@@ -19,18 +19,18 @@ const state = { q: '', health: '', discord: '', sessions: '', sort: 'number', as
 
 function discordCell(r) {
   const d = r.discord;
-  if (d.linkState === 'LINKED') return h('span', { class: 's-ok', title: `@${d.username ?? '?'} – linked on the Minecraft server` }, 'Linked ✓');
+  if (d.linkState === 'LINKED') return h('span', { class: 's-ok', title: `@${d.username ?? '?'} – linked on the Minecraft server` }, 'Linked');
   if (d.pendingLinkCode) return h('span', { class: 's-warn', title: 'Link code received from the server – complete the link' }, 'Code ', h('code', null, d.pendingLinkCode));
   if (d.linkState === 'WAITING') return h('span', { class: 's-warn' }, 'Waiting…');
-  if (d.linkState === 'ERROR') return h('span', { class: 's-error' }, 'Link error ✗');
-  if (d.state === 'CONNECTED') return h('span', { class: 's-warn', title: `@${d.username}` }, 'Not linked ⚠');
-  if (d.state === 'EXPIRED' || d.state === 'ERROR') return h('span', { class: 's-error' }, 'OAuth expired ✗');
-  return h('span', { class: 's-warn' }, 'Missing ⚠');
+  if (d.linkState === 'ERROR') return h('span', { class: 's-error' }, 'Link error');
+  if (d.state === 'CONNECTED') return h('span', { class: 's-warn', title: `@${d.username}` }, 'Not linked');
+  if (d.state === 'EXPIRED' || d.state === 'ERROR') return h('span', { class: 's-error' }, 'OAuth expired');
+  return h('span', { class: 's-warn' }, 'Missing');
 }
 
 function mailCell(r) {
   if (!r.mail.address) return h('span', { class: 'muted' }, '–');
-  if (r.mail.status === 'ERROR') return h('span', { class: 's-error', title: r.mail.address }, 'error ✗');
+  if (r.mail.status === 'ERROR') return h('span', { class: 's-error', title: r.mail.address }, 'error');
   return h('span', { class: r.mail.unread ? '' : 'muted', title: r.mail.address }, `${r.mail.unread} unread`);
 }
 
@@ -113,12 +113,12 @@ export async function dashboardView(root) {
     const desired = rows.reduce((a, r) => a + r.minecraft.sessions, 0);
     mount(
       head,
-      h('div', null, h('h1', null, 'Hoelni Client Suite'), h('div', { class: 'sub' }, `Identities: ${rows.length} · ${rows.filter((r) => r.ready).length} ready · sessions ${online}/${desired} online · ${visible.length} shown`)),
+      h('div', null, h('h1', null, 'Identities'), h('div', { class: 'sub' }, `Identities: ${rows.length} · ${rows.filter((r) => r.ready).length} ready · sessions ${online}/${desired} online · ${visible.length} shown`)),
       h('div', { class: 'toolbar' },
         h('span', { class: 'muted' }, `${selected.size} selected`),
         select('server', [['', 'all servers'], ...servers.map((s) => [s.id, s.name])], state.server, { title: 'Limit session actions to one server', onchange: (e) => (state.server = e.target.value) }),
         BULK.map(([a, label, tip]) => h('button', { class: 'small', title: tip, onclick: () => runBulk(a), disabled: !selected.size }, label)),
-        h('button', { class: 'primary', onclick: () => (location.hash = '#/wizard') }, '＋ New Identity')),
+        h('button', { class: 'primary', onclick: () => (location.hash = '#/wizard') }, 'New identity')),
     );
   };
 
@@ -183,12 +183,12 @@ export async function dashboardView(root) {
               },
                 h('td', null, h('input', { type: 'checkbox', checked: selected.has(r.id), onchange: (e) => { e.target.checked ? selected.add(r.id) : selected.delete(r.id); renderHead(); renderTable(); } })),
                 h('td', { class: 'num' }, pad2(r.number)),
-                h('td', null, r.color ? h('span', { style: { color: r.color } }, '■ ') : null, identityName(r), ' ', r.tags.map((t) => h('span', { class: 'tag' }, t))),
+                h('td', null, r.color ? h('span', { class: 'mark', style: { background: r.color } }) : null, identityName(r), ' ', r.tags.map((t) => h('span', { class: 'tag' }, t))),
                 h('td', null, mcCell(r)),
                 h('td', null, discordCell(r)),
                 h('td', null, mailCell(r)),
                 h('td', null, exitCell(r)),
-                h('td', { class: 'mono' }, String(r.stars), r.eligible ? h('span', { class: 's-ok', title: 'eligible' }, ' ★') : null),
+                h('td', { class: 'mono' }, String(r.stars), r.eligible ? h('span', { class: 'tag', title: 'eligible for rewards', style: { marginLeft: '6px' } }, 'eligible') : null),
                 h('td', null, badge(r.health, r.ready ? 'READY' : r.health)),
               ))
           : h('tr', null, h('td', { colspan: 9, class: 'empty' }, rows.length ? 'No identity matches the filters.' : 'No identities yet – create one with the setup wizard.'))));

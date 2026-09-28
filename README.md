@@ -18,6 +18,7 @@ Identity
 
 | Datei | Inhalt |
 |---|---|
+| **[docs/INSTALLATION.md](docs/INSTALLATION.md)** | **Schritt-für-Schritt: Client unter Windows installieren, Update-Server im Proxmox-LXC aufsetzen** |
 | [SETUP.md](SETUP.md) | Vom frischen Windows bis zur laufenden Suite, OAuth-Apps, Betrieb, Updates |
 | [NETWORKING.md](NETWORKING.md) | Windows-Bind-IPs → OPNsense → VPN → Exit-VPS mit mehreren IPv4, Troubleshooting |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Tatsächlich implementierte Architektur, Session-Lebenszyklus, Sicherheitsmodell |
@@ -55,6 +56,11 @@ npm run demo              # → http://127.0.0.1:7421
   schließen / „Back to AFK“ gibt die Session an den AFK-Client zurück. Normales Fenster
   (Alt-Tab), normale Steuerung, Inventar, HUD. Alternativ Handover (Re-Login) oder
   Background (Spiel hält die Session minimiert).
+* **Zeitpläne:** Online-Fenster pro Session im Wochenraster (z. B. werktags 18–24 Uhr), manueller
+  Start überstimmt bis zum nächsten Wechsel, ein offenes Spiel wird nie abgeschnitten.
+* **Programm-Komfort:** Tray-Menü mit allen Sessions (Open game / Back to AFK / Start / Stop),
+  Desktop-Benachrichtigungen (Session blockiert, Link-Code, Update), Schnellaktionen mit `Strg`+`K`,
+  Hell-/Dunkelmodus.
 * **Multi-Account × Multi-Server:** derselbe Account gleichzeitig auf mehreren Servern,
   Account × Server-Matrix, Bulk-Operationen, Global Chat.
 * **Netzwerk:** Bind-IP / SOCKS5 / HTTP-Proxy pro Identity oder Session, Public-IP-Prüfung,

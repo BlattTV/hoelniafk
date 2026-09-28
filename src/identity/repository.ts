@@ -1,4 +1,5 @@
 import type { DB } from '../core/db.js';
+import { normalizeSchedule, type WeekSchedule } from '../core/schedule.js';
 import { nowIso } from '../core/db.js';
 import { ConflictError, IsolationError, NotFoundError, ValidationError } from '../core/errors.js';
 import {
@@ -129,6 +130,7 @@ function mapAssignment(r: Row): ServerAssignment {
     autoStart: bool(r.auto_start),
     networkProfileId: r.network_profile_id,
     desiredState: r.desired_state === 'ONLINE' ? 'ONLINE' : 'OFFLINE',
+    schedule: r.schedule_json ? normalizeSchedule(JSON.parse(r.schedule_json)) : null,
   };
 }
 
@@ -584,6 +586,14 @@ export class IdentityRepository {
     const a = this.getAssignment(identityId, serverId);
     if (!a) throw new ValidationError('Identity is not assigned to this server');
     this.db.prepare('UPDATE server_assignments SET desired_state = ? WHERE id = ?').run(desired, a.id);
+    return this.getAssignment(identityId, serverId)!;
+  }
+
+  setSchedule(identityId: number, serverId: number, schedule: WeekSchedule | null): ServerAssignment {
+    const a = this.getAssignment(identityId, serverId);
+    if (!a) throw new ValidationError('Identity is not assigned to this server');
+    this.db.prepare('UPDATE server_assignments SET schedule_json = ? WHERE id = ?').run(schedule ? JSON.stringify(normalizeSchedule(schedule)) : null, a.id);
+    this.touch(identityId);
     return this.getAssignment(identityId, serverId)!;
   }
 

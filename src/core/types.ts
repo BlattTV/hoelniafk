@@ -168,6 +168,8 @@ export interface ServerAssignment {
   networkProfileId: number | null;
   /** Desired state maintained by the reconciler. */
   desiredState: DesiredState;
+  /** Weekly online window (null = always). */
+  schedule: import('./schedule.js').WeekSchedule | null;
 }
 
 export type DesiredState = 'ONLINE' | 'OFFLINE';
@@ -246,6 +248,8 @@ export interface SessionInfo {
   runtime: 'lightweight' | 'game';
   /** Live takeover state: the real game plays on the lightweight session's connection. */
   takeover: 'none' | 'launching' | 'attached';
+  /** Weekly schedule of this session (null = always online while desired). */
+  schedule: { text: string; active: boolean; override: boolean; nextChange: string | null } | null;
   game: import('../runtime/types.js').GameInfo | null;
   stats: import('../runtime/types.js').SessionStats | null;
   username: string | null;

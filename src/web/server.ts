@@ -7,6 +7,7 @@ import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest }
 import fastifyStatic from '@fastify/static';
 import type { Suite } from '../app.js';
 import { SuiteError, ValidationError } from '../core/errors.js';
+import { describeSchedule, normalizeSchedule } from '../core/schedule.js';
 import { createLogger, onLogEntry, recentLogs, type Level } from '../core/logger.js';
 import type { LinkState, MailAccountKind } from '../core/types.js';
 import { DISCORD_APP_URL } from '../discord/discordService.js';
@@ -562,6 +563,43 @@ export async function buildServer(suite: Suite, opts: ServerOptions = {}): Promi
     const state = String(bodyOf(req).state ?? '');
     if (state !== 'ONLINE' && state !== 'OFFLINE') throw new ValidationError('state must be ONLINE or OFFLINE');
     return suite.sessions.setDesired(num(req.params.id), num(req.params.sid), state);
+  });
+  // Weekly online schedules (identity × server)
+  const parseSchedule = (b: any) => {
+    if (b === null || b?.enabled === false && !Array.isArray(b?.hours)) return null;
+    if (!Array.isArray(b?.hours) || b.hours.length !== 7 || !b.hours.every((m: unknown) => Number.isInteger(m) && (m as number) >= 0 && (m as number) <= 0xffffff)) {
+      throw new ValidationError('schedule.hours must be 7 integers (24-bit hour masks, Monday first)');
+    }
+    return normalizeSchedule(b);
+  };
+  const applySchedule = (identityId: number, serverId: number, schedule: ReturnType<typeof parseSchedule>) => {
+    suite.repo.setSchedule(identityId, serverId, schedule);
+    suite.audit.record(identityId, 'Session schedule changed', { server: suite.repo.getServer(serverId).name, schedule: describeSchedule(schedule) });
+  };
+  app.get('/api/schedules', async () =>
+    suite.repo.listAssignments().map((a) => ({
+      identityId: a.identityId,
+      serverId: a.serverId,
+      serverName: suite.repo.getServer(a.serverId).name,
+      desiredState: a.desiredState,
+      enabled: a.enabled,
+      schedule: a.schedule,
+      text: describeSchedule(a.schedule),
+    })),
+  );
+  app.put('/api/identities/:id/servers/:sid/schedule', async (req: Req) => {
+    applySchedule(num(req.params.id), num(req.params.sid), parseSchedule(bodyOf(req).schedule));
+    void suite.sessions.reconcile();
+    return suite.repo.getAssignment(num(req.params.id), num(req.params.sid));
+  });
+  app.put('/api/schedules/bulk', async (req: Req) => {
+    const b = bodyOf(req);
+    const schedule = parseSchedule(b.schedule);
+    const targets = Array.isArray(b.targets) ? b.targets : [];
+    if (!targets.length || targets.length > 5000) throw new ValidationError('targets required');
+    for (const t of targets) applySchedule(num(t.identityId), num(t.serverId), schedule);
+    void suite.sessions.reconcile();
+    return { updated: targets.length };
   });
   app.get('/api/sessions/:sessionId', async (req: Req) => suite.sessions.getState(req.params.sessionId));
   app.post('/api/sessions/:sessionId/stop', async (req: Req) => suite.sessions.stopSession(req.params.sessionId));

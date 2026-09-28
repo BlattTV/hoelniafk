@@ -46,7 +46,7 @@ export function modal(title, body, { actions = [] } = {}) {
   const backdrop = h(
     'div',
     { class: 'modal-backdrop', onclick: (e) => e.target === backdrop && close() },
-    h('div', { class: 'modal' }, h('div', { class: 'modal-head' }, h('h1', null, title), h('div', { class: 'toolbar' }, actions, h('button', { onclick: close }, '✕'))), body),
+    h('div', { class: 'modal' }, h('div', { class: 'modal-head' }, h('h1', null, title), h('div', { class: 'toolbar' }, actions, h('button', { onclick: close, title: 'Close (Esc)' }, 'Close'))), body),
   );
   clear(root).appendChild(backdrop);
   const onKey = (e) => {
@@ -77,8 +77,19 @@ export function badge(status, text) {
   return h('span', { class: `badge ${map[status] ?? 'unknown'}` }, text ?? status);
 }
 
+/** Schedule note for a session: window text + whether it is waiting for the next window. */
+export function scheduleNote(sess) {
+  const sc = sess?.schedule;
+  if (!sc) return null;
+  const next = sc.nextChange ? new Date(sc.nextChange).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' }) : null;
+  const text = sc.override ? `manual start – schedule resumes ${next ?? ''}` : sc.active ? `in window until ${next ?? '–'}` : `waiting for window (${next ?? '–'})`;
+  return h('div', { class: 'muted', style: { fontSize: '12px' }, title: sc.text }, h('span', { class: 'tag' }, 'schedule'), text);
+}
+
+/** Small square state mark (text alternative in the title). */
 export function statusIcon(status) {
-  return { ok: '✓', warn: '⚠', error: '✗', skipped: '–', unknown: '?' }[status] ?? '?';
+  const cls = { ok: 'ok', warn: 'warn', error: 'error' }[status] ?? '';
+  return h('span', { class: `mark ${cls}`, title: status, 'aria-label': status });
 }
 
 export function fmtTime(iso) {
@@ -260,11 +271,11 @@ export async function closeGame(api, sessionId) {
 export function gameBadge(sess) {
   const g = sess?.game;
   const active = g && !['closed', 'failed'].includes(g.status);
-  if (!active && sess?.runtime !== 'game') return g?.status === 'failed' && g.message ? h('span', { class: 's-error', title: g.message }, ' 🎮✕') : null;
+  if (!active && sess?.runtime !== 'game') return g?.status === 'failed' && g.message ? h('span', { class: 'game-tag', style: { borderColor: 'var(--err)', color: 'var(--err)' }, title: g.message }, 'game failed') : null;
   const pct = g?.progress && g.progress.total ? ` ${Math.floor((g.progress.done / g.progress.total) * 100)}%` : '';
-  if (sess?.takeover === 'attached') return h('span', { class: 's-info', title: 'The real game plays on this session\'s live connection (no re-login)' }, ` 🎮 game (live)${g && !g.visible ? ' – minimized' : ''}`);
+  if (sess?.takeover === 'attached') return h('span', { class: 'game-tag live', title: 'The real game plays on this session\'s live connection (no re-login)' }, `in game${g && !g.visible ? ' · minimized' : ''}`);
   const label = sess?.runtime === 'game'
     ? (!g || g.status === 'running' ? (g && !g.visible ? 'game (minimized)' : 'game') : g.status)
     : g.status === 'running' ? 'joining…' : `${g.status}${pct}…`;
-  return h('span', { class: 's-info', title: g?.message ?? 'Held by the real Minecraft client' }, ` 🎮 ${label}`);
+  return h('span', { class: `game-tag${sess?.runtime === 'game' ? ' live' : ''}`, title: g?.message ?? 'Held by the real Minecraft client' }, label === 'game' ? 'in game' : label);
 }

@@ -48,7 +48,7 @@ export async function matrixView(root) {
       if (c.state === 'ONLINE') online++;
       if (c.desiredState === 'ONLINE') desired++;
     }
-    mount(head, h('div', null, h('h1', null, 'Account × Server'), h('div', { class: 'sub' }, `${online}/${desired} desired sessions online · click a cell to toggle SHOULD_BE_ONLINE / OFFLINE · right-click for actions`)));
+    mount(head, h('div', null, h('h1', null, 'Accounts × servers'), h('div', { class: 'sub' }, `${online}/${desired} desired sessions online · click a cell to toggle SHOULD_BE_ONLINE / OFFLINE · right-click for actions`)));
     const table = h('table', null,
       h('thead', null, h('tr', null,
         h('th', null, h('input', { type: 'checkbox', title: 'Select all', checked: rows.length && rows.every((r) => selectedRows.has(r.id)), onchange: (e) => { rows.forEach((r) => (e.target.checked ? selectedRows.add(r.id) : selectedRows.delete(r.id))); render(); } })),
@@ -56,8 +56,8 @@ export async function matrixView(root) {
         data.servers.map((s) =>
           h('th', { style: { textAlign: 'center' } }, s.name,
             h('div', { class: 'toolbar', style: { justifyContent: 'center', marginTop: '4px' } },
-              h('button', { class: 'small', title: `Set ${selectedRows.size ? 'selected' : 'all'} identities ONLINE on ${s.name}`, onclick: () => bulkColumn(s.id, 'ONLINE') }, '▶ all'),
-              h('button', { class: 'small', title: `Set ${selectedRows.size ? 'selected' : 'all'} identities OFFLINE on ${s.name}`, onclick: () => bulkColumn(s.id, 'OFFLINE') }, '■ all')))))),
+              h('button', { class: 'small', title: `Set ${selectedRows.size ? 'selected' : 'all'} identities ONLINE on ${s.name}`, onclick: () => bulkColumn(s.id, 'ONLINE') }, 'all on'),
+              h('button', { class: 'small', title: `Set ${selectedRows.size ? 'selected' : 'all'} identities OFFLINE on ${s.name}`, onclick: () => bulkColumn(s.id, 'OFFLINE') }, 'all off')))))),
       h('tbody', null, rows.map((r) =>
         h('tr', null,
           h('td', null, h('input', { type: 'checkbox', checked: selectedRows.has(r.id), onchange: (e) => { e.target.checked ? selectedRows.add(r.id) : selectedRows.delete(r.id); render(); } })),
@@ -72,8 +72,8 @@ export async function matrixView(root) {
               oncontextmenu: (e) => cellMenu(e, r, srv, c),
             },
               stateBadge(c.state, tip),
-              c.runtime === 'game' || (c.gameStatus && !['closed', 'failed'].includes(c.gameStatus)) ? h('span', { title: `Real game client: ${c.gameStatus ?? 'running'}` }, ' 🎮') : null,
-              h('span', { class: 'desired' }, c.desiredState === 'ONLINE' ? '● should be online' : '○ should be offline', c.stars ? ` · ★${c.stars}` : ''));
+              c.runtime === 'game' || (c.gameStatus && !['closed', 'failed'].includes(c.gameStatus)) ? h('span', { class: 'game-tag live', title: `Real game client: ${c.gameStatus ?? 'running'}` }, 'game') : null,
+              h('span', { class: 'desired' }, c.desiredState === 'ONLINE' ? 'should be online' : 'should be offline', c.stars ? ` · ${c.stars} stars` : ''));
           })))),
     );
     clear(wrap).appendChild(data.servers.length ? table : h('div', { class: 'empty' }, 'No servers yet – add them under “Server Profiles”.'));

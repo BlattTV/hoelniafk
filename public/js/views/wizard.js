@@ -32,7 +32,7 @@ function verificationStep(ctx) {
     { class: 'card', id: 'sec-verification' },
     h('h2', null, `Identity #${pad2(ctx.data.identity.number)}`),
     h('ul', { class: 'health-list' }, items.map(([label, ok, step]) =>
-      h('li', { onclick: () => (location.hash = `#/wizard/${ctx.id}/${step}`) }, h('span', null, label), h('span', { class: ok ? 's-ok' : 's-error' }, ok ? '✓' : '✗'), h('span', { class: 'muted' }, ok ? '' : 'click to fix')))),
+      h('li', { onclick: () => (location.hash = `#/wizard/${ctx.id}/${step}`) }, h('span', null, label), h('span', { class: `mark ${ok ? 'ok' : 'error'}`, title: ok ? 'done' : 'missing' }), h('span', { class: 'muted' }, ok ? '' : 'click to fix')))),
     h('div', { style: { margin: '16px 0' } }, h('span', { class: `ready-banner ${ready ? 'ok' : 'no'}` }, ready ? 'READY' : 'NOT READY')),
     h('h3', null, 'Detailed health'),
     h('ul', { class: 'health-list' }, ctx.data.health.checks.map((c) => h('li', null, h('span', null, c.label), h('span', { class: `s-${c.status}` }, statusIcon(c.status)), h('span', { class: 'muted' }, c.detail)))),
@@ -78,7 +78,7 @@ export async function wizardView(root, [idStr, stepStr]) {
     mount(root, 
       h('div', { class: 'page-head' }, h('h1', null, `Setup · Identity #${pad2(ctx.data.identity.number)} `, h('span', { class: 'muted' }, ctx.data.identity.label))),
       h('div', { class: 'stepper' }, STEPS.map(([label], i) =>
-        h('div', { class: `st ${i === step ? 'cur' : ''} ${stepDone[i] ? 'done' : ''}`, onclick: () => (location.hash = `#/wizard/${id}/${i}`) }, `Step ${i + 1} ─ ${label} ${stepDone[i] ? '✓' : ''}`))),
+        h('div', { class: `st ${i === step ? 'cur' : ''} ${stepDone[i] ? 'done' : ''}`, onclick: () => (location.hash = `#/wizard/${id}/${i}`) }, `${i + 1}. ${label}${stepDone[i] ? ' – done' : ''}`))),
       STEPS[step][1](ctx),
       h('div', { class: 'form-actions' },
         step > 0 ? h('button', { onclick: () => (location.hash = `#/wizard/${id}/${step - 1}`) }, '← Back') : null,

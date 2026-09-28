@@ -1,5 +1,5 @@
 import { api } from '../api.js';
-import { clear, contextMenu, fmtBytes, guard, h, identityName, mount, openGame, closeGame, gameBadge, pad2, relTime, select, stateBadge } from '../ui.js';
+import { clear, contextMenu, fmtBytes, guard, h, identityName, mount, openGame, closeGame, gameBadge, scheduleNote, pad2, relTime, select, stateBadge } from '../ui.js';
 import { openChat, openSessionLog } from './sections.js';
 
 /** Session Manager: every session with actual vs. desired state, filters and actions. */
@@ -40,18 +40,18 @@ export async function sessionsView(root) {
           h('tbody', null, list.map((s) => h('tr', { oncontextmenu: (e) => menu(e, s) },
             h('td', null, h('a', { href: `#/identity/${s.identityId}/sessions` }, names.get(s.identityId) ?? `#${s.identityId}`), s.username ? h('div', { class: 'muted' }, s.username) : null),
             h('td', null, s.serverName),
-            h('td', null, s.desiredState === 'ONLINE' ? h('span', { class: 's-ok' }, '● online') : h('span', { class: 'muted' }, '○ offline')),
-            h('td', null, stateBadge(s.state, s.lastError ?? '')),
-            h('td', { class: 'muted' }, relTime(s.since)),
+            h('td', null, s.desiredState === 'ONLINE' ? h('span', { class: 's-ok' }, 'online') : h('span', { class: 'muted' }, 'offline')),
+            h('td', null, stateBadge(s.state, s.lastError ?? ''), scheduleNote(s)),
+            h('td', { class: 'muted nowrap' }, relTime(s.since)),
             h('td', { class: 'mono' }, `${s.reconnects}${s.consecutiveFailures ? ` (${s.consecutiveFailures} failed)` : ''}`),
             h('td', { class: 'mono' }, s.stats?.ping !== null && s.stats?.ping !== undefined ? `${s.stats.ping} ms` : '–'),
-            h('td', { class: 'mono muted' }, s.stats ? `↓${fmtBytes(s.stats.bytesIn)} ↑${fmtBytes(s.stats.bytesOut)}` : '–'),
+            h('td', { class: 'mono muted' }, s.stats ? `${fmtBytes(s.stats.bytesIn)} / ${fmtBytes(s.stats.bytesOut)}` : '–'),
             h('td', null, gameBadge(s) ?? (s.stats ? (s.stats.physics ? 'physics' : h('span', { class: 'muted', title: 'Physics off – lightweight AFK mode' }, 'lightweight')) : '–')),
             h('td', { class: s.state === 'BLOCKED' ? 's-error' : 'muted', style: { maxWidth: '320px', fontSize: '12px' } }, s.state === 'RECONNECTING' ? `next ${relTime(s.nextAttemptAt)} – ${s.lastError ?? ''}` : s.lastError ?? ''),
             h('td', null, h('div', { class: 'toolbar' },
               h('button', { class: 'small', title: 'Play in the real Minecraft client', onclick: () => openGame(api, s.id).then(load) }, 'Game'),
               h('button', { class: 'small', onclick: () => openChat({ id: s.id, serverName: s.serverName }, ctx) }, 'Chat'),
-              h('button', { class: 'small', title: 'More actions', onclick: (e) => menu(e, s) }, '⋯')))))))
+              h('button', { class: 'small', title: 'More actions', onclick: (e) => menu(e, s) }, 'More')))))))
       : h('div', { class: 'empty' }, sessions.length ? 'No session matches the filters.' : 'No sessions yet – set identities online in the Account × Server matrix.'));
   };
 

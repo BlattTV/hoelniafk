@@ -3,7 +3,7 @@
  * ctx = { id, data, meta: { mailboxes, servers, rules, aliasProviders }, reload }
  */
 import { api, qs } from '../api.js';
-import { badge, clear, codeBox, copy, field, fmtBytes, fmtTime, formData, guard, h, modal, mount, openExternal, openGame, closeGame, gameBadge, relTime, select, stateBadge, statusIcon, toast } from '../ui.js';
+import { badge, clear, codeBox, copy, field, fmtBytes, fmtTime, formData, guard, h, modal, mount, openExternal, openGame, closeGame, gameBadge, scheduleNote, relTime, select, stateBadge, statusIcon, toast } from '../ui.js';
 import { openMessage } from './mailviewer.js';
 
 export async function loadMeta() {
@@ -48,7 +48,7 @@ export function milestoneStrip(health) {
   return h(
     'div',
     { class: 'milestone' },
-    health.milestone.map((m) => h('div', { class: `step ${m.ok ? 'ok' : 'bad'}`, onclick: () => focusSection(m.target) }, `${m.label} ${m.ok ? '✓' : '✗'}`)),
+    health.milestone.map((m) => h('div', { class: `step ${m.ok ? 'ok' : 'bad'}`, onclick: () => focusSection(m.target) }, h('span', { class: `mark ${m.ok ? 'ok' : 'error'}` }), m.label)),
   );
 }
 
@@ -155,7 +155,7 @@ export function discordSection(ctx) {
       : null,
     kv([
       ['Account', d?.username ? `@${d.username}` : 'not connected'],
-      ['Linked / Not Linked', linked ? h('span', { class: 's-ok' }, 'Linked ✓') : h('span', { class: 's-warn' }, `Not linked (${d?.linkState ?? 'UNKNOWN'})`)],
+      ['Linked / Not Linked', linked ? h('span', { class: 's-ok' }, 'Linked') : h('span', { class: 's-warn' }, `Not linked (${d?.linkState ?? 'UNKNOWN'})`)],
       ['OAuth status', badge(d?.oauthState === 'CONNECTED' ? 'ok' : d?.oauthState === 'PENDING' || !d || d.oauthState === 'NONE' ? 'warn' : 'error', d?.oauthState ?? 'NONE')],
       ['Last verified', fmtTime(d?.lastVerifiedAt)],
     ]),
@@ -288,7 +288,7 @@ export function networkSection(ctx) {
       field('Proxy host', h('input', { name: 'proxyHost', value: p?.proxyHost ?? '' })),
       field('Proxy port', h('input', { name: 'proxyPort', type: 'number', value: p?.proxyPort ?? '' })),
       field('Proxy user', h('input', { name: 'proxyUsername', value: p?.proxyUsername ?? '', autocomplete: 'off' })),
-      field(p?.credentialRef ? 'Proxy password (stored ✓ – leave empty)' : 'Proxy password', h('input', { name: 'password', type: 'password', autocomplete: 'new-password' })),
+      field(p?.credentialRef ? 'Proxy password (stored – leave empty to keep)' : 'Proxy password', h('input', { name: 'password', type: 'password', autocomplete: 'new-password' })),
       field('Expected public IP', h('input', { name: 'expectedPublicIp', value: p?.expectedPublicIp ?? '' })),
       field('Exit label', h('input', { name: 'exitLabel', value: p?.exitLabel ?? '', placeholder: 'IP #07' })),
     );
@@ -319,7 +319,7 @@ export function networkSection(ctx) {
           h('thead', null, h('tr', null, ['', 'Profile', 'Local bind IP', 'Expected public IP', 'Actual public IP', 'Connection test', ''].map((t) => h('th', null, t)))),
           h('tbody', null, profiles.map((p) =>
             h('tr', null,
-              h('td', null, p.id === def ? h('span', { class: 's-ok', title: 'default' }, '★') : h('button', { class: 'small', title: 'Make default', onclick: () => guard(async () => { await api.patch(`/api/identities/${id}`, { networkProfileId: p.id }); await ctx.reload(); }) }, '☆')),
+              h('td', null, p.id === def ? h('span', { class: 'tag', title: 'default profile' }, 'default') : h('button', { class: 'small', title: 'Make default', onclick: () => guard(async () => { await api.patch(`/api/identities/${id}`, { networkProfileId: p.id }); await ctx.reload(); }) }, '☆')),
               h('td', null, `${p.name} `, h('span', { class: 'tag' }, p.kind), p.exitLabel ? h('span', { class: 'tag' }, p.exitLabel) : null, p.kind === 'SOCKS5' || p.kind === 'HTTP' ? h('div', { class: 'muted' }, `${p.proxyHost}:${p.proxyPort}`) : null),
               h('td', { class: 'mono' }, p.localBindIp ?? '–'),
               h('td', { class: 'mono' }, p.expectedPublicIp ?? '–'),
@@ -334,7 +334,7 @@ export function networkSection(ctx) {
         )
       : h('p', { class: 'muted' }, 'No network profile yet.'),
     h('div', { class: 'form-actions' },
-      h('button', { onclick: () => editor(null) }, '＋ Add profile'),
+      h('button', { onclick: () => editor(null) }, 'Add profile'),
       profiles.length ? h('button', { title: 'Step-by-step check: bind IP, proxy, DNS, Minecraft TCP, public exit IP', onclick: () => diagnose(id, data.identity.networkProfileId) }, 'Diagnose') : null,
       h('span', { class: 'muted', title: 'Network guard setting of this identity' }, `Guard: ${data.identity.settings.networkGuard}`)),
   );
@@ -377,9 +377,9 @@ export function sessionsSection(ctx) {
               h('td', null, h('input', { type: 'checkbox', title: 'Assign this server', checked: !!a && a.enabled, onchange: (e) => (e.target.checked ? update({ enabled: true }) : guard(async () => { await api.del(`/api/identities/${id}/servers/${s.id}`); await reload(); })) })),
               h('td', null, a ? select('desired', [['ONLINE', 'online'], ['OFFLINE', 'offline']], a.desiredState, { title: 'Desired state (SHOULD_BE_ONLINE / OFFLINE)', onchange: (e) => guard(async () => { await api.put(`/api/identities/${id}/servers/${s.id}/desired`, { state: e.target.value }); await reload(); }) }) : '–'),
               h('td', null, a ? select('np', profileOpts, a.networkProfileId ?? '', { title: 'Per-session network override', onchange: (e) => update({ networkProfileId: e.target.value ? Number(e.target.value) : null }) }) : '–'),
-              h('td', null, sess ? stateBadge(sess.state, sess.lastError ?? '') : h('span', { class: 'muted' }, '–'), gameBadge(sess)),
+              h('td', null, sess ? stateBadge(sess.state, sess.lastError ?? '') : h('span', { class: 'muted' }, '–'), gameBadge(sess), scheduleNote(sess)),
               h('td', { class: 'muted', style: { fontSize: '12px', maxWidth: '260px' } },
-                sess?.state === 'ONLINE' && st ? `ping ${st.ping ?? '–'}ms · ❤ ${st.health ?? '–'} · ${st.physics ? 'physics' : 'lightweight'} · ↓${fmtBytes(st.bytesIn)}` : null,
+                sess?.state === 'ONLINE' && st ? `ping ${st.ping ?? '–'} ms · health ${st.health ?? '–'} · ${st.physics ? 'physics' : 'lightweight'} · in ${fmtBytes(st.bytesIn)}` : null,
                 sess?.state === 'RECONNECTING' ? `next attempt ${relTime(sess.nextAttemptAt)} · failures ${sess.consecutiveFailures}` : null,
                 sess?.lastError && sess.state !== 'ONLINE' ? h('div', { class: sess.state === 'BLOCKED' ? 's-error' : '' }, sess.lastError) : null),
               h('td', null, a ? h('div', { class: 'toolbar' },
@@ -434,7 +434,7 @@ export async function openSessionLog(sessionId, title) {
 export function rewardsSection(ctx) {
   const { id, data } = ctx;
   const r = data.rewards;
-  const tri = (v) => (v === true ? h('span', { class: 's-ok' }, '✓') : v === false ? h('span', { class: 's-error' }, '✗') : h('span', { class: 'muted' }, '–'));
+  const tri = (v) => (v === true ? h('span', { class: 's-ok' }, 'yes') : v === false ? h('span', { class: 's-error' }, 'no') : h('span', { class: 'muted' }, '–'));
   const edit = (sr) => {
     const f = h('div', { class: 'form-grid' },
       field('Stars', h('input', { type: 'number', name: 'stars', value: sr.stars })),
@@ -454,7 +454,7 @@ export function rewardsSection(ctx) {
     'Rewards / Stars',
     h('div', { class: 'kv' },
       h('div', { class: 'tree-line' }, 'Stars (total)'), h('div', { class: 'mono' }, String(r.stars)),
-      h('div', { class: 'tree-line' }, 'Eligible'), h('div', null, r.eligible ? h('span', { class: 's-ok' }, 'yes ✓') : h('span', { class: 'muted' }, 'no')),
+      h('div', { class: 'tree-line' }, 'Eligible'), h('div', null, r.eligible ? h('span', { class: 's-ok' }, 'yes') : h('span', { class: 'muted' }, 'no')),
       h('div', { class: 'tree-line' }, 'Last update'), h('div', null, fmtTime(r.lastUpdate))),
     data.serverRewards?.length
       ? h('table', null,
@@ -495,7 +495,7 @@ export function settingsSection(ctx) {
     ),
     h('h3', null, 'Game client (“Open game”)'),
     h('div', { class: 'form-grid' },
-      field('Mode', select('gcMode', [['handover', 'Handover – AFK in the lightweight client, the game opens on demand'], ['background', 'Background – the game holds the session minimized, Open game = restore window']], s.gameClient?.mode ?? 'handover')),
+      field('Mode', select('gcMode', [['takeover', 'Takeover – the game takes over the running session (no re-login)'], ['handover', 'Handover – quick re-login into the game'], ['background', 'Background – the game holds the session minimized, Open game = restore window']], s.gameClient?.mode ?? 'takeover')),
       field('Minecraft version', h('input', { name: 'gcVersion', value: s.gameClient?.version ?? 'auto', title: '"auto" = server profile version or detected via server ping; or e.g. 1.21.4' })),
       field('Loader', select('gcLoader', [['vanilla', 'Vanilla'], ['fabric', 'Fabric']], s.gameClient?.loader ?? 'vanilla')),
       field('Memory (MB)', h('input', { type: 'number', name: 'gcMemoryMb', value: s.gameClient?.memoryMb ?? 2048, min: 1024, max: 32768, step: 256 })),

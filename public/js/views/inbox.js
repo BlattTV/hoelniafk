@@ -24,7 +24,7 @@ export async function inboxView(root, { verification }) {
   );
   const list = h('div', { class: 'card', style: { padding: 0 } });
   mount(root, 
-    h('div', { class: 'page-head' }, h('div', null, h('h1', null, verification ? 'Verification / Account Mail' : 'ALL MAIL'), h('div', { class: 'sub' }, verification ? 'Mails recognised by the rules in rules.yaml – codes can be revealed and copied.' : 'Mail of all identities')), filters),
+    h('div', { class: 'page-head' }, h('div', null, h('h1', null, verification ? 'Verification / Account Mail' : 'All mail'), h('div', { class: 'sub' }, verification ? 'Mails recognised by the rules in rules.yaml – codes can be revealed and copied.' : 'Mail of all identities')), filters),
     list,
   );
 

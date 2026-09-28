@@ -15,6 +15,9 @@ import { setupView } from './views/setup.js';
 import { templatesView } from './views/templates.js';
 import { auditView } from './views/audit.js';
 import { settingsView } from './views/settings.js';
+import { schedulesView } from './views/schedules.js';
+import { openPalette, toggleTheme } from './palette.js';
+import { handleEvent, primeStates } from './notify.js';
 
 const routes = [
   [/^\/?$/, 'dashboard', dashboardView],
@@ -33,6 +36,7 @@ const routes = [
   [/^\/templates$/, 'templates', templatesView],
   [/^\/audit$/, 'audit', auditView],
   [/^\/settings$/, 'settings', settingsView],
+  [/^\/schedules$/, 'schedules', schedulesView],
 ];
 
 let current = null; // { onEvent }
@@ -65,19 +69,29 @@ async function render() {
 window.addEventListener('hashchange', render);
 render();
 
+document.getElementById('theme-toggle')?.addEventListener('click', toggleTheme);
+document.addEventListener('keydown', (e) => {
+  if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K' || e.key === 'p')) {
+    e.preventDefault();
+    openPalette();
+  }
+});
+
 const showUpdate = (st) => {
   const el = document.getElementById('nav-update');
   if (!el || !st) return;
   el.hidden = !st.available;
-  if (st.latest) el.textContent = `⬆ Update ${st.latest.version} available`;
+  if (st.latest) el.textContent = `Update ${st.latest.version} ready`;
 };
 api.get('/api/updates').then(showUpdate).catch(() => undefined);
+api.get('/api/sessions').then(primeStates).catch(() => undefined);
 
 subscribe(
   (ev) => {
     if (ev.type === 'auth.devicecode') {
       toast(`Microsoft login for identity ${ev.identityId}: code ${ev.data.userCode} at ${ev.data.verificationUri}`, 'info', 20000);
     }
+    handleEvent(ev);
     if (ev.type === 'updates.status') showUpdate(ev.data);
     if (current && current.onEvent) current.onEvent(ev);
   },

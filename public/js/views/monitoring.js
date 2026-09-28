@@ -23,7 +23,7 @@ export async function monitoringView(root) {
       kpi('RAM (main + hosts)', fmtBytes(c.main.rss + c.hosts.rss), series((s) => s.main.rss + s.hosts.rss)),
       kpi('CPU (main + hosts)', `${(c.main.cpuPercent + c.hosts.cpuPercent).toFixed(1)} %`, series((s) => s.main.cpuPercent + s.hosts.cpuPercent)),
       kpi('Event-loop lag (main / hosts)', `${c.main.eventLoopLagMs} / ${c.hosts.maxLagMs} ms`, series((s) => Math.max(s.main.eventLoopLagMs, s.hosts.maxLagMs))),
-      kpi('Network', `↓${fmtBytes(c.network.inPerSec)}/s ↑${fmtBytes(c.network.outPerSec)}/s`, series((s) => s.network.inPerSec + s.network.outPerSec)),
+      kpi('Network', `in ${fmtBytes(c.network.inPerSec)}/s · out ${fmtBytes(c.network.outPerSec)}/s`, series((s) => s.network.inPerSec + s.network.outPerSec)),
       kpi('Processes / threads', `${c.processes} / ${(c.main.threads ?? 0) + (c.hosts.threads ?? 0) || '–'}`),
       kpi('System', `${fmtBytes(c.system.totalMem - c.system.freeMem)} of ${fmtBytes(c.system.totalMem)} · load ${c.system.load1}`),
       kpi('Game windows', String(c.sessions.gamesOpen)));

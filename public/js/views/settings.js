@@ -1,6 +1,8 @@
 import { api } from '../api.js';
 import { clear, copy, field, guard, h, mount } from '../ui.js';
 import { updatesCard } from './updates.js';
+import { notificationsEnabled, setNotifications } from '../notify.js';
+import { toggleTheme } from '../palette.js';
 
 export async function settingsView(root) {
   const render = async () => {
@@ -8,7 +10,7 @@ export async function settingsView(root) {
     const oauthCard = (p, title, hint) => {
       const s = settings.oauth[p];
       const id = h('input', { value: s.clientId, placeholder: 'client id', style: { width: '100%' } });
-      const secret = h('input', { type: 'password', placeholder: s.hasClientSecret ? 'stored ✓ (leave empty to keep)' : 'optional for public clients', autocomplete: 'new-password', style: { width: '100%' } });
+      const secret = h('input', { type: 'password', placeholder: s.hasClientSecret ? 'stored (leave empty to keep)' : 'optional for public clients', autocomplete: 'new-password', style: { width: '100%' } });
       const tenant = p === 'microsoft' ? h('input', { value: s.tenant, style: { width: '100%' } }) : null;
       return h('div', { class: 'card' }, h('h2', null, title), h('p', { class: 'muted' }, hint),
         h('div', { class: 'form-grid' }, field('Client ID', id), field('Client secret', secret), tenant ? field('Tenant', tenant) : null),
@@ -19,6 +21,11 @@ export async function settingsView(root) {
     mount(root, 
       h('div', { class: 'page-head' }, h('h1', null, 'Settings & Credential Vault')),
       updatesCard(updates, render),
+      h('section', { class: 'card' }, h('h2', null, 'This PC'),
+        h('div', { class: 'toolbar' },
+          h('label', { class: 'check', title: 'Session blocked or disconnected, link code received, update ready' }, h('input', { type: 'checkbox', checked: notificationsEnabled(), onchange: (e) => setNotifications(e.target.checked) }), 'Desktop notifications'),
+          h('button', { class: 'small', onclick: toggleTheme }, 'Switch light / dark'),
+          h('span', { class: 'muted' }, 'Quick actions: ', h('kbd', null, 'Ctrl'), ' ', h('kbd', null, 'K')))),
       h('div', { class: 'grid-2' },
         h('div', null,
           h('section', { class: 'card' }, h('h2', null, 'Credential Vault'),

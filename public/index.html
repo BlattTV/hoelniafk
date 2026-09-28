@@ -6,34 +6,37 @@
   <meta name="hoelni-token" content="__HOELNI_TOKEN__">
   <title>Hoelni Client Suite</title>
   <link rel="stylesheet" href="/static/styles.css">
-  <link rel="icon" href="data:,">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 3 3%22%3E%3Crect width=%223%22 height=%221%22 fill=%22%235f8f3e%22/%3E%3Crect y=%221%22 width=%223%22 height=%222%22 fill=%22%237a5536%22/%3E%3C/svg%3E">
+  <script src="/static/js/theme.js"></script>
   <script type="module" src="/static/js/app.js"></script>
 </head>
 <body>
   <div class="shell">
     <nav class="sidebar">
-      <div class="brand"><span class="brand-mark">H</span><div><strong>Hoelni</strong><small>Client Suite</small></div></div>
+      <div class="brand"><span class="brand-mark" aria-hidden="true"></span><div><strong>Hoelni</strong><small>client suite</small></div></div>
       <a href="#/" data-nav="dashboard" title="All identities with status, filters and bulk actions">Identities</a>
-      <a href="#/matrix" data-nav="matrix" title="Account × Server: desired vs. actual session state">Account × Server</a>
-      <a href="#/wizard" data-nav="wizard">＋ New Identity</a>
-      <div class="nav-group">Sessions</div>
+      <a href="#/matrix" data-nav="matrix" title="Account × Server: desired vs. actual session state">Accounts × servers</a>
+      <a href="#/wizard" data-nav="wizard">New identity</a>
+      <div class="nav-group">Play</div>
       <a href="#/sessions" data-nav="sessions">Sessions</a>
-      <a href="#/chat" data-nav="chat">Global Chat</a>
-      <div class="nav-group">Communication</div>
-      <a href="#/inbox" data-nav="inbox">All Mail</a>
-      <a href="#/verification" data-nav="verification">Verification Mail</a>
-      <div class="nav-group">Resources</div>
-      <a href="#/mailboxes" data-nav="mailboxes">Mailboxes &amp; Aliases</a>
-      <a href="#/servers" data-nav="servers">Server Profiles</a>
+      <a href="#/chat" data-nav="chat">Chat</a>
+      <a href="#/schedules" data-nav="schedules">Schedules</a>
+      <div class="nav-group">Mail</div>
+      <a href="#/inbox" data-nav="inbox">All mail</a>
+      <a href="#/verification" data-nav="verification">Verification mail</a>
+      <a href="#/mailboxes" data-nav="mailboxes">Mailboxes &amp; aliases</a>
+      <div class="nav-group">Setup</div>
+      <a href="#/servers" data-nav="servers">Servers</a>
       <a href="#/templates" data-nav="templates">Templates</a>
+      <a href="#/setup" data-nav="setup">Setup check</a>
+      <a href="#/settings" data-nav="settings">Settings &amp; vault</a>
       <div class="nav-group">Operations</div>
       <a href="#/monitoring" data-nav="monitoring">Monitoring</a>
       <a href="#/logs" data-nav="logs">Logs</a>
-      <a href="#/audit" data-nav="audit">Audit Log</a>
-      <a href="#/setup" data-nav="setup">Setup Check</a>
-      <a href="#/settings" data-nav="settings">Settings &amp; Vault</a>
-      <a href="#/settings" id="nav-update" class="nav-update" hidden>⬆ Update available</a>
-      <div class="sidebar-foot" id="conn-state">connecting…</div>
+      <a href="#/audit" data-nav="audit">Audit log</a>
+      <a href="#/settings" id="nav-update" class="nav-update" hidden>Update ready</a>
+      <div class="sidebar-foot"><span id="conn-state">connecting…</span><button class="theme-toggle" id="theme-toggle" title="Light / dark">Theme</button></div>
+      <div class="sidebar-foot" style="margin-top:4px"><span><kbd>Ctrl</kbd> <kbd>K</kbd> quick actions</span></div>
     </nav>
     <main id="view" class="view"></main>
   </div>

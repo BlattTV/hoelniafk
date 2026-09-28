@@ -28,6 +28,7 @@ import { NotFoundError, ValidationError } from '../core/errors.js';
 import { createLogger } from '../core/logger.js';
 import { decideReconnect, parseChatLine, type RulesConfig } from '../core/rules.js';
 import type { ChatLine, DesiredState, SessionInfo, SessionState } from '../core/types.js';
+import { describeSchedule, nextScheduleChange, scheduleActive } from '../core/schedule.js';
 import type { IdentityRepository } from '../identity/repository.js';
 import type { NetworkService } from '../network/networkService.js';
 import type { GameInfo, MinecraftRuntime, RuntimeEvent, RuntimeSessionSpec, SessionStats } from '../runtime/types.js';
@@ -78,6 +79,8 @@ export class SessionRecord {
   /** Live takeover: the game plays on this session's own connection. */
   takeover: 'none' | 'launching' | 'attached' = 'none';
   uuid: string | null = null;
+  /** "Start" outside the schedule: keep it online until this time (next schedule change). */
+  scheduleOverrideUntil: number | null = null;
   game: GameInfo | null = null;
   stats: SessionStats | null = null;
   username: string | null = null;
@@ -192,6 +195,14 @@ export class SessionManager {
       runtime: r.runtime === 'game' ? 'game' : 'lightweight',
       takeover: r.takeover,
       game: r.game,
+      schedule: a?.schedule?.enabled
+        ? {
+            text: describeSchedule(a.schedule),
+            active: scheduleActive(a.schedule),
+            override: this.overrideActive(r),
+            nextChange: nextScheduleChange(a.schedule)?.toISOString() ?? null,
+          }
+        : null,
       stats: r.stats,
       username: r.username,
     };
@@ -272,10 +283,34 @@ export class SessionManager {
     return this.info(r);
   }
 
-  /** startSession(): desired ONLINE and start now. */
+  private overrideActive(r: SessionRecord): boolean {
+    if (r.scheduleOverrideUntil === null) return false;
+    if (Date.now() < r.scheduleOverrideUntil) return true;
+    r.scheduleOverrideUntil = null;
+    return false;
+  }
+
+  /** Should this assignment be online right now (desired state + schedule + manual override)? */
+  private wantsOnline(a: { enabled: boolean; desiredState: DesiredState; schedule: import('../core/schedule.js').WeekSchedule | null }, r: SessionRecord): boolean {
+    if (!a.enabled || a.desiredState !== 'ONLINE') return false;
+    if (scheduleActive(a.schedule)) {
+      r.scheduleOverrideUntil = null;
+      return true;
+    }
+    // Someone is playing in the real game: never cut them off because a schedule window ended.
+    if (r.takeover !== 'none' || (r.runtime === 'game' && r.wantGame)) return true;
+    return this.overrideActive(r);
+  }
+
+  /** startSession(): desired ONLINE and start now (also outside its schedule, until the next schedule change). */
   async startSession(identityId: number, serverId: number): Promise<SessionInfo> {
     this.setDesired(identityId, serverId, 'ONLINE');
     const r = this.record(identityId, serverId);
+    const a = this.repo.getAssignment(identityId, serverId);
+    if (a?.schedule?.enabled && !scheduleActive(a.schedule)) {
+      r.scheduleOverrideUntil = nextScheduleChange(a.schedule)?.getTime() ?? Date.now() + 3600_000;
+      this.repo.addSessionEvent(identityId, serverId, r.id, 'schedule-override', `until ${new Date(r.scheduleOverrideUntil).toISOString()}`);
+    }
     await this.withLock(r, async () => {
       if (!ACTIVE.includes(r.state)) await this.launch(r);
     });
@@ -368,10 +403,10 @@ export class SessionManager {
     const wanted = new Set<string>();
     for (const a of assignments) {
       const id = SessionManager.sessionId(a.identityId, a.serverId);
-      const shouldRun = a.enabled && a.desiredState === 'ONLINE';
-      if (!shouldRun) continue;
-      wanted.add(id);
+      if (!a.enabled || a.desiredState !== 'ONLINE') continue;
       const r = this.record(a.identityId, a.serverId);
+      if (!this.wantsOnline(a, r)) continue; // outside its schedule → stopped below
+      wanted.add(id);
       if (ACTIVE.includes(r.state) || r.state === 'BLOCKED') {
         // Connect watchdog: a session stuck before ONLINE is restarted.
         if ((r.state === 'CONNECTING' || r.state === 'AUTHENTICATING') && r.startedAt && now - r.startedAt > this.opts.connectTimeoutMs) {
@@ -392,7 +427,9 @@ export class SessionManager {
     // Everything running that is not wanted (desired OFFLINE, unassigned, disabled) is stopped.
     for (const r of this.records.values()) {
       if (wanted.has(r.id)) continue;
-      if (ACTIVE.includes(r.state) && r.state !== 'STOPPING') void this.withLock(r, () => this.halt(r, 'Desired state offline'));
+      const a = this.repo.getAssignment(r.identityId, r.serverId);
+      const why = a?.enabled && a.desiredState === 'ONLINE' ? 'Outside schedule' : 'Desired state offline';
+      if (ACTIVE.includes(r.state) && r.state !== 'STOPPING') void this.withLock(r, () => this.halt(r, why));
       else if (r.state === 'RECONNECTING' || r.state === 'BLOCKED') this.setState(r, 'STOPPED');
     }
   }

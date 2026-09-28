@@ -11,7 +11,7 @@ export async function mailboxesView(root) {
     };
     mount(root, 
       h('div', { class: 'page-head' }, h('div', null, h('h1', null, 'Mailboxes & Aliases'), h('div', { class: 'sub' }, 'Real mailboxes (IMAP / OAuth2). Several identities can share one mailbox through aliases – each identity only sees mail addressed to its own address.')),
-        h('div', { class: 'toolbar' }, h('button', { class: 'primary', onclick: () => addMailbox(providers, dash, render) }, '＋ Add mailbox'), h('button', { onclick: () => addProvider(render) }, '＋ Alias provider'))),
+        h('div', { class: 'toolbar' }, h('button', { class: 'primary', onclick: () => addMailbox(providers, dash, render) }, 'Add mailbox'), h('button', { onclick: () => addProvider(render) }, '＋ Alias provider'))),
       boxes.length ? boxes.map((b) => mailboxCard(b, identityLabel, dash, render)) : h('div', { class: 'card empty' }, 'No mailboxes yet.'),
       h('section', { class: 'card' }, h('h2', null, 'Alias providers'),
         providers.length
@@ -55,7 +55,7 @@ function mailboxCard(b, identityLabel, dash, render) {
       h('div', null, h('h1', null, b.label, ' ', h('span', { class: 'tag' }, b.kind), b.exclusiveIdentityId ? h('span', { class: 'tag' }, `exclusive: ${identityLabel(b.exclusiveIdentityId)}`) : h('span', { class: 'tag' }, 'shared')),
         h('div', { class: 'muted' }, `${b.username} · ${b.imapHost}:${b.imapPort}${b.smtpHost ? ` · SMTP ${b.smtpHost}:${b.smtpPort}` : ''}`)),
       h('div', { class: 'toolbar' },
-        b.hasCredentials ? badge('ok', 'credentials in vault ✓') : badge('error', 'no credentials'),
+        b.hasCredentials ? badge('ok', 'credentials in vault') : badge('error', 'no credentials'),
         b.kind === 'imap'
           ? h('button', { class: 'small', onclick: () => { const pw = prompt('IMAP password / app password (stored encrypted in the vault):'); if (pw) guard(async () => { await api.post(`/api/mailboxes/${b.id}/password`, { password: pw }); await render(); }, 'Password stored'); } }, 'Set password')
           : h('button', { class: 'small primary', onclick: () => guard(async () => { const { url } = await api.post(`/api/mailboxes/${b.id}/oauth`); openExternal(url); toast('Complete the sign-in in the new tab.', 'info', 8000); }) }, `Connect ${b.kind === 'microsoft' ? 'Microsoft' : 'Google'} (OAuth2)`),

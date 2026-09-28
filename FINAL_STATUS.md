@@ -24,6 +24,14 @@ Discord / Cloudflare / public IP endpoints), **REAL ACCOUNT** (real Minecraft ac
 - Game process management: install progress, launch, join detection, chat from `logs/latest.log` into the rules (link codes, rewards), crash/exit detection, graceful close (WM_CLOSE → kill), window control (Windows user32 via a persistent PowerShell helper: find by PID, restore + focus, minimize, close; X11: xdotool).
 - Version auto-detection via a status ping through the identity's network profile.
 
+**Usability (latest round)**
+- New visual design ("workbench": warm paper / charcoal themes, one accent colour, square state marks, no emoji) with light/dark switch that is remembered per PC.
+- Weekly online schedules per identity × server (7×24 grid editor with presets, bulk apply; reconciler starts/stops at window borders, manual start overrides until the next change, an open game is never cut off; DB migration v3).
+- Quick actions palette (Ctrl+K): pages, identities, Open game / Back to AFK / Start / Stop per session, update check, theme.
+- Desktop notifications: session blocked or disconnected, link code received, update ready (toggle in Settings → This PC).
+- Tray menu of the desktop program lists all sessions with Open game / Back to AFK / Start / Stop and shows online counts.
+- Fix: the identity settings offered no "takeover" option for the game client mode.
+
 **Updates (self-hosted)**
 - `update-server/`: one-command installer for a Debian/Ubuntu LXC (Node 22, systemd service, service user), git polling + build per new commit, Ed25519-signed release manifests, channels/promote, installer attachment, status page, admin API with token, build lock, pruning.
 - Suite updater: key pinning after fingerprint confirmation, signature + SHA-256 + size verification, staging, install via restart (exit 75) – the supervisor swaps the files while the suite is down (Windows file locks), reinstalls dependencies only if `package-lock.json` changed, keeps locally edited `rules.yaml`, rolls back automatically if the new version exits with an error within 2 minutes; manual rollback; automatic checks, optional auto-install (not while a game is open); UI card + sidebar hint.
@@ -56,7 +64,7 @@ Discord / Cloudflare / public IP endpoints), **REAL ACCOUNT** (real Minecraft ac
 
 ## TESTED
 
-`npm test` – 20 test files / 141 tests green, `npm run test:e2e` – 6 Playwright tests green; typecheck clean, production build OK:
+`npm test` – 21 test files / 146 tests green, `npm run test:e2e` – 9 Playwright tests green; typecheck clean, production build OK:
 
 | Area | Level | Tests |
 |---|---|---|
@@ -69,6 +77,7 @@ Discord / Cloudflare / public IP endpoints), **REAL ACCOUNT** (real Minecraft ac
 | Launcher against a local mirror with format-correct Mojang/Fabric metadata: rules, natives per OS, assets, SHA-1 rejection, Fabric merge, Java runtime (executable, links), launch arguments (quick play, `--server` fallback, placeholders, classpath separator) | LOCAL INTEGRATION | `tests/launcher.test.ts` |
 | Forwarder: handshake parse/rebuild (FML suffix), bind IP as source, handshake host rewrite, `beforeLogin` ordering, status pings | LOCAL INTEGRATION | `tests/launcher.test.ts` |
 | **Open game** end to end: suite → launcher (installs from the mirror incl. Java) → *game process* (client emulator started with the real launch command line, speaking the real protocol like the game) → flying-squid. Live takeover: exactly one server login throughout, game in the world at the bot's position, chat + movement through the same connection, Back to AFK / quit in game → AFK continues from the new spot without rubber-banding. Handover: one extra login, bind IP + rewritten host seen by the server, Back to AFK, game closed by the user → AFK, failed launch leaves AFK untouched. Background: minimized, restore/minimize without new login, desired offline closes the game | LOCAL INTEGRATION | `tests/integration/gameclient.int.test.ts` |
+| Schedules: window math (active/next change across days/weekends, description, input sanitising); reconciler: no start outside the window, start inside, stop at window end with desired state kept, manual override | MOCK | `tests/schedule.test.ts` |
 | Updates: git → server build → signed release; public/admin API, path protection; suite refuses unconfirmed/foreign keys and tampered bundles; staging + apply (edited rules kept) + rollback; supervisor: exit 75 → apply → restart, crash in probation → automatic rollback | LOCAL INTEGRATION | `tests/updates.test.ts` |
 | Update end to end with the real code: `hoelni-updates init` + `build` of this repository (npm ci + build, 19 s) → `serve`; an installed suite (built `dist/`, supervisor) connected via API, checked, installed → restarted as build #1 in ~1 s | LOCAL INTEGRATION (manual run) | documented here |
 | Live takeover across protocol generations: 1.20.1, 1.20.2 (configuration phase), 1.21.1 (per-registry data, known packs, chunk batches) | LOCAL INTEGRATION | `tests/integration/takeover-versions.int.test.ts` |

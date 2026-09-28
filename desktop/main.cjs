@@ -158,12 +158,62 @@ function showWindow() {
   win.focus();
 }
 
-function createTray() {
-  tray = new Tray(icon('tray.png'));
-  tray.setToolTip('Hoelni Client Suite');
-  const menu = () =>
-    Menu.buildFromTemplate([
+// ------------------------------------------------------------------ tray: sessions at a glance
+
+let apiToken = null;
+let traySessions = [];
+
+async function api(method, p) {
+  if (!apiToken) {
+    const html = await (await fetch(`${BASE}/`)).text();
+    apiToken = /name="hoelni-token" content="([^"]+)"/.exec(html)?.[1] ?? null;
+  }
+  const res = await fetch(`${BASE}${p}`, {
+    method,
+    headers: { 'x-hoelni-token': apiToken ?? '', ...(method === 'GET' ? {} : { 'content-type': 'application/json', origin: BASE }) },
+    body: method === 'GET' ? undefined : '{}',
+  });
+  if (res.status === 401) apiToken = null; // the backend restarted (new token)
+  if (!res.ok) throw new Error(`${res.status}`);
+  return res.json();
+}
+
+async function refreshTray() {
+  try {
+    const [sessions, dash] = await Promise.all([api('GET', '/api/sessions'), api('GET', '/api/dashboard')]);
+    const names = new Map(dash.rows.map((r) => [r.id, r.label || `Identity${String(r.number).padStart(2, '0')}`]));
+    traySessions = sessions.map((s) => ({ ...s, who: `${names.get(s.identityId) ?? s.identityId} @ ${s.serverName}` }));
+    const online = traySessions.filter((s) => s.state === 'ONLINE').length;
+    tray?.setToolTip(`Hoelni Client Suite – ${online}/${traySessions.filter((s) => s.desiredState === 'ONLINE').length} sessions online`);
+  } catch {
+    /* backend restarting */
+  }
+  tray?.setContextMenu(trayMenu());
+}
+
+function sessionItems() {
+  if (!traySessions.length) return [{ label: 'No sessions', enabled: false }];
+  const act = (method, p) => () => api(method, p).then(refreshTray).catch((e) => new Notification({ title: 'Hoelni', body: `Action failed (${e.message})` }).show());
+  return traySessions.slice(0, 40).map((s) => {
+    const inGame = s.runtime === 'game' || s.takeover !== 'none';
+    return {
+      label: `${s.who}  –  ${inGame ? 'in game' : s.state.toLowerCase()}`,
+      submenu: [
+        { label: inGame ? 'Show game window' : 'Open game', click: act('POST', `/api/sessions/${encodeURIComponent(s.id)}/game`) },
+        ...(inGame ? [{ label: 'Back to AFK', click: act('DELETE', `/api/sessions/${encodeURIComponent(s.id)}/game`) }] : []),
+        { type: 'separator' },
+        s.desiredState === 'ONLINE'
+          ? { label: 'Stop (set offline)', click: act('POST', `/api/sessions/${encodeURIComponent(s.id)}/stop`) }
+          : { label: 'Start', click: act('POST', `/api/identities/${s.identityId}/sessions/${s.serverId}/start`) },
+      ],
+    };
+  });
+}
+
+function trayMenu() {
+  return Menu.buildFromTemplate([
       { label: 'Open Hoelni Client Suite', click: showWindow },
+      { label: 'Sessions', submenu: sessionItems() },
       { type: 'separator' },
       {
         label: 'Start with Windows (in the tray)',
@@ -175,9 +225,14 @@ function createTray() {
       { type: 'separator' },
       { label: 'Quit (sessions go offline)', click: () => quit() },
     ]);
-  tray.setContextMenu(menu());
+}
+
+function createTray() {
+  tray = new Tray(icon('tray.png'));
+  tray.setToolTip('Hoelni Client Suite');
+  tray.setContextMenu(trayMenu());
   tray.on('click', showWindow);
-  tray.on('right-click', () => tray.setContextMenu(menu()));
+  tray.on('right-click', () => void refreshTray());
 }
 
 async function quit() {
@@ -219,4 +274,6 @@ app.whenReady().then(async () => {
     return;
   }
   createWindow();
+  void refreshTray();
+  setInterval(() => void refreshTray(), 15_000);
 });

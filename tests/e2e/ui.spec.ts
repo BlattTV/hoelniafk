@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 
-const PAGES = ['/', '/matrix', '/sessions', '/chat', '/inbox', '/verification', '/mailboxes', '/servers', '/templates', '/monitoring', '/logs', '/audit', '/setup', '/settings', '/wizard', '/identity/1', '/wizard/1/5'];
+const PAGES = ['/', '/matrix', '/sessions', '/chat', '/inbox', '/verification', '/mailboxes', '/servers', '/templates', '/monitoring', '/logs', '/audit', '/setup', '/settings', '/wizard', '/identity/1', '/wizard/1/5', '/schedules'];
 
 function trackErrors(page: Page): string[] {
   const errors: string[] = [];
@@ -69,17 +69,17 @@ test('identity: "Open game" hands the session to the real client and "Back to AF
   await expect(async () => {
     await page.goto('/#/matrix');
     await page.goto('/#/sessions');
-    await expect(row()).toContainText('🎮 game', { timeout: 2000 });
+    await expect(row()).toContainText('in game', { timeout: 2000 });
     await expect(row()).not.toContainText('joining', { timeout: 2000 });
     await expect(row()).toContainText('ONLINE', { timeout: 2000 });
   }).toPass({ timeout: 60_000 });
   // back to AFK
-  await row().locator('button', { hasText: '⋯' }).click();
+  await row().locator('button', { hasText: 'More' }).click();
   await page.locator('.ctx-menu').getByText('Back to AFK').click();
   await expect(async () => {
     await page.goto('/#/matrix');
     await page.goto('/#/sessions');
-    await expect(row()).not.toContainText('🎮', { timeout: 2000 });
+    await expect(row()).not.toContainText('in game', { timeout: 2000 });
     await expect(row()).toContainText('ONLINE', { timeout: 2000 });
     await expect(row()).toContainText('lightweight', { timeout: 2000 });
   }).toPass({ timeout: 60_000 });
@@ -93,6 +93,39 @@ test('global chat: command to a session and the reply shows up', async ({ page }
   await page.fill('input[placeholder^="Message"]', '/stars');
   await page.click('button:has-text("Send")');
   await expect(page.locator('.chat-stream')).toContainText('You have', { timeout: 15_000 });
+});
+
+test('schedules: paint a window and apply it to a session', async ({ page }) => {
+  await page.goto('/#/schedules');
+  await expect(page.locator('h1')).toHaveText('Schedules');
+  await page.getByRole('button', { name: 'Evenings 18–24' }).click();
+  const row = page.locator('tbody tr').filter({ hasText: 'Identity02' }).filter({ hasText: 'Test' });
+  await row.locator('input[type=checkbox]').check();
+  await page.getByRole('button', { name: /Apply to 1 selected/ }).click();
+  await expect(row).toContainText('18–24');
+  // the session shows its schedule
+  await page.goto('/#/identity/2/sessions');
+  await page.goto('/#/sessions');
+});
+
+test('quick actions (Ctrl+K) jump to a page', async ({ page }) => {
+  await page.goto('/#/');
+  await expect(page.locator('#view h1').first()).toHaveText('Identities');
+  await page.keyboard.press('Control+k');
+  await expect(page.locator('.palette input')).toBeFocused();
+  await page.keyboard.type('monitoring');
+  await expect(page.locator('.palette li.cur')).toContainText('Monitoring');
+  await page.keyboard.press('Enter');
+  await expect(page).toHaveURL(/#\/monitoring$/);
+  await expect(page.locator('h1').first()).toHaveText('Monitoring');
+});
+
+test('theme switch persists', async ({ page }) => {
+  await page.goto('/#/');
+  await page.locator('#theme-toggle').click();
+  const theme = await page.evaluate(() => document.documentElement.dataset.theme);
+  await page.reload();
+  expect(await page.evaluate(() => document.documentElement.dataset.theme)).toBe(theme);
 });
 
 test('setup check lists the configuration state', async ({ page }) => {

@@ -219,6 +219,10 @@ const MIGRATIONS: string[] = [
   ALTER TABLE reward_history ADD COLUMN server_id INTEGER;
   ALTER TABLE reward_history ADD COLUMN kind TEXT NOT NULL DEFAULT 'stars';
   `,
+  // v3: weekly online schedules per session
+  `
+  ALTER TABLE server_assignments ADD COLUMN schedule_json TEXT;
+  `,
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.length;
