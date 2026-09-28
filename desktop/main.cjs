@@ -27,6 +27,7 @@ if (!app.requestSingleInstanceLock()) {
 let win = null;
 let tray = null;
 let backend = null; // only set when this program started the backend
+let installBroken = false;
 let quitting = false;
 let trayHintShown = false;
 
@@ -79,6 +80,12 @@ function startBackend() {
   backend.on('exit', (code) => {
     backend = null;
     if (quitting) return;
+    if (code === 3) {
+      installBroken = true;
+      // Installation problem (missing packages) – restarting will not help; show the reason.
+      showStatus('The suite is not installed completely', 'Some packages are missing – see the log below for the fix.', { log: logTail(), error: true });
+      return;
+    }
     // The supervisor itself restarts crashed suites; if it is gone, bring it back.
     setTimeout(() => {
       if (!quitting) {
@@ -98,6 +105,7 @@ async function ensureBackend() {
   startBackend();
   const deadline = Date.now() + 90_000;
   while (Date.now() < deadline) {
+    if (installBroken) throw new Error('The suite is not installed completely – packages are missing (see the log).');
     if (await backendUp()) return;
     await new Promise((r) => setTimeout(r, 500));
   }
@@ -105,7 +113,59 @@ async function ensureBackend() {
   try {
     tail = fs.readFileSync(logFile(), 'utf8').split('\n').slice(-15).join('\n');
   } catch {}
-  throw new Error(`The suite did not start within 90 s.\n\n${tail}`);
+  throw new Error(`The suite did not start within 90 s – see the log below.\n\n${tail}`);
+}
+
+// ------------------------------------------------------------------ status screen (shown until the suite answers)
+
+function logTail(lines = 25) {
+  try {
+    return fs.readFileSync(logFile(), 'utf8').split(/\r?\n/).filter(Boolean).slice(-lines).join('\n');
+  } catch {
+    return '';
+  }
+}
+
+const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+
+function statusPage(title, detail, { log = '', error = false } = {}) {
+  return `<!doctype html><html><head><meta charset="utf-8"><title>Hoelni Client Suite</title><style>
+    body{margin:0;font:14px/1.5 'Segoe UI',system-ui,sans-serif;background:#1b1a17;color:#e9e5da;display:grid;place-items:center;min-height:100vh}
+    main{width:min(820px,92vw)} .mark{width:24px;height:24px;display:inline-block;vertical-align:middle;margin-right:10px;background:linear-gradient(#5f8f3e 0 33%,#7a5536 33%)}
+    h1{font-size:20px;margin:0 0 6px} p{color:#9c968a;margin:4px 0 14px} .err h1{color:#e07b61}
+    pre{background:#22211d;border:1px solid #37342d;padding:10px 12px;max-height:50vh;overflow:auto;font:12px/1.45 'Cascadia Mono',Consolas,monospace;white-space:pre-wrap}
+    .bar{height:3px;background:#37342d;overflow:hidden;margin:14px 0}.bar i{display:block;height:100%;width:30%;background:#93b872;animation:m 1.2s linear infinite}
+    @keyframes m{from{margin-left:-30%}to{margin-left:100%}} code{color:#93b872}</style></head>
+    <body><main class="${error ? 'err' : ''}"><h1><span class="mark"></span>${esc(title)}</h1><p>${esc(detail)}</p>
+    ${error ? '' : '<div class="bar"><i></i></div>'}
+    ${log ? `<p>Last lines of <code>${esc(logFile())}</code>:</p><pre>${esc(log)}</pre>` : ''}
+    ${error ? '<p>The window retries automatically. <b>F5</b> retries now, <b>Ctrl+Shift+I</b> opens the developer tools.</p>' : ''}
+    </main></body></html>`;
+}
+
+function showStatus(title, detail, opts) {
+  if (!win || win.isDestroyed()) return;
+  win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(statusPage(title, detail, opts))}`).catch(() => undefined);
+}
+
+let suiteShown = false;
+let retryTimer = null;
+
+async function loadSuite() {
+  clearTimeout(retryTimer);
+  if (!(await backendUp())) {
+    showStatus('Waiting for the suite …', `Nothing answers on ${BASE} yet.`, { log: logTail(), error: true });
+    retryTimer = setTimeout(loadSuite, 3000);
+    return;
+  }
+  try {
+    await win.loadURL(`${BASE}/`);
+    suiteShown = true;
+  } catch (e) {
+    suiteShown = false;
+    showStatus('The suite could not be loaded', `${e.message || e}`, { log: logTail(), error: true });
+    retryTimer = setTimeout(loadSuite, 3000);
+  }
 }
 
 // ------------------------------------------------------------------ window & tray
@@ -128,7 +188,30 @@ function createWindow() {
     webPreferences: { contextIsolation: true, sandbox: true, nodeIntegration: false },
   });
   win.removeMenu();
-  win.loadURL(`${BASE}/`);
+  showStatus('Starting Hoelni Client Suite …', 'Starting the backend and restoring your sessions.');
+  // Keys the removed menu used to provide: reload, developer tools.
+  win.webContents.on('before-input-event', (e, input) => {
+    if (input.type !== 'keyDown') return;
+    if (input.key === 'F5' || (input.control && input.key.toLowerCase() === 'r')) {
+      e.preventDefault();
+      void loadSuite();
+    } else if (input.key === 'F12' || (input.control && input.shift && input.key.toLowerCase() === 'i')) {
+      e.preventDefault();
+      win.webContents.toggleDevTools();
+    }
+  });
+  // The suite page failed (backend restarting, …): show why and retry.
+  win.webContents.on('did-fail-load', (_e, code, description, url, isMainFrame) => {
+    if (!isMainFrame || url.startsWith('data:') || code === -3) return;
+    suiteShown = false;
+    showStatus('The suite is not reachable', `${description} (${code}) – retrying …`, { log: logTail(), error: true });
+    clearTimeout(retryTimer);
+    retryTimer = setTimeout(loadSuite, 3000);
+  });
+  win.webContents.on('render-process-gone', () => {
+    suiteShown = false;
+    retryTimer = setTimeout(loadSuite, 1000);
+  });
   // Everything outside the suite (Discord verification links, webmail, OAuth) opens in the default browser.
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:\/\//.test(url)) shell.openExternal(url);
@@ -265,15 +348,16 @@ app.on('before-quit', (e) => {
 app.whenReady().then(async () => {
   app.setAppUserModelId('net.hoelni.clientsuite');
   createTray();
+  createWindow(); // shows the status screen right away
   try {
     await ensureBackend();
   } catch (e) {
-    dialog.showErrorBox('Hoelni Client Suite could not start', String(e.message || e));
-    quitting = true;
-    app.exit(1);
+    // Keep the window open with the reason and the log – far more useful than a dialog that closes everything.
+    showStatus('Hoelni Client Suite could not start', String(e.message || e).split('\n')[0], { log: logTail(40), error: true });
+    retryTimer = setTimeout(loadSuite, 5000);
     return;
   }
-  createWindow();
+  await loadSuite();
   void refreshTray();
   setInterval(() => void refreshTray(), 15_000);
 });

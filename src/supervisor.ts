@@ -135,9 +135,25 @@ export function supervise(opts: SupervisorOptions): Supervisor {
 }
 
 // ---------------------------------------------------------------- CLI entry
+/** Dependencies from package.json that are not installed (e.g. after an interrupted `npm ci`). */
+export function missingDependencies(root: string): string[] {
+  try {
+    const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+    return Object.keys(pkg.dependencies ?? {}).filter((d) => !fs.existsSync(path.join(root, 'node_modules', ...d.split('/'), 'package.json')));
+  } catch {
+    return [];
+  }
+}
+
 const isMain = process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1]);
 if (isMain) {
   const here = path.dirname(fileURLToPath(import.meta.url));
+  const missing = missingDependencies(path.resolve(here, '..'));
+  if (missing.length) {
+    console.error(`${new Date().toISOString()} [supervisor] Missing packages: ${missing.join(', ')}`);
+    console.error(`${new Date().toISOString()} [supervisor] Fix: close programs using the folder, then in ${path.resolve(here, '..')} run:  npm ci   (and npm run build)`);
+    process.exit(3);
+  }
   const entry = fs.existsSync(path.join(here, 'index.js')) ? path.join(here, 'index.js') : path.join(here, 'index.ts');
   const args = entry.endsWith('.ts') ? ['--import', 'tsx', entry] : [entry];
   const sup = supervise({ command: process.execPath, args, updateRoot: path.resolve(here, '..') });
