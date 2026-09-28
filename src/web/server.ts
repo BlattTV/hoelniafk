@@ -10,7 +10,7 @@ import { SuiteError, ValidationError } from '../core/errors.js';
 import { describeSchedule, normalizeSchedule } from '../core/schedule.js';
 import { createLogger, onLogEntry, recentLogs, type Level } from '../core/logger.js';
 import type { LinkState, MailAccountKind } from '../core/types.js';
-import { DISCORD_APP_URL } from '../discord/discordService.js';
+import { DISCORD_APP_URL, isDiscordUrl, type DiscordTarget } from '../discord/discordService.js';
 import type { BulkAction } from '../ops/bulk.js';
 import { refs } from '../vault/refs.js';
 
@@ -130,6 +130,11 @@ export async function buildServer(suite: Suite, opts: ServerOptions = {}): Promi
       if (result.purpose.type === 'discord') {
         const d = await suite.discord.completeConnect(result.purpose.identityId, result.tokens);
         return page('Discord connected', `Connected @${d.username} to identity ${result.purpose.identityId}.`, true);
+      }
+      if (result.purpose.type === 'microsoft-account') {
+        const r = await suite.microsoft.complete(result.purpose.identityId, result.tokens);
+        const mc = r.minecraft === 'direct' ? `Minecraft: ${r.username}` : r.minecraft === 'code' ? 'Minecraft: confirm the sign-in code shown in the suite' : 'Minecraft: see the identity page';
+        return page('Microsoft account connected', `${r.email} – Outlook mail connected. ${mc}.`, true);
       }
       await suite.mail.storeMailboxOAuth(result.purpose.mailboxId, result.provider, result.tokens);
       return page('Mailbox connected', `OAuth access for mailbox ${result.purpose.mailboxId} stored in the vault.`, true);
@@ -328,6 +333,7 @@ export async function buildServer(suite: Suite, opts: ServerOptions = {}): Promi
       identity,
       minecraft: suite.repo.getMinecraft(id),
       deviceCode: suite.auth.pendingDeviceCode(id),
+      microsoft: await suite.microsoft.status(id),
       mail,
       mailbox: mail ? publicMailbox(suite, mail.mailAccountId) : null,
       discord: suite.repo.getDiscord(id),
@@ -534,6 +540,45 @@ export async function buildServer(suite: Suite, opts: ServerOptions = {}): Promi
 
   // ------------------------------------------------------------------ discord
   app.post('/api/identities/:id/discord/signup', async (req: Req) => suite.discord.beginSignup(num(req.params.id)));
+  /**
+   * Opens a page in the identity's own Discord profile. The desktop program opens this URL in a
+   * separate, persistent browser profile per identity (own Discord login = switch accounts by
+   * switching windows); a normal browser just follows the redirect.
+   */
+  app.get('/api/identities/:id/discord/open', async (req: Req, reply: FastifyReply) => {
+    const to = String(req.query.to ?? 'app') as DiscordTarget;
+    if (!['register', 'login', 'app', 'connect', 'verify'].includes(to)) throw new ValidationError('Unknown Discord page');
+    const url = await suite.discord.target(num(req.params.id), to);
+    if (to !== 'connect' && !isDiscordUrl(url)) throw new ValidationError('Refusing to open a non-Discord page');
+    return reply.header('Referrer-Policy', 'no-referrer').redirect(url, 302);
+  });
+  app.get('/api/identities/:id/discord/signup-kit', async (req: Req) => {
+    const id = num(req.params.id);
+    return suite.discord.signupKit(id, suite.repo.getMailIdentity(id)?.address ?? null, suite.repo.getMinecraft(id)?.username ?? null);
+  });
+  /** Copy-to-clipboard only (the UI never displays it); every copy is audited without the value. */
+  app.post('/api/identities/:id/discord/password', async (req: Req) => {
+    const id = num(req.params.id);
+    const password = await suite.discord.password(id);
+    suite.audit.record(id, 'Discord password copied');
+    return { password };
+  });
+  app.get('/api/discord', async () =>
+    suite.repo.listIdentities().map((i) => ({
+      identityId: i.id,
+      label: i.label,
+      minecraft: suite.repo.getMinecraft(i.id)?.username ?? null,
+      email: suite.repo.getMailIdentity(i.id)?.address ?? null,
+      discord: suite.repo.getDiscord(i.id),
+    })),
+  );
+  // One Microsoft sign-in: Outlook + Minecraft
+  app.get('/api/identities/:id/microsoft', async (req: Req) => suite.microsoft.status(num(req.params.id)));
+  app.post('/api/identities/:id/microsoft/connect', async (req: Req) => suite.microsoft.begin(num(req.params.id), bodyOf(req).loginHint ? String(bodyOf(req).loginHint) : undefined));
+  app.delete('/api/identities/:id/microsoft', async (req: Req) => {
+    await suite.microsoft.unlink(num(req.params.id));
+    return { ok: true };
+  });
   app.post('/api/identities/:id/discord/connect', async (req: Req) => suite.discord.beginConnect(num(req.params.id)));
   app.post('/api/identities/:id/discord/verify', async (req: Req) => suite.discord.verify(num(req.params.id)));
   app.post('/api/identities/:id/discord/disconnect', async (req: Req) => {
@@ -811,7 +856,7 @@ export async function buildServer(suite: Suite, opts: ServerOptions = {}): Promi
         key: `oauth-${p}`,
         label: `${p[0].toUpperCase()}${p.slice(1)} OAuth client`,
         status: ok ? 'ok' : p === 'discord' ? 'warn' : 'warn',
-        detail: ok ? 'Client ID configured' : p === 'discord' ? 'Required to connect Discord accounts' : 'Only needed for Outlook/Gmail mailboxes via OAuth2',
+        detail: ok ? 'Client ID configured' : p === 'discord' ? 'Required to connect Discord accounts' : p === 'microsoft' ? 'Needed for “Sign in with Microsoft” (Outlook + Minecraft in one step)' : 'Only needed for Gmail mailboxes via OAuth2',
         action: '#/settings',
       });
     }

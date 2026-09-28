@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 
-const PAGES = ['/', '/matrix', '/sessions', '/chat', '/inbox', '/verification', '/mailboxes', '/servers', '/templates', '/monitoring', '/logs', '/audit', '/setup', '/settings', '/wizard', '/identity/1', '/wizard/1/5', '/schedules', '/agents', '/accounts', '/proxies'];
+const PAGES = ['/', '/matrix', '/sessions', '/chat', '/inbox', '/verification', '/mailboxes', '/servers', '/templates', '/monitoring', '/logs', '/audit', '/setup', '/settings', '/wizard', '/identity/1', '/wizard/1/5', '/schedules', '/agents', '/accounts', '/proxies', '/new', '/discord'];
 
 function trackErrors(page: Page): string[] {
   const errors: string[] = [];
@@ -220,5 +220,44 @@ test('language: the whole UI switches to German and back', async ({ page }) => {
   // switch back so the demo stays English for other runs
   await Promise.all([page.waitForEvent('load'), page.selectOption('#ui-language', 'en')]);
   await expect(page.locator('.sidebar')).toContainText('Identities');
+  expect(errors).toEqual([]);
+});
+
+test('quick setup: name → one Microsoft sign-in (Outlook + Minecraft) → Discord → online', async ({ page, context }) => {
+  const errors = trackErrors(page);
+  await page.goto('/#/');
+  // simple navigation: advanced pages are tucked away
+  await expect(page.locator('#nav-more a[data-nav="matrix"]')).toBeHidden();
+  await page.locator('.sidebar a[data-nav="new"]').click();
+  await page.getByLabel('Name').fill('Quick Demo');
+  await page.locator('.server-choice', { hasText: 'SMP' }).locator('input').check();
+  await page.getByRole('button', { name: 'Next' }).click();
+
+  // step 2: one Microsoft sign-in (demo consent page → callback in a new tab)
+  const [popup] = await Promise.all([context.waitForEvent('page'), page.getByRole('button', { name: 'Sign in with Microsoft' }).click()]);
+  await popup.waitForLoadState();
+  await expect(popup.locator('body')).toContainText('Microsoft account connected');
+  await popup.close();
+  const tile = page.locator('.tile', { hasText: 'Microsoft account' });
+  await expect(tile).toContainText(/Outlook mail: demo\d+@outlook\.com/);
+  await expect(tile).toContainText(/Minecraft: DemoMs\d+/);
+
+  // step 3: Discord – own profile, sign-up helper with the identity's mail
+  await page.getByRole('button', { name: 'Next' }).click();
+  const dc = page.locator('.tile', { hasText: 'Discord' });
+  await expect(dc.getByRole('button', { name: 'Create Discord account' })).toBeVisible();
+  await expect(dc.locator('.copy-rows')).toContainText(/demo\d+@outlook\.com/);
+  await expect(dc.locator('.copy-rows')).toContainText('••••••••••');
+
+  // done → online
+  await page.getByRole('button', { name: 'Next' }).click();
+  await expect(page.locator('.summary')).toContainText(/Minecraft: DemoMs\d+/);
+  await page.getByRole('button', { name: 'Go online now' }).click();
+  await expect(page).toHaveURL(/#\/identity\/\d+$/);
+  await expect(page.locator('.tiles')).toContainText('Microsoft account');
+
+  await page.goto('/#/discord');
+  await expect(page.locator('#view')).toContainText('Without Discord');
+  await expect(page.locator('#view')).toContainText('Quick Demo');
   expect(errors).toEqual([]);
 });

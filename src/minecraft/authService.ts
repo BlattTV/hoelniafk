@@ -130,6 +130,18 @@ export class MinecraftAuthService {
     if (mc.authType === 'offline') {
       return this.repo.upsertMinecraft(identityId, { authStatus: 'AUTHENTICATED', lastAuthAt: nowIso(), lastError: null });
     }
+    try {
+      const direct = await this.directSession?.(identityId);
+      if (direct) {
+        const updated = this.repo.upsertMinecraft(identityId, { username: direct.profile.name, uuid: formatUuid(direct.profile.id), authStatus: 'AUTHENTICATED', lastAuthAt: nowIso(), lastError: null });
+        this.bus.emit({ type: 'identity.changed', identityId });
+        return updated;
+      }
+    } catch (e) {
+      const updated = this.repo.upsertMinecraft(identityId, { authStatus: 'ERROR', lastError: (e as Error).message.slice(0, 300) });
+      this.bus.emit({ type: 'identity.changed', identityId });
+      return updated;
+    }
     if (!mc.msaAccount) throw new ValidationError('Microsoft account e-mail is required for Microsoft authentication');
     const iv = this.vault.forIdentity(identityId);
     const hadToken = (await iv.get(iv.ref('minecraft'))) !== null;
@@ -164,7 +176,12 @@ export class MinecraftAuthService {
    * Java session for a runtime host (called when a Microsoft session connects).
    * prismarine-auth serves cached tokens and refreshes them transparently.
    */
+  /** Session straight from the identity's Microsoft sign-in (MicrosoftAccountService), if it covers Minecraft. */
+  directSession: ((identityId: number) => Promise<JavaSession | null>) | null = null;
+
   async getJavaSession(identityId: number): Promise<JavaSession> {
+    const direct = await this.directSession?.(identityId);
+    if (direct) return direct;
     const mc = this.repo.getMinecraft(identityId);
     if (!mc || mc.authType !== 'microsoft' || !mc.msaAccount) throw new Error('Identity has no Microsoft account configured');
     try {

@@ -29,7 +29,7 @@ function append(el, children) {
     if (c === null || c === undefined || c === false) continue;
     if (Array.isArray(c)) append(el, c);
     else if (c instanceof Node) el.appendChild(c);
-    else el.appendChild(document.createTextNode(t(String(c))));
+    else el.appendChild(document.createTextNode(t(String(c), el.tagName)));
   }
 }
 
@@ -139,8 +139,11 @@ export function select(name, options, value, attrs = {}) {
 }
 
 export function openExternal(url) {
-  const w = window.open(url, '_blank', 'noopener,noreferrer');
-  if (!w) toast('Popup blocked – allow popups for this page', 'error');
+  // window.open(..., 'noopener') always returns null – a link click opens reliably without that ambiguity
+  const a = h('a', { href: url, target: '_blank', rel: 'noopener noreferrer', style: { display: 'none' } });
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
 }
 
 export async function guard(fn, okMsg) {

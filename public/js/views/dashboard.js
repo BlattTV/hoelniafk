@@ -118,7 +118,7 @@ export async function dashboardView(root) {
         h('span', { class: 'muted' }, `${selected.size} selected`),
         select('server', [['', 'all servers'], ...servers.map((s) => [s.id, s.name])], state.server, { title: 'Limit session actions to one server', onchange: (e) => (state.server = e.target.value) }),
         BULK.map(([a, label, tip]) => h('button', { class: 'small', title: tip, onclick: () => runBulk(a), disabled: !selected.size }, label)),
-        h('button', { class: 'primary', onclick: () => (location.hash = '#/wizard') }, 'New identity')),
+        h('button', { class: 'primary', onclick: () => (location.hash = '#/new') }, 'New identity')),
     );
   };
 
@@ -191,7 +191,7 @@ export async function dashboardView(root) {
                 h('td', { class: 'mono' }, String(r.stars), r.eligible ? h('span', { class: 'tag', title: 'eligible for rewards', style: { marginLeft: '6px' } }, 'eligible') : null),
                 h('td', null, badge(r.health, r.ready ? 'READY' : r.health)),
               ))
-          : h('tr', null, h('td', { colspan: 9, class: 'empty' }, rows.length ? 'No identity matches the filters.' : 'No identities yet – create one with the setup wizard.'))));
+          : h('tr', null, h('td', { colspan: 9, class: 'empty' }, rows.length ? 'No identity matches the filters.' : 'No identities yet – click “New identity”.'))));
     clear(tableWrap).appendChild(table);
   };
 

@@ -1,4 +1,5 @@
 /** Static checks of the browser modules (no build step → catch missing imports early). */
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -14,6 +15,18 @@ function modules(): string[] {
 }
 
 describe('browser modules', () => {
+  it('parse without syntax errors', () => {
+    const broken: string[] = [];
+    for (const f of modules()) {
+      try {
+        execFileSync(process.execPath, ['--check', f], { stdio: 'pipe' });
+      } catch (e) {
+        broken.push(`${path.basename(f)}: ${String((e as { stderr?: Buffer }).stderr ?? e).split('\n').slice(0, 4).join(' ')}`);
+      }
+    }
+    expect(broken).toEqual([]);
+  });
+
   it('only import helpers that exist and import every helper they call', () => {
     const problems: string[] = [];
     for (const file of modules()) {

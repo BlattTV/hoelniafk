@@ -39,8 +39,16 @@ const templates = [...exact]
 
 const cache = new Map();
 
-export function t(s) {
+/**
+ * Single words are not translated where data is shown (table cells, bold names, code): a server called
+ * "Test" or an identity called "Mail" must stay as it is. Texts with spaces or placeholders are
+ * distinctive enough to translate anywhere.
+ */
+const DATA_TAGS = new Set(['TD', 'STRONG', 'CODE', 'PRE', 'TEXTAREA']);
+
+export function t(s, tag) {
   if (lang !== 'de' || typeof s !== 'string' || !s) return s;
+  if (tag && DATA_TAGS.has(tag) && !/\s/.test(s.trim())) return s;
   const hit = exact.get(s) ?? cache.get(s);
   if (hit !== undefined) return hit;
   let out = s;

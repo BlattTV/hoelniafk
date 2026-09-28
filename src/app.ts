@@ -28,6 +28,8 @@ import { MetricsCollector } from './core/metrics.js';
 import { Updater } from './ops/updater.js';
 import { BackendLink } from './relay/backendLink.js';
 import { ProxyPool } from './network/proxyPool.js';
+import { MicrosoftAccountService } from './identity/microsoftAccount.js';
+import type { JsonHttp, XboxEndpoints } from './minecraft/xboxChain.js';
 import { GameClientRuntime, type GameClientOptions } from './client/gameClientRuntime.js';
 import { createWindowController } from './client/window.js';
 
@@ -62,6 +64,9 @@ export interface SuiteDeps {
   mailSourceFactory?: SourceFactory;
   discordUserFetcher?: DiscordUserFetcher;
   oauthPost?: HttpPost;
+  /** Xbox Live / Minecraft services HTTP (tests use local fakes). */
+  xboxHttp?: JsonHttp;
+  xboxEndpoints?: XboxEndpoints;
   httpJson?: HttpJson;
   /** Overrides for the real game client (tests: emulator as java, local mirror). null = disabled. */
   gameClient?: Partial<GameClientOptions> | null;
@@ -150,6 +155,18 @@ export function createSuite(deps: SuiteDeps) {
   const identities = new IdentityService(repo, vault, network, sessions, linking, audit, bus);
   const bulk = new BulkOperations(repo, mail, network, sessions, discord, audit, auth);
   const updater = new Updater(repo, audit, bus);
+  const microsoft = new MicrosoftAccountService(repo, vault, oauth, mail, auth, audit, bus, deps.xboxHttp, deps.xboxEndpoints);
+  mail.identityAccessToken = (identityId) => microsoft.accessToken(identityId, 'outlook');
+  auth.directSession = (identityId) => microsoft.minecraftSession(identityId);
+  discord.verificationLink = async (identityId) => {
+    const msgs = mail.listForIdentity(identityId, { category: 'verification-any', limit: 10 }).filter((m) => /discord/i.test(`${m.from ?? ''} ${m.provider ?? ''}`));
+    for (const m of msgs) {
+      const d = await mail.getMessage(identityId, m.id, { markSeen: false });
+      const link = d.links.find((l) => /verify|click\.discord\.com/i.test(l.url) && /(^|\.)discord(app)?\.com$/i.test(new URL(l.url).hostname));
+      if (link) return link.url;
+    }
+    return null;
+  };
   const backend = new BackendLink(repo, vault, audit, bus, runtime instanceof MineflayerRuntime ? runtime : null);
   backend.onAgentAvailable = (agentId) => sessions.agentAvailable(agentId);
   updater.authHeaders = (url) => backend.authHeadersFor(url);
@@ -225,6 +242,7 @@ export function createSuite(deps: SuiteDeps) {
     oauth,
     network,
     proxies,
+    microsoft,
     auth,
     linking,
     rewards,

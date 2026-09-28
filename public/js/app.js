@@ -18,6 +18,8 @@ import { settingsView } from './views/settings.js';
 import { schedulesView } from './views/schedules.js';
 import { accountsView, agentsView } from './views/remote.js';
 import { proxiesView } from './views/proxies.js';
+import { quickView } from './views/quick.js';
+import { discordView } from './views/discord.js';
 import { openPalette, toggleTheme } from './palette.js';
 import { handleEvent, primeStates } from './notify.js';
 import { syncLanguage, t, translateStatic } from './i18n.js';
@@ -29,6 +31,8 @@ const routes = [
   [/^\/?$/, 'dashboard', dashboardView],
   [/^\/identity\/(\d+)(?:\/(\w+))?$/, 'dashboard', identityView],
   [/^\/wizard(?:\/(\d+))?(?:\/(\d+))?$/, 'wizard', wizardView],
+  [/^\/new(?:\/(\d+))?(?:\/(\d+))?$/, 'new', quickView],
+  [/^\/discord$/, 'discord', discordView],
   [/^\/inbox$/, 'inbox', (root) => inboxView(root, { verification: false })],
   [/^\/verification$/, 'verification', (root) => inboxView(root, { verification: true })],
   [/^\/mailboxes$/, 'mailboxes', mailboxesView],
@@ -59,6 +63,9 @@ async function render() {
     const m = re.exec(path);
     if (!m) continue;
     document.querySelectorAll('[data-nav]').forEach((a) => a.classList.toggle('active', a.dataset.nav === nav));
+    // "Advanced" opens by itself when one of its pages is shown
+    const more = document.getElementById('nav-more');
+    if (more && more.querySelector(`[data-nav="${nav}"]`)) more.open = true;
     const container = h('div');
     try {
       const handle = await view(container, m.slice(1));

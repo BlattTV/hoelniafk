@@ -5,6 +5,7 @@
 import { api, qs } from '../api.js';
 import { badge, clear, codeBox, copy, field, fmtBytes, fmtTime, formData, guard, h, modal, mount, openExternal, openGame, closeGame, gameBadge, scheduleNote, relTime, select, stateBadge, statusIcon, toast } from '../ui.js';
 import { openMessage } from './mailviewer.js';
+import { openDiscord } from './accounts.js';
 import { t } from '../i18n.js';
 
 export async function loadMeta() {
@@ -56,6 +57,8 @@ export function milestoneStrip(health) {
 export function focusSection(target) {
   const el = document.getElementById(`sec-${target}`);
   if (el) {
+    const details = el.closest('details');
+    if (details && !details.open) details.open = true;
     el.scrollIntoView({ behavior: 'smooth', block: 'start' });
     el.classList.remove('flash');
     void el.offsetWidth;
@@ -128,14 +131,13 @@ export function discordSection(ctx) {
   const pending = data.pendingLink;
   const signup = () =>
     guard(async () => {
-      const { url } = await api.post(`/api/identities/${id}/discord/signup`);
-      openExternal(url);
+      openDiscord(id, 'register');
       modal(
         'Create Discord Account',
         h(
           'div',
           null,
-          h('p', null, 'The official Discord sign-up page was opened in your browser. The suite never creates or automates Discord accounts itself.'),
+          h('p', null, 'The official Discord sign-up page was opened in this identity\'s own Discord window. The suite never creates or automates Discord accounts itself.'),
           h('ol', null, h('li', null, 'Register on discord.com (use the identity\'s mail address).'), h('li', null, 'Complete Discord\'s e-mail / phone verification (the verification mail appears in this identity\'s inbox).'), h('li', null, 'Return here and click “Connect via OAuth2”.')),
           ctx.data.mail ? h('p', null, 'Identity mail: ', h('code', null, ctx.data.mail.address), ' ', h('button', { class: 'small', onclick: () => copy(ctx.data.mail.address, 'Address copied') }, 'Copy')) : null,
           h('button', { class: 'primary', onclick: connect }, 'Connect via OAuth2'),
@@ -144,8 +146,7 @@ export function discordSection(ctx) {
     });
   const connect = () =>
     guard(async () => {
-      const { url } = await api.post(`/api/identities/${id}/discord/connect`);
-      openExternal(url);
+      openDiscord(id, 'connect');
       toast('Authorize the app in the Discord tab – this view updates automatically.', 'info', 8000);
     });
   return card(
@@ -168,7 +169,7 @@ export function discordSection(ctx) {
       !d?.discordUserId ? h('button', { onclick: signup }, 'CREATE DISCORD ACCOUNT') : null,
       h('button', { class: 'primary', onclick: connect }, d?.discordUserId ? 'Reconnect via OAuth2' : 'Connect via OAuth2'),
       d?.credentialRef ? h('button', { onclick: () => guard(async () => { await api.post(`/api/identities/${id}/discord/verify`); await ctx.reload(); }, 'Discord verified') }, 'Verify') : null,
-      h('button', { onclick: () => openExternal(data.discordAppUrl ?? 'https://discord.com/app') }, 'Open Discord'),
+      h('button', { onclick: () => openDiscord(id, 'app') }, 'Open Discord'),
       d?.discordUserId ? h('button', { class: 'danger', onclick: () => confirm('Disconnect Discord from this identity?') && guard(async () => { await api.post(`/api/identities/${id}/discord/disconnect`); await ctx.reload(); }) }, 'Disconnect') : null,
     ),
     h(

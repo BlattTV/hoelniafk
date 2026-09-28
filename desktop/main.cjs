@@ -277,6 +277,11 @@ function createWindow() {
   });
   // Everything outside the suite (Discord verification links, webmail, OAuth) opens in the default browser.
   win.webContents.setWindowOpenHandler(({ url }) => {
+    const discord = /\/api\/identities\/(\d+)\/discord\/open\?/.exec(url);
+    if (discord && url.startsWith(BASE)) {
+      void openDiscordProfile(Number(discord[1]), url);
+      return { action: 'deny' };
+    }
     if (/^https?:\/\//.test(url)) shell.openExternal(url);
     return { action: 'deny' };
   });
@@ -372,6 +377,55 @@ function trayMenu() {
       { type: 'separator' },
       { label: L('Quit (sessions go offline)'), click: () => quit() },
     ]);
+}
+
+// ------------------------------------------------------------------ Discord: one browser profile per identity
+// Each identity gets its own persistent Discord login (like browser containers). "Switching" accounts
+// = opening the window of another identity. The suite only opens pages here – it never fills in or
+// submits Discord forms, reads Discord pages or uses Discord tokens (no automation, no self-bots).
+const discordWindows = new Map();
+
+async function openDiscordProfile(identityId, url) {
+  let w = discordWindows.get(identityId);
+  if (!w || w.isDestroyed()) {
+    let label = `Identity ${identityId}`;
+    try {
+      const list = await api('GET', '/api/discord');
+      const row = list.find((r) => r.identityId === identityId);
+      if (row) label = row.discord?.username ? `${row.label} · @${row.discord.username}` : row.label;
+    } catch {}
+    w = new BrowserWindow({
+      width: 1200,
+      height: 820,
+      title: `Discord – ${label}`,
+      icon: icon('icon.png'),
+      autoHideMenuBar: true,
+      webPreferences: { partition: `persist:hoelni-discord-${identityId}`, contextIsolation: true, sandbox: true, nodeIntegration: false },
+    });
+    w.removeMenu();
+    const title = `Discord – ${label}`;
+    w.on('page-title-updated', (e) => {
+      e.preventDefault();
+      w.setTitle(title);
+    });
+    // Discord's own popups (captcha, OAuth) stay in the same profile; other sites open in the normal browser.
+    w.webContents.setWindowOpenHandler(({ url: next }) => {
+      try {
+        const host = new URL(next).hostname;
+        if (/(^|\.)(discord\.com|discordapp\.com|discord\.gg|hcaptcha\.com)$/.test(host)) {
+          return { action: 'allow', overrideBrowserWindowOptions: { autoHideMenuBar: true, webPreferences: { partition: `persist:hoelni-discord-${identityId}`, contextIsolation: true, sandbox: true } } };
+        }
+      } catch {}
+      if (/^https?:\/\//.test(next)) shell.openExternal(next);
+      return { action: 'deny' };
+    });
+    discordWindows.set(identityId, w);
+    w.on('closed', () => discordWindows.delete(identityId));
+  }
+  // The suite URL answers with a redirect to the Discord page (or the OAuth consent page).
+  await w.loadURL(url).catch(() => undefined);
+  w.show();
+  w.focus();
 }
 
 function createTray() {

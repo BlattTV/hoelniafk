@@ -19,7 +19,9 @@ const log = createLogger('mail');
 
 export type MailboxSecret =
   | { type: 'password'; password: string }
-  | { type: 'oauth'; provider: OAuthProviderName; refreshToken: string };
+  | { type: 'oauth'; provider: OAuthProviderName; refreshToken: string }
+  /** Outlook mailbox of an identity's Microsoft sign-in: tokens come from that shared grant. */
+  | { type: 'ms-identity'; identityId: number };
 
 export interface StoredMessage {
   id: number;
@@ -134,6 +136,19 @@ export class MailService {
     return this.repo.updateMailAccount(mailboxId, { credentialRef: ref });
   }
 
+  /** Tokens for IMAP/SMTP of identity-linked Outlook mailboxes (set by MicrosoftAccountService). */
+  identityAccessToken: ((identityId: number) => Promise<string>) | null = null;
+
+  async linkMailboxToIdentityGrant(mailboxId: number, identityId: number): Promise<MailAccount> {
+    const account = this.repo.getMailAccount(mailboxId);
+    if (account.exclusiveIdentityId !== identityId) throw new IsolationError('Only a mailbox dedicated to this identity can use its Microsoft sign-in');
+    const ref = refs.mailbox(mailboxId);
+    await this.vault.store.set(ref, JSON.stringify({ type: 'ms-identity', identityId } satisfies MailboxSecret));
+    this.accessTokens.delete(mailboxId);
+    this.audit.record(identityId, 'Outlook mailbox connected via Microsoft account', { mailbox: mailboxId });
+    return this.repo.updateMailAccount(mailboxId, { credentialRef: ref });
+  }
+
   async storeMailboxOAuth(mailboxId: number, provider: OAuthProviderName, tokens: TokenSet): Promise<MailAccount> {
     this.repo.getMailAccount(mailboxId);
     if (!tokens.refreshToken) throw new ValidationError('Provider returned no refresh token');
@@ -151,6 +166,10 @@ export class MailService {
     if (!raw) throw new ValidationError(`Credentials for mailbox ${account.label} are missing in the vault`);
     const secret = JSON.parse(raw) as MailboxSecret;
     if (secret.type === 'password') return { user: account.username, pass: secret.password };
+    if (secret.type === 'ms-identity') {
+      if (account.exclusiveIdentityId !== secret.identityId || !this.identityAccessToken) throw new IsolationError('Mailbox is not linked to this identity');
+      return { user: account.username, accessToken: await this.identityAccessToken(secret.identityId) };
+    }
     const cached = this.accessTokens.get(account.id);
     if (cached && cached.expiresAt - 60_000 > Date.now()) return { user: account.username, accessToken: cached.token };
     const tokens = await this.oauth.refresh(secret.provider, secret.refreshToken);

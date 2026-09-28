@@ -1,5 +1,6 @@
 import { api } from '../api.js';
-import { badge, clear, fmtTime, guard, h, identityName, pad2, mount, whenModalClosed } from '../ui.js';
+import { badge, clear, contextMenu, fmtTime, guard, h, identityName, pad2, mount, whenModalClosed } from '../ui.js';
+import { discordTile, microsoftTile } from './accounts.js';
 import {
   discordSection,
   focusSection,
@@ -17,6 +18,7 @@ import {
 export async function identityView(root, [idStr, section]) {
   const id = Number(idStr);
   const ctx = { id, data: null, meta: await loadMeta(), reload: null, chatListener: null };
+  let detailsOpen = !!section; // deep links (health list, setup check) open the details
 
   const render = async () => {
     const [data, audit] = await Promise.all([api.get(`/api/identities/${id}`), api.get(`/api/audit?identityId=${id}&limit=15`)]);
@@ -30,28 +32,38 @@ export async function identityView(root, [idStr, section]) {
           h('h1', null, `Identity #${pad2(it.number)} `, h('span', { class: 'muted' }, identityName(it)), ' ', badge(data.health.level)),
           it.settings.ui.tags.length ? h('div', null, it.settings.ui.tags.map((t) => h('span', { class: 'tag' }, t))) : null),
         h('div', { class: 'toolbar' },
-          h('button', { onclick: () => (location.hash = `#/wizard/${id}`) }, 'Setup wizard'),
-          h('button', { onclick: () => guard(async () => { await api.post('/api/bulk', { action: 'startSessions', identityIds: [id] }); await ctx.reload(); }, 'Sessions starting') }, 'Start all sessions'),
-          h('button', { onclick: () => guard(async () => {
-            const label = prompt('Label of the clone (credentials are NOT copied):', '');
-            if (label === null) return;
-            const c = await api.post(`/api/identities/${id}/clone`, { label });
-            location.hash = `#/wizard/${c.id}`;
-          }) }, 'Clone (without secrets)'),
-          h('button', { onclick: () => guard(async () => {
-            const name = prompt('Template name:', `${it.label} template`);
-            if (name) await api.post(`/api/identities/${id}/save-template`, { name });
-          }, 'Template saved') }, 'Save as template'),
-          h('button', { class: 'danger', onclick: () => confirm(`Delete ${it.label}? All of its secrets are removed from the vault.`) && guard(async () => { await api.del(`/api/identities/${id}`); location.hash = '#/'; }, 'Identity deleted') }, 'Delete'),
+          h('button', { class: 'primary', onclick: () => guard(async () => { await api.post('/api/bulk', { action: 'startSessions', identityIds: [id] }); await ctx.reload(); }, 'Sessions starting') }, 'Go online'),
+          h('button', { onclick: () => guard(async () => { await api.post('/api/bulk', { action: 'stopSessions', identityIds: [id] }); await ctx.reload(); }, 'Sessions stopping') }, 'Go offline'),
+          h('button', { title: 'More actions', onclick: (e) => contextMenu(e, [
+            ['Setup wizard (all steps)', () => (location.hash = `#/wizard/${id}`)],
+            ['Clone (without secrets)', () => guard(async () => {
+              const label = prompt('Label of the clone (credentials are NOT copied):', '');
+              if (label === null) return;
+              const c = await api.post(`/api/identities/${id}/clone`, { label });
+              location.hash = `#/new/${c.id}/1`;
+            })],
+            ['Save as template', () => guard(async () => {
+              const name = prompt('Template name:', `${it.label} template`);
+              if (name) await api.post(`/api/identities/${id}/save-template`, { name });
+            }, 'Template saved')],
+            null,
+            ['Delete', () => confirm(`Delete ${it.label}? All of its secrets are removed from the vault.`) && guard(async () => { await api.del(`/api/identities/${id}`); location.hash = '#/'; }, 'Identity deleted'), 'danger'],
+          ]) }, 'More'),
         ),
       ),
-      milestoneStrip(data.health),
-      h('div', { class: 'grid-2' },
-        h('div', null, minecraftSection(ctx), discordSection(ctx), networkSection(ctx), rewardsSection(ctx)),
-        h('div', null, healthSection(ctx), mailSection(ctx), sessionsSection(ctx), settingsSection(ctx),
-          h('section', { class: 'card', id: 'sec-audit' }, h('h2', null, 'Audit (this identity)'),
-            h('table', null, h('tbody', null, audit.map((e) => h('tr', null, h('td', { class: 'muted mono' }, fmtTime(e.ts)), h('td', null, e.action), h('td', { class: 'muted' }, e.detail))))),
-            h('p', null, h('a', { href: '#/audit' }, 'Full audit log →')))),
+      h('div', { class: 'tiles' },
+        microsoftTile(id, data, ctx.reload),
+        discordTile(id, data.discord, data.mail?.address ?? null, ctx.reload)),
+      sessionsSection(ctx),
+      h('details', { class: 'more-details', open: detailsOpen || undefined, ontoggle: (e) => { detailsOpen = e.target.open; } },
+        h('summary', null, 'Details & settings', h('span', { class: 'muted' }, ' – health, Minecraft, mail, Discord link, network, rewards, settings, audit')),
+        milestoneStrip(data.health),
+        h('div', { class: 'grid-2' },
+          h('div', null, healthSection(ctx), minecraftSection(ctx), discordSection(ctx), networkSection(ctx)),
+          h('div', null, mailSection(ctx), rewardsSection(ctx), settingsSection(ctx),
+            h('section', { class: 'card', id: 'sec-audit' }, h('h2', null, 'Audit (this identity)'),
+              h('table', null, h('tbody', null, audit.map((e) => h('tr', null, h('td', { class: 'muted mono' }, fmtTime(e.ts)), h('td', null, e.action), h('td', { class: 'muted' }, e.detail))))),
+              h('p', null, h('a', { href: '#/audit' }, 'Full audit log →'))))),
       ),
     );
     window.scrollTo(0, scroll);

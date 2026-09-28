@@ -15,28 +15,29 @@
     <nav class="sidebar">
       <div class="brand"><span class="brand-mark" aria-hidden="true"></span><div><strong>Hoelni</strong><small>client suite</small></div></div>
       <a href="#/" data-nav="dashboard" title="All identities with status, filters and bulk actions">Identities</a>
-      <a href="#/matrix" data-nav="matrix" title="Account × Server: desired vs. actual session state">Accounts × servers</a>
-      <a href="#/wizard" data-nav="wizard">New identity</a>
-      <div class="nav-group">Play</div>
+      <a href="#/new" data-nav="new" class="nav-primary" title="Name, Microsoft sign-in, Discord – three steps">New identity</a>
+      <a href="#/discord" data-nav="discord" title="All Discord accounts – click one to switch to it">Discord</a>
       <a href="#/sessions" data-nav="sessions">Sessions</a>
       <a href="#/chat" data-nav="chat">Chat</a>
-      <a href="#/schedules" data-nav="schedules">Schedules</a>
-      <a href="#/agents" data-nav="agents" title="PCs in other households signed in with your account (Hoelni Agent)">Agents</a>
-      <div class="nav-group">Mail</div>
-      <a href="#/inbox" data-nav="inbox">All mail</a>
-      <a href="#/verification" data-nav="verification">Verification mail</a>
-      <a href="#/mailboxes" data-nav="mailboxes">Mailboxes &amp; aliases</a>
-      <div class="nav-group">Setup</div>
-      <a href="#/servers" data-nav="servers">Servers</a>
-      <a href="#/proxies" data-nav="proxies" title="Import, test and assign proxies">Proxy pool</a>
-      <a href="#/templates" data-nav="templates">Templates</a>
-      <a href="#/setup" data-nav="setup">Setup check</a>
+      <a href="#/inbox" data-nav="inbox">Mail</a>
       <a href="#/settings" data-nav="settings">Settings &amp; vault</a>
       <a href="#/accounts" data-nav="accounts" id="nav-accounts" hidden title="Backend account administration (admins only)">Accounts</a>
-      <div class="nav-group">Operations</div>
-      <a href="#/monitoring" data-nav="monitoring">Monitoring</a>
-      <a href="#/logs" data-nav="logs">Logs</a>
-      <a href="#/audit" data-nav="audit">Audit log</a>
+      <details class="nav-more" id="nav-more">
+        <summary>Advanced</summary>
+        <a href="#/matrix" data-nav="matrix" title="Account × Server: desired vs. actual session state">Accounts × servers</a>
+        <a href="#/schedules" data-nav="schedules">Schedules</a>
+        <a href="#/agents" data-nav="agents" title="PCs in other households signed in with your account (Hoelni Agent)">Agents</a>
+        <a href="#/verification" data-nav="verification">Verification mail</a>
+        <a href="#/mailboxes" data-nav="mailboxes">Mailboxes &amp; aliases</a>
+        <a href="#/servers" data-nav="servers">Servers</a>
+        <a href="#/proxies" data-nav="proxies" title="Import, test and assign proxies">Proxy pool</a>
+        <a href="#/templates" data-nav="templates">Templates</a>
+        <a href="#/wizard" data-nav="wizard" title="The detailed setup wizard with every step">Detailed setup wizard</a>
+        <a href="#/setup" data-nav="setup">Setup check</a>
+        <a href="#/monitoring" data-nav="monitoring">Monitoring</a>
+        <a href="#/logs" data-nav="logs">Logs</a>
+        <a href="#/audit" data-nav="audit">Audit log</a>
+      </details>
       <a href="#/settings" id="nav-update" class="nav-update" hidden>Update ready</a>
       <div class="sidebar-foot"><span id="conn-state">connecting…</span><button class="theme-toggle" id="theme-toggle" title="Light / dark">Theme</button></div>
       <div class="sidebar-foot" style="margin-top:4px"><span><kbd>Ctrl</kbd> <kbd>K</kbd> quick actions</span></div>

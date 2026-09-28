@@ -57,11 +57,25 @@ export interface TokenSet {
   refreshToken: string | null;
   expiresAt: number;
   scope: string | null;
+  /** OpenID Connect ID token (only when "openid" was requested) – used for the account's e-mail address. */
+  idToken?: string | null;
+}
+
+/** Claims of an ID token received directly from the token endpoint (TLS) – no signature check needed. */
+export function idTokenClaims(idToken: string | null | undefined): Record<string, any> {
+  if (!idToken) return {};
+  try {
+    return JSON.parse(Buffer.from(idToken.split('.')[1] ?? '', 'base64url').toString('utf8'));
+  } catch {
+    return {};
+  }
 }
 
 export type OAuthPurpose =
   | { type: 'mailbox'; mailboxId: number }
-  | { type: 'discord'; identityId: number };
+  | { type: 'discord'; identityId: number }
+  /** One Microsoft sign-in for an identity: Outlook mail + Minecraft (Xbox Live). */
+  | { type: 'microsoft-account'; identityId: number };
 
 interface PendingFlow {
   provider: OAuthProviderName;
@@ -69,6 +83,8 @@ interface PendingFlow {
   verifier: string;
   redirectUri: string;
   createdAt: number;
+  /** Scope for the code redemption (one resource) when consent covered several resources. */
+  tokenScopes?: string[];
 }
 
 export type HttpPost = (url: string, form: Record<string, string>) => Promise<{ status: number; json: any }>;
@@ -104,7 +120,11 @@ export class OAuthManager {
     return !!(await this.getConfig(provider))?.clientId;
   }
 
-  async begin(provider: OAuthProviderName, purpose: OAuthPurpose, opts: { loginHint?: string } = {}): Promise<{ url: string; state: string }> {
+  async begin(
+    provider: OAuthProviderName,
+    purpose: OAuthPurpose,
+    opts: { loginHint?: string; scopes?: string[]; tokenScopes?: string[]; prompt?: string } = {},
+  ): Promise<{ url: string; state: string }> {
     const cfg = await this.getConfig(provider);
     if (!cfg?.clientId) throw new ValidationError(`OAuth client for ${provider} is not configured (Settings → OAuth)`);
     this.gc();
@@ -113,16 +133,17 @@ export class OAuthManager {
     const verifier = crypto.randomBytes(48).toString('base64url');
     const challenge = crypto.createHash('sha256').update(verifier).digest('base64url');
     const redirectUri = this.redirectUri();
-    this.pending.set(state, { provider, purpose, verifier, redirectUri, createdAt: Date.now() });
+    this.pending.set(state, { provider, purpose, verifier, redirectUri, createdAt: Date.now(), tokenScopes: opts.tokenScopes });
     const params = new URLSearchParams({
       client_id: cfg.clientId,
       response_type: 'code',
       redirect_uri: redirectUri,
-      scope: (cfg.scopes?.length ? cfg.scopes : preset.defaultScopes).join(' '),
+      scope: (opts.scopes ?? (cfg.scopes?.length ? cfg.scopes : preset.defaultScopes)).join(' '),
       state,
       code_challenge: challenge,
       code_challenge_method: 'S256',
       ...(preset.extraParams ?? {}),
+      ...(opts.prompt ? { prompt: opts.prompt } : {}),
     });
     if (opts.loginHint && provider !== 'discord') params.set('login_hint', opts.loginHint);
     return { url: `${cfg.authorizeUrl || preset.authorizeUrl(cfg)}?${params.toString()}`, state };
@@ -142,15 +163,18 @@ export class OAuthManager {
       client_id: cfg.clientId,
       code_verifier: flow.verifier,
     };
+    if (flow.tokenScopes?.length) form.scope = flow.tokenScopes.join(' ');
     if (cfg.clientSecret) form.client_secret = cfg.clientSecret;
     const tokens = await this.tokenRequest(flow.provider, cfg, form);
     return { provider: flow.provider, purpose: flow.purpose, tokens };
   }
 
-  async refresh(provider: OAuthProviderName, refreshToken: string): Promise<TokenSet> {
+  /** scopes: needed when the grant covers several resources (e.g. Outlook + Xbox Live) – one resource per token. */
+  async refresh(provider: OAuthProviderName, refreshToken: string, scopes?: string[]): Promise<TokenSet> {
     const cfg = await this.getConfig(provider);
     if (!cfg?.clientId) throw new ValidationError(`OAuth client for ${provider} is not configured`);
     const form: Record<string, string> = { grant_type: 'refresh_token', refresh_token: refreshToken, client_id: cfg.clientId };
+    if (scopes?.length) form.scope = scopes.join(' ');
     if (cfg.clientSecret) form.client_secret = cfg.clientSecret;
     const t = await this.tokenRequest(provider, cfg, form);
     return { ...t, refreshToken: t.refreshToken ?? refreshToken };
@@ -169,6 +193,7 @@ export class OAuthManager {
       refreshToken: res.json.refresh_token ?? null,
       expiresAt: Date.now() + (Number(res.json.expires_in) || 3600) * 1000,
       scope: res.json.scope ?? null,
+      idToken: res.json.id_token ?? null,
     };
   }
 

@@ -84,6 +84,14 @@ Discord / Cloudflare / public IP endpoints), **REAL ACCOUNT** (real Minecraft ac
   - the household can pause it; there is a tray icon and autostart;
   - the device token is protected with DPAPI (keyring or passphrase outside Windows);
   - passwords are never passed on the command line.
+- **Simple setup:**
+  - *New identity* in three steps: name/servers → **one Microsoft sign-in** → Discord.
+  - The Microsoft sign-in (Azure app with PKCE) consents to Outlook and Xbox Live in one go. The Outlook mailbox is created and assigned automatically, and Minecraft is connected via Xbox Live → XSTS → Minecraft services from the same grant.
+  - If Mojang has not approved the app yet, Minecraft falls back to the Minecraft sign-in code for the same account automatically.
+  - Discord runs in its own persistent browser profile per identity (desktop program). "Switch" means opening that identity's window.
+  - Sign-up helper: e-mail, username, and a vault password that is copied, never shown. The confirmation link is opened from the identity's mail, and OAuth connect happens in the same profile.
+  - The suite never submits Discord forms.
+  - Simplified navigation (advanced pages collapsed) and an identity page with Microsoft/Discord tiles.
 - **Language:**
   - The UI is available in English and German (Settings → This PC → Language).
   - The choice is stored in the suite, so the desktop tray menu follows it.
@@ -106,7 +114,7 @@ Discord / Cloudflare / public IP endpoints), **REAL ACCOUNT** (real Minecraft ac
 
 ## TESTED
 
-`npm test` – 24 test files / 165 tests green, `npm run test:e2e` – 12 Playwright tests green; typecheck clean, production build OK:
+`npm test` – 26 test files / 171 tests green, `npm run test:e2e` – 13 Playwright tests green; typecheck clean, production build OK:
 
 | Area | Level | Tests |
 |---|---|---|
