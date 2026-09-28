@@ -84,6 +84,11 @@ Discord / Cloudflare / public IP endpoints), **REAL ACCOUNT** (real Minecraft ac
   - the household can pause it; there is a tray icon and autostart;
   - the device token is protected with DPAPI (keyring or passphrase outside Windows);
   - passwords are never passed on the command line.
+- **Language:**
+  - The UI is available in English and German (Settings → This PC → Language).
+  - The choice is stored in the suite, so the desktop tray menu follows it.
+  - About 940 texts are translated, including server-side check texts; chat and mail content stay untouched.
+- **Backend instead of LAN addresses:** once connected to its backend, the suite switches its update source to `https://<backend>/updates` by itself. The signing key is taken over the authenticated HTTPS connection. LAN update addresses are replaced; a custom public update server is kept.
 - **Review hardening:**
   - Agents check every manager command themselves: only public servers/proxies (DNS-resolved, no LAN/loopback/link-local/CGNAT), validated session ids, usernames and game settings (no path traversal via the version), no bind-IP profiles, nothing while paused; commands run in order.
   - The relay forwards only runtime commands manager → agent.
@@ -101,7 +106,7 @@ Discord / Cloudflare / public IP endpoints), **REAL ACCOUNT** (real Minecraft ac
 
 ## TESTED
 
-`npm test` – 24 test files / 165 tests green, `npm run test:e2e` – 11 Playwright tests green; typecheck clean, production build OK:
+`npm test` – 24 test files / 165 tests green, `npm run test:e2e` – 12 Playwright tests green; typecheck clean, production build OK:
 
 | Area | Level | Tests |
 |---|---|---|

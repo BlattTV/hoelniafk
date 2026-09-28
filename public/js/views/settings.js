@@ -4,6 +4,7 @@ import { updatesCard } from './updates.js';
 import { backendCard } from './remote.js';
 import { notificationsEnabled, setNotifications } from '../notify.js';
 import { toggleTheme } from '../palette.js';
+import { lang, LANGUAGES, setLanguage } from '../i18n.js';
 
 export async function settingsView(root) {
   const render = async () => {
@@ -26,6 +27,9 @@ export async function settingsView(root) {
       h('section', { class: 'card' }, h('h2', null, 'This PC'),
         h('div', { class: 'toolbar' },
           h('label', { class: 'check', title: 'Session blocked or disconnected, link code received, update ready' }, h('input', { type: 'checkbox', checked: notificationsEnabled(), onchange: (e) => setNotifications(e.target.checked) }), 'Desktop notifications'),
+          h('label', { class: 'check' }, 'Language', ' ',
+            h('select', { id: 'ui-language', 'aria-label': 'Language', onchange: (e) => guard(async () => { await api.put('/api/settings/ui', { language: e.target.value }); setLanguage(e.target.value); }) },
+              LANGUAGES.map(([v, name]) => h('option', { value: v, selected: v === lang }, name)))),
           h('button', { class: 'small', onclick: toggleTheme }, 'Switch light / dark'),
           h('span', { class: 'muted' }, 'Quick actions: ', h('kbd', null, 'Ctrl'), ' ', h('kbd', null, 'K')))),
       h('div', { class: 'grid-2' },

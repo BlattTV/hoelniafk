@@ -20,6 +20,10 @@ import { accountsView, agentsView } from './views/remote.js';
 import { proxiesView } from './views/proxies.js';
 import { openPalette, toggleTheme } from './palette.js';
 import { handleEvent, primeStates } from './notify.js';
+import { syncLanguage, t, translateStatic } from './i18n.js';
+
+translateStatic(document.querySelector('.sidebar'));
+api.get('/api/settings/ui').then((s) => syncLanguage(s.language)).catch(() => undefined);
 
 const routes = [
   [/^\/?$/, 'dashboard', dashboardView],
@@ -86,7 +90,7 @@ const showUpdate = (st) => {
   const el = document.getElementById('nav-update');
   if (!el || !st) return;
   el.hidden = !st.available;
-  if (st.latest) el.textContent = `Update ${st.latest.version} ready`;
+  if (st.latest) el.textContent = t(`Update ${st.latest.version} ready`);
 };
 api.get('/api/updates').then(showUpdate).catch(() => undefined);
 // The account administration is only shown to admins signed in to the backend.
@@ -109,7 +113,7 @@ subscribe(
   },
   (live) => {
     const el = document.getElementById('conn-state');
-    el.textContent = live ? 'live' : 'reconnecting…';
+    el.textContent = t(live ? 'live' : 'reconnecting…');
     el.classList.toggle('live', live);
   },
 );

@@ -62,6 +62,8 @@ export class BackendLink {
   /** Proxy for the backend connection – kept in the vault (may contain a password), cached here. */
   private proxy: string | null = null;
   private readonly ready: Promise<void>;
+  /** Called after every successful connection to the backend (e.g. to adopt its update distribution). */
+  onConnected: () => void = () => undefined;
   /** Called when an agent becomes usable (online and not paused) – wired to the session manager. */
   onAgentAvailable: (agentId: number) => void = () => undefined;
   state: LinkState = 'signed-out';
@@ -267,6 +269,7 @@ export class BackendLink {
       this.lastError = null;
       log.info(`Connected to the backend ${this.url}`);
       this.changed();
+      this.onConnected();
       // Role may have changed on the backend (e.g. admin revoked) – the admin pages follow it.
       void requestJson<{ user: { username: string; role: 'admin' | 'user' } }>(`${this.url}/api/me`, 'GET', undefined, this.transport(), { Authorization: `Bearer ${token}` })
         .then((me) => {

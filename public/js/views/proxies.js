@@ -1,6 +1,7 @@
 /** Proxy pool: import lists, test, assign one proxy per identity. Passwords are never shown. */
 import { api } from '../api.js';
 import { field, guard, h, mount, relTime, toast } from '../ui.js';
+import { t } from '../i18n.js';
 
 const STATUS = { OK: 'ok', ERROR: 'error', UNKNOWN: 'unknown' };
 
@@ -27,7 +28,7 @@ export async function proxiesView(root) {
       h('div', { class: 'page-head' }, h('h1', null, 'Proxy pool'),
         h('div', { class: 'toolbar' },
           h('span', { class: 'muted' }, `${list.length} proxies · ${ok} working · ${free} free · ${missing} identities without pool proxy`),
-          h('button', { disabled: !list.length, title: 'Checks every proxy: reachable, exit IP, latency (16 at a time)', onclick: (e) => { e.target.disabled = true; e.target.textContent = `Testing ${list.length}…`; guard(async () => { const r = await api.post('/api/proxies/test'); await render(); return r; }, null).then((r) => r && toast(`Test finished: ${r.ok} working, ${r.error} failed`, r.error ? 'info' : 'ok', 6000)); } }, 'Test all'),
+          h('button', { disabled: !list.length, title: 'Checks every proxy: reachable, exit IP, latency (16 at a time)', onclick: (e) => { e.target.disabled = true; e.target.textContent = t(`Testing ${list.length}…`); guard(async () => { const r = await api.post('/api/proxies/test'); await render(); return r; }, null).then((r) => r && toast(`Test finished: ${r.ok} working, ${r.error} failed`, r.error ? 'info' : 'ok', 6000)); } }, 'Test all'),
           h('button', { class: 'primary', disabled: !free || !missing, title: 'Every identity without a pool proxy gets a working proxy with an exit IP no other identity uses', onclick: () => guard(async () => {
             const r = await api.post('/api/proxies/auto-assign');
             await render();

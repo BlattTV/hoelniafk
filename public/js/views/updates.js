@@ -4,7 +4,7 @@ import { field, fmtBytes, fmtTime, guard, h, modal, relTime } from '../ui.js';
 /** Settings → Updates: self-hosted update server (update-server/ in a LXC). */
 export function updatesCard(st, rerender, backend = null) {
   const s = st.settings;
-  const url = h('input', { value: s.url, placeholder: 'http://192.168.1.50:8787', style: { width: '100%' } });
+  const url = h('input', { value: s.url, placeholder: backend?.updatesUrl ?? 'https://afk.hoelni.de/updates', style: { width: '100%' } });
   const channel = h('input', { value: s.channel, style: { width: '100%' } });
   const autoCheck = h('input', { type: 'checkbox', checked: s.autoCheck });
   const autoInstall = h('input', { type: 'checkbox', checked: s.autoInstall });

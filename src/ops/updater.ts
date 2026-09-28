@@ -144,6 +144,30 @@ export class Updater {
     return (await res.json()) as T;
   }
 
+  /**
+   * Uses the backend's update distribution automatically (no LAN address to type): called when the
+   * manager is connected to its backend. The signing key is taken over the authenticated,
+   * certificate-checked connection to the backend. A custom public update server the user chose stays.
+   */
+  async adoptBackend(updatesUrl: string): Promise<boolean> {
+    const u = new URL(updatesUrl);
+    const loopback = ['127.0.0.1', 'localhost', '[::1]'].includes(u.hostname);
+    if (u.protocol !== 'https:' && !loopback) return false; // key would travel unprotected
+    const s = this.settings();
+    if (s.url === updatesUrl && s.publicKey) return false;
+    if (s.url && s.url !== updatesUrl && !isLanUrl(s.url)) return false;
+    let probe: { publicKey: string; fingerprint: string };
+    try {
+      probe = await this.probe(updatesUrl);
+    } catch {
+      return false; // backend does not distribute updates (yet)
+    }
+    this.configure({ url: updatesUrl, publicKey: probe.publicKey });
+    this.audit.record(null, 'Update source set to the backend automatically', { url: updatesUrl, key: probe.fingerprint, previous: s.url || 'none' });
+    void this.check().catch(() => undefined);
+    return true;
+  }
+
   /** Desktop installer of the latest verified release, checked against the signed SHA-256. */
   async downloadInstaller(): Promise<{ file: string; content: Buffer }> {
     const m = this.latest;
@@ -327,6 +351,17 @@ export class Updater {
 
   stop(): void {
     if (this.timer) clearInterval(this.timer);
+  }
+}
+
+/** Update URLs that only work inside a LAN (private IPs, .local, single-label names, localhost). */
+export function isLanUrl(url: string): boolean {
+  try {
+    const h = new URL(url).hostname.replace(/^\[|\]$/g, '');
+    if (/^(localhost|.*\.local|.*\.lan|.*\.home|[^.]+)$/i.test(h) && !/^[\d:]+$/.test(h)) return true;
+    return /^(10\.|127\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.)/.test(h) || /^(::1|f[cd]|fe[89ab])/i.test(h);
+  } catch {
+    return false;
   }
 }
 

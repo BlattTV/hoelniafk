@@ -28,6 +28,38 @@ let win = null;
 let tray = null;
 let backend = null; // only set when this program started the backend
 let installBroken = false;
+
+// ------------------------------------------------------------------ language (follows Settings → This PC → Language)
+const DE = {
+  'No sessions': 'Keine Sessions', 'in game': 'im Spiel', 'Show game window': 'Spielfenster zeigen', 'Open game': 'Spiel öffnen',
+  'Back to AFK': 'Zurück zu AFK', 'Stop (set offline)': 'Stoppen (offline schalten)', Start: 'Starten',
+  'Open Hoelni Client Suite': 'Hoelni Client Suite öffnen', Sessions: 'Sessions', 'Start with Windows (in the tray)': 'Mit Windows starten (im Tray)',
+  'Open data folder': 'Datenordner öffnen', 'Quit (sessions go offline)': 'Beenden (Sessions gehen offline)',
+  'Installing components…': 'Komponenten werden installiert…',
+  'Some packages of the suite were missing and are being installed (needs internet, about a minute).': 'Einige Pakete der Suite fehlten und werden installiert (braucht Internet, etwa eine Minute).',
+  'The suite is not installed completely': 'Die Suite ist nicht vollständig installiert',
+  'Installing the missing packages failed – see the log below.': 'Die fehlenden Pakete konnten nicht installiert werden – siehe Log unten.',
+  'Some packages are missing – see the log below for the fix.': 'Einige Pakete fehlen – die Lösung steht im Log unten.',
+  'Starting Hoelni Client Suite …': 'Hoelni Client Suite startet …', 'Starting the backend and restoring your sessions.': 'Starte die Suite und stelle deine Sessions wieder her.',
+  'Still running in the tray – your AFK sessions stay online.': 'Läuft im Tray weiter – deine AFK-Sessions bleiben online.',
+};
+let uiLang = 'en';
+const langFile = () => path.join(app.getPath('userData'), 'ui-language');
+const L = (s) => (uiLang === 'de' ? DE[s] ?? s : s);
+function loadLang() {
+  try {
+    uiLang = fs.readFileSync(langFile(), 'utf8').trim() === 'de' ? 'de' : 'en';
+  } catch {
+    uiLang = 'en';
+  }
+}
+function rememberLang(next) {
+  if (next === uiLang) return;
+  uiLang = next;
+  try {
+    fs.writeFileSync(langFile(), next);
+  } catch {}
+}
 let quitting = false;
 let trayHintShown = false;
 
@@ -84,17 +116,17 @@ function startBackend() {
       // Missing packages: reinstall them once with the bundled npm, then start again.
       if (!repairTried && repairPackages(root)) {
         repairTried = true;
-        showStatus('Installing components…', 'Some packages of the suite were missing and are being installed (needs internet, about a minute).', {});
+        showStatus(L('Installing components…'), L('Some packages of the suite were missing and are being installed (needs internet, about a minute).'), {});
         return void runRepair(root).then((ok) => {
           if (ok && !quitting) startBackend();
           else {
             installBroken = true;
-            showStatus('The suite is not installed completely', 'Installing the missing packages failed – see the log below.', { log: logTail(), error: true });
+            showStatus(L('The suite is not installed completely'), L('Installing the missing packages failed – see the log below.'), { log: logTail(), error: true });
           }
         });
       }
       installBroken = true;
-      showStatus('The suite is not installed completely', 'Some packages are missing – see the log below for the fix.', { log: logTail(), error: true });
+      showStatus(L('The suite is not installed completely'), L('Some packages are missing – see the log below for the fix.'), { log: logTail(), error: true });
       return;
     }
     // The supervisor itself restarts crashed suites; if it is gone, bring it back.
@@ -219,7 +251,7 @@ function createWindow() {
     webPreferences: { contextIsolation: true, sandbox: true, nodeIntegration: false },
   });
   win.removeMenu();
-  showStatus('Starting Hoelni Client Suite …', 'Starting the backend and restoring your sessions.');
+  showStatus(L('Starting Hoelni Client Suite …'), L('Starting the backend and restoring your sessions.'));
   // Keys the removed menu used to provide: reload, developer tools.
   win.webContents.on('before-input-event', (e, input) => {
     if (input.type !== 'keyDown') return;
@@ -260,7 +292,7 @@ function createWindow() {
     win.hide();
     if (!trayHintShown && Notification.isSupported()) {
       trayHintShown = true;
-      new Notification({ title: 'Hoelni Client Suite', body: 'Still running in the tray – your AFK sessions stay online.' }).show();
+      new Notification({ title: 'Hoelni Client Suite', body: L('Still running in the tray – your AFK sessions stay online.') }).show();
     }
   });
 }
@@ -294,11 +326,12 @@ async function api(method, p) {
 
 async function refreshTray() {
   try {
-    const [sessions, dash] = await Promise.all([api('GET', '/api/sessions'), api('GET', '/api/dashboard')]);
+    const [sessions, dash, ui] = await Promise.all([api('GET', '/api/sessions'), api('GET', '/api/dashboard'), api('GET', '/api/settings/ui').catch(() => null)]);
+    if (ui) rememberLang(ui.language === 'de' ? 'de' : 'en');
     const names = new Map(dash.rows.map((r) => [r.id, r.label || `Identity${String(r.number).padStart(2, '0')}`]));
     traySessions = sessions.map((s) => ({ ...s, who: `${names.get(s.identityId) ?? s.identityId} @ ${s.serverName}` }));
     const online = traySessions.filter((s) => s.state === 'ONLINE').length;
-    tray?.setToolTip(`Hoelni Client Suite – ${online}/${traySessions.filter((s) => s.desiredState === 'ONLINE').length} sessions online`);
+    tray?.setToolTip(`Hoelni Client Suite – ${online}/${traySessions.filter((s) => s.desiredState === 'ONLINE').length} ${uiLang === 'de' ? 'Sessions online' : 'sessions online'}`);
   } catch {
     /* backend restarting */
   }
@@ -306,19 +339,19 @@ async function refreshTray() {
 }
 
 function sessionItems() {
-  if (!traySessions.length) return [{ label: 'No sessions', enabled: false }];
+  if (!traySessions.length) return [{ label: L('No sessions'), enabled: false }];
   const act = (method, p) => () => api(method, p).then(refreshTray).catch((e) => new Notification({ title: 'Hoelni', body: `Action failed (${e.message})` }).show());
   return traySessions.slice(0, 40).map((s) => {
     const inGame = s.runtime === 'game' || s.takeover !== 'none';
     return {
-      label: `${s.who}  –  ${inGame ? 'in game' : s.state.toLowerCase()}`,
+      label: `${s.who}  –  ${inGame ? L('in game') : s.state.toLowerCase()}`,
       submenu: [
-        { label: inGame ? 'Show game window' : 'Open game', click: act('POST', `/api/sessions/${encodeURIComponent(s.id)}/game`) },
-        ...(inGame ? [{ label: 'Back to AFK', click: act('DELETE', `/api/sessions/${encodeURIComponent(s.id)}/game`) }] : []),
+        { label: L(inGame ? 'Show game window' : 'Open game'), click: act('POST', `/api/sessions/${encodeURIComponent(s.id)}/game`) },
+        ...(inGame ? [{ label: L('Back to AFK'), click: act('DELETE', `/api/sessions/${encodeURIComponent(s.id)}/game`) }] : []),
         { type: 'separator' },
         s.desiredState === 'ONLINE'
-          ? { label: 'Stop (set offline)', click: act('POST', `/api/sessions/${encodeURIComponent(s.id)}/stop`) }
-          : { label: 'Start', click: act('POST', `/api/identities/${s.identityId}/sessions/${s.serverId}/start`) },
+          ? { label: L('Stop (set offline)'), click: act('POST', `/api/sessions/${encodeURIComponent(s.id)}/stop`) }
+          : { label: L('Start'), click: act('POST', `/api/identities/${s.identityId}/sessions/${s.serverId}/start`) },
       ],
     };
   });
@@ -326,18 +359,18 @@ function sessionItems() {
 
 function trayMenu() {
   return Menu.buildFromTemplate([
-      { label: 'Open Hoelni Client Suite', click: showWindow },
-      { label: 'Sessions', submenu: sessionItems() },
+      { label: L('Open Hoelni Client Suite'), click: showWindow },
+      { label: L('Sessions'), submenu: sessionItems() },
       { type: 'separator' },
       {
-        label: 'Start with Windows (in the tray)',
+        label: L('Start with Windows (in the tray)'),
         type: 'checkbox',
         checked: app.getLoginItemSettings().openAtLogin,
         click: (item) => app.setLoginItemSettings({ openAtLogin: item.checked, args: ['--hidden'] }),
       },
-      { label: 'Open data folder', click: () => shell.openPath(dataDir()) },
+      { label: L('Open data folder'), click: () => shell.openPath(dataDir()) },
       { type: 'separator' },
-      { label: 'Quit (sessions go offline)', click: () => quit() },
+      { label: L('Quit (sessions go offline)'), click: () => quit() },
     ]);
 }
 
@@ -378,6 +411,7 @@ app.on('before-quit', (e) => {
 
 app.whenReady().then(async () => {
   app.setAppUserModelId('net.hoelni.clientsuite');
+  loadLang();
   createTray();
   createWindow(); // shows the status screen right away
   try {

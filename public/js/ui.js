@@ -2,6 +2,10 @@
  * Tiny DOM helpers. All content is inserted as text nodes – never as HTML –
  * so mail subjects, chat lines etc. cannot inject markup.
  */
+import { t } from './i18n.js';
+
+const TRANSLATED_ATTRS = new Set(['title', 'placeholder', 'aria-label', 'alt']);
+
 export function h(tag, attrs, ...children) {
   const el = document.createElement(tag);
   if (attrs) {
@@ -13,7 +17,7 @@ export function h(tag, attrs, ...children) {
       else if (k === 'value') el.value = v;
       else if (k === 'checked') el.checked = !!v;
       else if (k === 'dataset') Object.assign(el.dataset, v);
-      else el.setAttribute(k, v === true ? '' : String(v));
+      else el.setAttribute(k, v === true ? '' : TRANSLATED_ATTRS.has(k) ? t(String(v)) : String(v));
     }
   }
   append(el, children);
@@ -25,7 +29,7 @@ function append(el, children) {
     if (c === null || c === undefined || c === false) continue;
     if (Array.isArray(c)) append(el, c);
     else if (c instanceof Node) el.appendChild(c);
-    else el.appendChild(document.createTextNode(String(c)));
+    else el.appendChild(document.createTextNode(t(String(c))));
   }
 }
 

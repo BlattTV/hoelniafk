@@ -5,6 +5,7 @@
 import { api, qs } from '../api.js';
 import { badge, clear, codeBox, copy, field, fmtBytes, fmtTime, formData, guard, h, modal, mount, openExternal, openGame, closeGame, gameBadge, scheduleNote, relTime, select, stateBadge, statusIcon, toast } from '../ui.js';
 import { openMessage } from './mailviewer.js';
+import { t } from '../i18n.js';
 
 export async function loadMeta() {
   const [mailboxes, servers, rules, aliasProviders, templates] = await Promise.all([
@@ -483,7 +484,7 @@ function runOnSelect(current) {
   if (current) sel.appendChild(h('option', { value: String(current), selected: true }, `Agent #${current}`));
   api.get('/api/backend/agents').then((agents) => {
     for (const a of agents) {
-      const text = `Agent: ${a.name}${a.online ? (a.paused ? ' (paused)' : ' (online)') : ' (offline)'}`;
+      const text = `Agent: ${a.name}${t(a.online ? (a.paused ? ' (paused)' : ' (online)') : ' (offline)')}`;
       const existing = [...sel.options].find((o) => o.value === String(a.id));
       if (existing) existing.textContent = text;
       else sel.appendChild(h('option', { value: String(a.id), selected: a.id === current }, text));

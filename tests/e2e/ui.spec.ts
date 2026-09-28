@@ -204,3 +204,21 @@ test('proxy pool: import hides passwords and a proxy can be assigned', async ({ 
   await expect(page.locator('#view tbody tr').first().locator('select')).toBeVisible();
   expect(errors).toEqual([]);
 });
+
+test('language: the whole UI switches to German and back', async ({ page }) => {
+  const errors = trackErrors(page);
+  await page.goto('/#/settings');
+  await Promise.all([page.waitForEvent('load'), page.selectOption('#ui-language', 'de')]);
+  await expect(page.locator('.sidebar')).toContainText('Identitäten');
+  await expect(page.locator('.sidebar')).toContainText('Einstellungen');
+  await page.goto('/#/sessions');
+  await expect(page.locator('#view h1')).toHaveText('Sessions');
+  await expect(page.locator('#view thead')).toContainText('Zustand');
+  await page.goto('/#/settings');
+  await expect(page.locator('#view')).toContainText('Backend & Konto');
+  await expect(page.locator('#view')).toContainText('Dieser PC');
+  // switch back so the demo stays English for other runs
+  await Promise.all([page.waitForEvent('load'), page.selectOption('#ui-language', 'en')]);
+  await expect(page.locator('.sidebar')).toContainText('Identities');
+  expect(errors).toEqual([]);
+});

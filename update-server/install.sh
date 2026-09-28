@@ -136,7 +136,11 @@ say "Done"
 if [ "$FIRST_RUN" = "1" ]; then
   echo "$INIT_OUT"
   echo
-  echo "In the suite: Settings → Updates → enter the update URL, compare the key fingerprint, connect."
+  if [ "$HOST" = "127.0.0.1" ]; then
+    echo "Distributed through the backend: signed-in suites switch to https://<backend>/updates automatically."
+  else
+    echo "In the suite: Settings → Updates → enter the update URL, compare the key fingerprint, connect."
+  fi
 else
   hoelni-updates info
 fi

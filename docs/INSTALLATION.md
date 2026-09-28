@@ -236,6 +236,10 @@ hoelni-updates list                  # Releases
 
 ### B4. Client mit dem Update-Server verbinden
 
+> **Mit Backend (Teil C) entfällt dieser Schritt:** Läuft der Update-Server im Backend-Container (C6),
+> richtet sich die Suite nach der Anmeldung am Backend selbst ein. Die folgenden Schritte gelten nur für
+> einen eigenen Update-Container im LAN ohne Backend.
+
 1. Im Programm: **Settings & vault → Updates**.
 2. **URL** eintragen, z. B. `http://192.168.1.50:8787`, und auf **Connect** klicken.
 3. Den angezeigten **Fingerprint** mit dem aus B2 vergleichen. Nur wenn beide gleich sind:
@@ -428,9 +432,12 @@ sind**. Eine weitere Portfreigabe oder einen weiteren Proxy-Host brauchst du nic
    hoelni-updates list        # mindestens ein Build im Kanal stable
    ```
 
-4. **In der Suite** (angemeldet am Backend): *Settings & vault → Updates → **Get updates via the backend***.
-   Den angezeigten Fingerabdruck mit `hoelni-updates info` vergleichen und bestätigen. Fertig: Die Suite
-   prüft automatisch, *Install update* installiert mit Neustart, und bei Problemen rollt sie zurück.
+4. **In der Suite:** nichts einzutragen. Sobald die Suite am Backend angemeldet und verbunden ist,
+   stellt sie ihre Update-Quelle **automatisch** auf `https://afk.hoelni.de/updates` um. Den
+   Signaturschlüssel übernimmt sie über die geprüfte HTTPS-Verbindung zu deinem Backend, und eine
+   vorher eingetragene LAN-Adresse (z. B. `http://192.168.x.x:8787`) wird ersetzt. Unter
+   *Einstellungen & Tresor → Updates* siehst du Quelle und Fingerabdruck; vergleichen kannst du ihn mit
+   `hoelni-updates info`. *Update installieren* installiert mit Neustart, bei Problemen rollt die Suite zurück.
 
 Neue Versionen baut der Update-Server automatisch aus dem Branch, standardmäßig alle 15 Minuten.
 Von Hand geht es mit `hoelni-updates build`.

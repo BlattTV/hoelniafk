@@ -273,6 +273,15 @@ export async function buildServer(suite: Suite, opts: ServerOptions = {}): Promi
     return { oauth: out, redirectUri: `http://127.0.0.1:${port}/oauth/callback`, automation: suite.config.automation };
   });
 
+  // UI language (the desktop tray menu follows it too)
+  app.get('/api/settings/ui', async () => ({ language: suite.repo.getSetting('ui.language') === 'de' ? 'de' : 'en' }));
+  app.put('/api/settings/ui', async (req: Req) => {
+    const language = String(bodyOf(req).language ?? '');
+    if (language !== 'en' && language !== 'de') throw new ValidationError('language must be en or de');
+    suite.repo.setSetting('ui.language', language);
+    return { language };
+  });
+
   app.put('/api/settings/oauth/:provider', async (req: Req) => {
     const p = req.params.provider;
     if (!['microsoft', 'google', 'discord'].includes(p)) throw new ValidationError('Unknown provider');

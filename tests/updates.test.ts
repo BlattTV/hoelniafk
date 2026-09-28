@@ -10,7 +10,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { applyPendingUpdate, RESTART_FOR_UPDATE, rollbackUpdate } from '../src/ops/updateApply.js';
-import { currentBuild, Updater } from '../src/ops/updater.js';
+import { currentBuild, isLanUrl, Updater } from '../src/ops/updater.js';
 import { keyFingerprint, verifyEnvelope } from '../src/ops/updateSig.js';
 import { supervise } from '../src/supervisor.js';
 import { waitFor } from './helpers.js';
@@ -229,6 +229,26 @@ describe('updates through the backend (https://afk.hoelni.de/updates)', () => {
       expect(st.error).toBeNull();
       expect(st.available).toBe(true);
       expect((await up.download()).state).toBe('staged');
+
+      // automatic: a LAN update address is replaced by the backend (key over the authenticated connection),
+      // a custom public update server is kept, plain HTTP to a remote backend is refused
+      const lan = new Updater(fakeRepo(), fakeAudit, fakeBus, root2);
+      lan.authHeaders = up.authHeaders;
+      lan.configure({ url: 'http://192.168.1.50:8787' });
+      expect(await lan.adoptBackend(updatesUrl)).toBe(true);
+      expect(lan.settings().url).toBe(updatesUrl);
+      expect(keyFingerprint(lan.settings().publicKey!)).toBe(fingerprint(publicKey));
+      expect(await lan.adoptBackend(updatesUrl)).toBe(false); // already set
+      const custom = new Updater(fakeRepo(), fakeAudit, fakeBus, root2);
+      custom.authHeaders = up.authHeaders;
+      custom.configure({ url: 'https://updates.example.org' });
+      expect(await custom.adoptBackend(updatesUrl)).toBe(false);
+      expect(custom.settings().url).toBe('https://updates.example.org');
+      const fresh = new Updater(fakeRepo(), fakeAudit, fakeBus, root2);
+      expect(await fresh.adoptBackend('http://afk.example.org/updates')).toBe(false);
+      expect(isLanUrl('http://192.168.130.122:8787')).toBe(true);
+      expect(isLanUrl('http://hoelni-updates:8787')).toBe(true);
+      expect(isLanUrl('https://afk.hoelni.de/updates')).toBe(false);
 
       // a revoked device gets nothing
       accounts.revokeDevice(accounts.deviceByToken(token).id);
