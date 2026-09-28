@@ -12,6 +12,7 @@ import { monitorEventLoopDelay } from 'node:perf_hooks';
 import type { HostChannel, MainToHost } from '../protocol.js';
 import type { JavaSession, RuntimeEvent, RuntimeSessionSpec, SessionStats } from '../types.js';
 import { StateCache, TakeoverServer } from './takeover.js';
+import { MacroEngine } from '../../macros/engine.js';
 
 /** The subset of a mineflayer bot the host uses (fakes in tests implement parts of it). */
 export interface HostBot extends EventEmitter {
@@ -57,12 +58,17 @@ interface HostSession {
   lastError: string | null;
   cache: StateCache | null;
   takeover: TakeoverServer | null;
+  macros: MacroEngine | null;
 }
 
+/** How long a game waits for its session to come back before it is disconnected. */
+const PARK_TIMEOUT_MS = Number(process.env.HOELNI_PARK_TIMEOUT_MS) || 5 * 60_000;
 const STATS_INTERVAL_MS = 5000;
 
 export class RuntimeHostCore {
   private readonly sessions = new Map<string, HostSession>();
+  /** Games kept connected while their session reconnects (sessionId → takeover endpoint). */
+  private readonly parked = new Map<string, { takeover: TakeoverServer; timer: NodeJS.Timeout }>();
   private readonly authWaiters = new Map<number, { resolve: (s: JavaSession) => void; reject: (e: Error) => void }>();
   private authSeq = 1;
   private readonly lag = monitorEventLoopDelay({ resolution: 20 });
@@ -153,6 +159,20 @@ export class RuntimeHostCore {
         case 'takeover.close':
           void this.closeTakeover(m.sessionId, m.reason);
           return;
+        case 'macros.set': {
+          const s = this.sessions.get(m.sessionId);
+          if (s && !s.ended) s.macros?.set(m.macros);
+          return;
+        }
+        case 'macro.run': {
+          const s = this.sessions.get(m.sessionId);
+          if (!s || s.ended) return void this.emit({ type: 'macro', sessionId: m.sessionId, macroId: m.macroId, status: 'error', message: 'Session is not running' });
+          if (!s.macros?.run(m.macroId, 'manual') && !s.macros?.isRunning(m.macroId)) this.emit({ type: 'macro', sessionId: m.sessionId, macroId: m.macroId, status: 'error', message: 'Macro not available for this session' });
+          return;
+        }
+        case 'macro.stop':
+          this.sessions.get(m.sessionId)?.macros?.stop(m.macroId);
+          return;
         case 'auth.reply': {
           const w = this.authWaiters.get(m.reqId);
           this.authWaiters.delete(m.reqId);
@@ -197,7 +217,10 @@ export class RuntimeHostCore {
       this.emit({ type: 'ended', sessionId: spec.sessionId, reason: 'startFailed', kicked: false, error: (e as Error).message });
       return;
     }
-    const s: HostSession = { spec, bot, afkTimer: null, statsTimer: null, ended: false, kicked: false, lastError: null, cache: null, takeover: null };
+    const s: HostSession = { spec, bot, afkTimer: null, statsTimer: null, ended: false, kicked: false, lastError: null, cache: null, takeover: null, macros: null };
+    // Macro builder: macros pause while the real game controls the session.
+    s.macros = new MacroEngine(bot, (e) => this.emit({ type: 'macro', sessionId: spec.sessionId, ...e }), () => !!s.takeover?.isAttached);
+    s.macros.set(spec.macros ?? []);
     this.sessions.set(spec.sessionId, s);
     const id = spec.sessionId;
     if (spec.takeover && bot._client) {
@@ -215,6 +238,14 @@ export class RuntimeHostCore {
     bot.on('login', () => this.emit({ type: 'phase', sessionId: id, phase: 'AUTHENTICATING' }));
     bot.once('spawn', () => {
       this.applyPhysics(s);
+      const parked = this.parked.get(id);
+      if (parked && s.cache) {
+        // Renewed session is in the world: the waiting game switches into it (no relaunch, no reconnect).
+        clearTimeout(parked.timer);
+        this.parked.delete(id);
+        s.takeover = parked.takeover;
+        parked.takeover.rebind(bot, s.cache);
+      }
       this.emit({
         type: 'spawned',
         sessionId: id,
@@ -224,6 +255,7 @@ export class RuntimeHostCore {
       });
       this.emit({ type: 'phase', sessionId: id, phase: 'ONLINE' });
       this.startAfk(s);
+      s.macros?.spawned();
       s.statsTimer = setInterval(() => this.emit({ type: 'stats', sessionId: id, stats: this.statsOf(s) }), STATS_INTERVAL_MS);
       s.statsTimer.unref?.();
     });
@@ -244,9 +276,25 @@ export class RuntimeHostCore {
   private finish(s: HostSession, reason: string): void {
     if (s.ended) return;
     s.ended = true;
+    s.macros?.dispose();
     if (s.afkTimer) clearInterval(s.afkTimer);
     if (s.statsTimer) clearInterval(s.statsTimer);
-    void s.takeover?.close('Session ended');
+    if (s.takeover?.hasGame) {
+      // The game stays connected; the renewed session takes it over (see start()).
+      const takeover = s.takeover;
+      takeover.park('Connection lost – reconnecting…');
+      const id = s.spec.sessionId;
+      this.parked.get(id)?.timer && clearTimeout(this.parked.get(id)!.timer);
+      const timer = setTimeout(() => {
+        if (this.parked.get(id)?.takeover !== takeover) return;
+        this.parked.delete(id);
+        void takeover.close('The session did not come back – press "Open game" again');
+        this.emit({ type: 'takeover', sessionId: id, status: 'closed' });
+      }, PARK_TIMEOUT_MS);
+      timer.unref?.();
+      this.parked.set(id, { takeover, timer });
+      this.emit({ type: 'takeover', sessionId: id, status: 'parked', message: reason });
+    } else void s.takeover?.close('Session ended');
     s.takeover = null;
     if (this.sessions.get(s.spec.sessionId) === s) this.sessions.delete(s.spec.sessionId);
     this.emit({ type: 'ended', sessionId: s.spec.sessionId, reason, kicked: s.kicked, error: s.lastError });
@@ -288,9 +336,13 @@ export class RuntimeHostCore {
       if (!s.takeover) {
         s.takeover = new TakeoverServer(s.bot, s.cache, {
           onAttached: () => this.emit({ type: 'takeover', sessionId, status: 'attached' }),
+          onParked: (reason) => this.emit({ type: 'takeover', sessionId, status: 'parked', message: reason }),
           onDetached: (reason) => {
-            if (s.ended) return;
-            this.applyPhysics(s);
+            // the endpoint may have moved to a renewed session – always use the current one
+            const cur = this.sessions.get(sessionId);
+            if (cur && !cur.ended) this.applyPhysics(cur);
+            else if (!this.parked.has(sessionId)) return;
+            this.parked.delete(sessionId);
             this.emit({ type: 'takeover', sessionId, status: 'detached', message: reason });
           },
           log: (level, msg) => this.log(level, msg, sessionId),
@@ -305,6 +357,12 @@ export class RuntimeHostCore {
 
   private async closeTakeover(sessionId: string, reason: string): Promise<void> {
     const s = this.sessions.get(sessionId);
+    const p = this.parked.get(sessionId);
+    if (p) {
+      clearTimeout(p.timer);
+      this.parked.delete(sessionId);
+      await p.takeover.close(reason);
+    }
     const t = s?.takeover;
     if (s) s.takeover = null;
     await t?.close(reason);

@@ -215,6 +215,23 @@ export async function buildServer(suite: Suite, opts: ServerOptions = {}): Promi
   app.delete('/api/backend/admin/users/:id', async (req: Req) => suite.backend.admin('DELETE', `users/${num(req.params.id)}`));
   app.delete('/api/backend/admin/devices/:id', async (req: Req) => suite.backend.admin('DELETE', `devices/${num(req.params.id)}`));
 
+  // ------------------------------------------------------------------ macro builder
+  app.get('/api/macros', async () => ({ macros: suite.macros.list(), log: suite.macros.recent(100) }));
+  app.post('/api/macros', async (req: Req) => suite.macros.save(bodyOf(req)));
+  app.put('/api/macros/:id', async (req: Req) => suite.macros.save(bodyOf(req), num(req.params.id)));
+  app.delete('/api/macros/:id', async (req: Req) => {
+    suite.macros.remove(num(req.params.id));
+    return { ok: true };
+  });
+  app.post('/api/macros/:id/run', async (req: Req) => {
+    suite.macros.run(num(req.params.id), String(bodyOf(req).sessionId ?? ''));
+    return { ok: true };
+  });
+  app.post('/api/macros/:id/stop', async (req: Req) => {
+    suite.macros.stop(num(req.params.id), String(bodyOf(req).sessionId ?? ''));
+    return { ok: true };
+  });
+
   // ------------------------------------------------------------------ proxy pool
   app.get('/api/proxies', async () => suite.proxies.list());
   app.post('/api/proxies/import', async (req: Req) => {

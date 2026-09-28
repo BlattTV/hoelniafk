@@ -34,14 +34,16 @@ export type TokenFetcher = (args: {
   msaAccount: string;
   cacheFactory: ReturnType<typeof vaultCacheFactory>;
   onDeviceCode: (info: DeviceCodeInfo) => void;
+  /** Ignore cached Minecraft tokens / chat keys (the server reported an expired session). */
+  forceRefresh?: boolean;
 }) => Promise<JavaTokenResult>;
 
-export const prismarineTokenFetcher: TokenFetcher = async ({ msaAccount, cacheFactory, onDeviceCode }) => {
+export const prismarineTokenFetcher: TokenFetcher = async ({ msaAccount, cacheFactory, onDeviceCode, forceRefresh }) => {
   const { Authflow, Titles } = prismarineAuth as any;
   const flow = new Authflow(
     msaAccount,
     cacheFactory as any,
-    { flow: 'live', authTitle: Titles.MinecraftNintendoSwitch, deviceType: 'Nintendo' } as any,
+    { flow: 'live', authTitle: Titles.MinecraftNintendoSwitch, deviceType: 'Nintendo', forceRefresh: !!forceRefresh } as any,
     (res: any) => onDeviceCode({ userCode: res.user_code, verificationUri: res.verification_uri, expiresIn: res.expires_in }),
   );
   const result = await flow.getMinecraftJavaToken({ fetchProfile: true, fetchCertificates: true });
@@ -90,12 +92,13 @@ export class MinecraftAuthService {
     return vaultCacheFactory(this.vault.forIdentity(identityId));
   }
 
-  private fetch(identityId: number, mc: MinecraftIdentity): Promise<JavaTokenResult> {
+  private fetch(identityId: number, mc: MinecraftIdentity, forceRefresh = false): Promise<JavaTokenResult> {
     const existing = this.inflight.get(identityId);
     if (existing) return existing;
     const iv = this.vault.forIdentity(identityId);
     const p = this.fetcher({
       msaAccount: mc.msaAccount!,
+      forceRefresh,
       cacheFactory: vaultCacheFactory(iv),
       onDeviceCode: (info) => {
         this.pending.set(identityId, info);
@@ -176,6 +179,25 @@ export class MinecraftAuthService {
    * Java session for a runtime host (called when a Microsoft session connects).
    * prismarine-auth serves cached tokens and refreshes them transparently.
    */
+  /** Called for "renew" (direct Microsoft sign-in): drops cached Minecraft tokens. */
+  renewDirect: ((identityId: number) => Promise<boolean>) | null = null;
+
+  /**
+   * Renews an expired Minecraft session in the background: new Minecraft token and chat signing
+   * keys from the stored Microsoft grant – no launcher restart, no new sign-in.
+   */
+  async renew(identityId: number): Promise<void> {
+    const mc = this.repo.getMinecraft(identityId);
+    if (!mc || mc.authType !== 'microsoft') return; // offline accounts have nothing to renew
+    if (await this.renewDirect?.(identityId)) return;
+    if (!mc.msaAccount) throw new ValidationError('No Microsoft account configured');
+    const result = await this.fetch(identityId, mc, true);
+    this.checkProfile(identityId, mc, result);
+    registerSecret(result.accessToken);
+    this.repo.upsertMinecraft(identityId, { authStatus: 'AUTHENTICATED', lastAuthAt: nowIso(), lastError: null });
+    this.bus.emit({ type: 'identity.changed', identityId });
+  }
+
   /** Session straight from the identity's Microsoft sign-in (MicrosoftAccountService), if it covers Minecraft. */
   directSession: ((identityId: number) => Promise<JavaSession | null>) | null = null;
 

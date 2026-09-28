@@ -88,12 +88,18 @@ if (!host) {
         blockBelow: bot.entity?.position ? bot.blockAt(bot.entity.position.offset(0, -1, 0))?.name ?? null : null,
         players: Object.keys(bot.players ?? {}), entities: Object.keys(bot.entities ?? {}).length,
         inventory: inv.map((i) => `${i.name}x${i.count}`), health: bot.health ?? null, gameMode: bot.game?.gameMode ?? null,
-        dimension: bot.game?.dimension ?? null, ts: Date.now(),
+        dimension: bot.game?.dimension ?? null, logins, ended, messages: messages.slice(-10), ts: Date.now(),
       }));
     } catch {}
   };
   let spawned = false;
-  bot.on('login', () => log('Render thread', 'INFO', 'Joined world (emulated)'));
+  let logins = 0;
+  let ended = false;
+  const messages = [];
+  bot.on('login', () => {
+    logins++;
+    log('Render thread', 'INFO', 'Joined world (emulated)');
+  });
   bot.once('spawn', () => {
     spawned = true;
     writeState();
@@ -114,12 +120,14 @@ if (!host) {
   });
   setInterval(writeState, 300).unref();
   bot.on('messagestr', (text, position) => {
+    if (position !== 'game_info') messages.push(String(text));
     if (position !== 'game_info') log('Render thread', 'INFO', `[System] [CHAT] ${text}`);
   });
   bot.on('kicked', (reason) => log('Render thread', 'INFO', `Client disconnected with reason: ${typeof reason === 'string' ? reason : JSON.stringify(reason)}`));
   bot.on('end', (reason) => {
     log('Render thread', 'INFO', `Connection lost: ${reason ?? 'closed'}`);
     spawned = false;
+    ended = true;
     writeState();
   });
   bot.on('error', (e) => log('Render thread', 'ERROR', `Network error: ${e.message}`));

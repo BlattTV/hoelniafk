@@ -628,3 +628,60 @@ den Installer einmal neu bauen und installieren (`git pull` → `npm ci` → `np
 `cd desktop` → `npm install` → `npm run dist`). Updates über das Backend tauschen nur die Suite aus,
 nicht das Desktop-Programm drumherum. Im normalen Browser öffnet sich Discord in einem neuen Tab; dort
 teilen sich die Identitäten aber einen Discord-Login.
+
+---
+
+## Teil F – Automatische Session-Erneuerung und Makro-Builder
+
+### F1. Abgelaufene Session: läuft einfach weiter
+
+Normalerweise zeigt Minecraft nach Ablauf der Session „Invalid session (Try restarting your game and
+the launcher)“. Dann musst du Spiel und Launcher neu starten und neu verbinden. In der Suite passiert
+das im Hintergrund:
+
+* Meldet der Server eine abgelaufene Session („Invalid session“, „Failed to verify username“,
+  abgelaufene Chat-Signaturschlüssel), holt die Suite **sofort** ein frisches Minecraft-Token und
+  neue Chat-Schlüssel aus deiner gespeicherten Microsoft-Anmeldung und verbindet neu, ohne Wartezeit.
+* **Das echte Spiel bleibt offen und verbunden.** Während der AFK-Client neu verbindet, wartet das Spiel
+  und zeigt „Hoelni: … reconnecting…“. Sobald die neue Verbindung steht, wechselt es in die neue Welt,
+  so wie bei einem Serverwechsel über einen Proxy.
+* Dasselbe gilt für Server-Neustarts, Verbindungsabbrüche und Serverwechsel über Proxys wie Velocity.
+* Blockiert wird nur, wenn zwei Erneuerungen hintereinander nicht helfen. Kommt die Session innerhalb
+  von 5 Minuten nicht zurück, schließt die Suite das Spiel mit einem Hinweis.
+
+Einstellbar ist das in `config/rules.yaml` (Regel `session expired`, Aktion `renew`).
+
+### F2. Makro-Builder
+
+Links unter **Makros**. Du baust Abläufe aus Blöcken zusammen wie in Scratch:
+
+* **Auslöser (Kopfblock):**
+  * manuell
+  * wenn die Session online ist
+  * wenn der Chat einen Text enthält (auch als Regex)
+  * alle X Sekunden
+  * jeden Tag um HH:MM
+  * wenn das Leben unter einen Wert fällt
+* **Steuerung:** warten, warten bis der Chat etwas enthält, wiederholen, fortlaufend wiederholen,
+  falls/dann/sonst, Makro stoppen.
+  * Mögliche Bedingungen: Chat enthält, Leben unter, Hunger unter, Inventar hat, Zufall.
+* **Bewegung:** gehen (mit Sprint), springen, schleichen, drehen, in eine Richtung schauen.
+* **Aktionen:** Hand schwingen, Gegenstand benutzen (Rechtsklick), Mob in der Nähe angreifen, Hotbar-Slot wählen.
+* **Chat:** sagen, Befehl.
+* **Suite:** Notiz ins Protokoll.
+
+**Bedienung:**
+* Blöcke aus der Palette ins Skript ziehen oder anklicken, um sie anzuhängen.
+* Verschieben geht per Ziehen. Zum Löschen den Block auf die Palette ziehen oder auf das × klicken.
+* Oben legst du fest, für welche Identitäten und Server das Makro gilt. Leer bedeutet alle.
+* **Speichern** wirkt sofort auch in laufenden Sessions.
+* **Ausführen** testet das Makro auf einer Online-Session. Die Ausführungen stehen unten im Protokoll.
+
+**Was die Makros tun:**
+* Makros laufen direkt am AFK-Client, auch auf Agents, und **pausieren automatisch**, solange du
+  selbst im echten Spiel steuerst.
+* Sie nutzen nur normale Spieleraktionen. Mit *menschlichem Timing* (Standard) variieren Wartezeiten
+  und Aktionen leicht, mit kleinen Pausen dazwischen.
+* Im Spiel erscheint nichts von der Suite: keine Mod, keine Chat-Ausgaben außer denen, die du selbst
+  als Block einbaust.
+* Schleifen ohne Pause lässt die Suite nicht zu, damit kein Makro den Server mit Paketen flutet.

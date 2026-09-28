@@ -31,6 +31,8 @@ export interface RuntimeSessionSpec {
   takeover?: boolean;
   /** Run on this remote agent (household PC) instead of a local runtime host. */
   placement?: { agentId: number } | null;
+  /** Macros of this session (macro builder), started by their triggers. */
+  macros?: import('../macros/types.js').MacroProgram[];
 }
 
 /** Serializable Minecraft Java session obtained by the main process (tokens never leave memory). */
@@ -68,10 +70,12 @@ export type RuntimeEvent =
   | { type: 'stats'; sessionId: string; stats: SessionStats }
   /** Live takeover of a lightweight session by the real game (MineflayerRuntime only). */
   | { type: 'takeover'; sessionId: string; status: TakeoverStatus; port?: number; message?: string }
+  | { type: 'macro'; sessionId: string; macroId: number; status: 'started' | 'finished' | 'stopped' | 'error' | 'log'; message?: string }
   /** Real game client lifecycle (GameClientRuntime only). */
   | { type: 'game'; sessionId: string; game: GameInfo };
 
-export type TakeoverStatus = 'ready' | 'attached' | 'detached' | 'closed' | 'error';
+/** parked: the live session is reconnecting (e.g. expired session renewed) – the game stays connected. */
+export type TakeoverStatus = 'ready' | 'attached' | 'detached' | 'closed' | 'error' | 'parked';
 
 export type GameStatus = 'installing' | 'launching' | 'starting' | 'running' | 'closing' | 'closed' | 'failed';
 
@@ -117,6 +121,8 @@ export interface MinecraftRuntime {
   isRemoteSession?(sessionId: string): boolean;
   /** Command for the agent that runs a session (game window on that PC). */
   sendToSessionHost?(sessionId: string, m: import('./protocol.js').MainToHost): boolean;
+  /** Macro commands for the host (local or agent) that runs the session. */
+  macroCommand?(m: Extract<import('./protocol.js').MainToHost, { cmd: 'macros.set' | 'macro.run' | 'macro.stop' }>): boolean;
   onEvent(listener: (e: RuntimeEvent) => void): () => void;
   stats(): RuntimeStats;
   shutdown(): Promise<void>;

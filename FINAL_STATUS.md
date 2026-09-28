@@ -84,6 +84,15 @@ Discord / Cloudflare / public IP endpoints), **REAL ACCOUNT** (real Minecraft ac
   - the household can pause it; there is a tray icon and autostart;
   - the device token is protected with DPAPI (keyring or passphrase outside Windows);
   - passwords are never passed on the command line.
+- **Seamless session renewal:**
+  - When the server reports an expired session (invalid session / failed to verify username / expired chat keys), the Minecraft token and chat keys are renewed in the background and the session reconnects at once. It is blocked only after two unsuccessful renewals.
+  - A game attached via live takeover stays connected ("parked") and is switched into the new connection: a configuration restart on 1.20.2+, a new join on older versions. The same applies to server restarts, network drops and proxy server switches.
+  - Tested with a real server on 1.20.1, 1.20.2 and 1.21.1: same game process, no disconnect, a new world join, and the position matches the server.
+- **Macro builder:**
+  - Scratch-style blocks with triggers (manual, online, chat, interval, daily time, health), control blocks (wait, wait for chat, repeat, forever, if/else, stop) and motion/actions/chat blocks.
+  - Macros run in the runtime host next to the session, also on agents (re-validated there). They pause while the real game is attached, use human-like timing, and loops without time are refused.
+  - Changes reach running sessions live.
+  - Drag-and-drop UI.
 - **Simple setup:**
   - *New identity* in three steps: name/servers → **one Microsoft sign-in** → Discord.
   - The Microsoft sign-in (Azure app with PKCE) consents to Outlook and Xbox Live in one go. The Outlook mailbox is created and assigned automatically, and Minecraft is connected via Xbox Live → XSTS → Minecraft services from the same grant.
@@ -114,7 +123,7 @@ Discord / Cloudflare / public IP endpoints), **REAL ACCOUNT** (real Minecraft ac
 
 ## TESTED
 
-`npm test` – 26 test files / 171 tests green, `npm run test:e2e` – 13 Playwright tests green; typecheck clean, production build OK:
+`npm test` – 29 test files / 186 tests green, `npm run test:e2e` – 14 Playwright tests green; typecheck clean, production build OK:
 
 | Area | Level | Tests |
 |---|---|---|

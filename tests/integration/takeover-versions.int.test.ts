@@ -35,7 +35,7 @@ afterAll(async () => {
   for (const c of cleanups.reverse()) await c().catch(() => undefined);
 }, 60_000);
 
-describe.each(['1.20.2', '1.21.1'])('live takeover on Minecraft %s', (version) => {
+describe.each(['1.20.1', '1.20.2', '1.21.1'])('live takeover on Minecraft %s', (version) => {
   let server: LocalServer;
   let fake: FakeMojang;
   let suite: Suite;
@@ -91,6 +91,35 @@ describe.each(['1.20.2', '1.21.1'])('live takeover on Minecraft %s', (version) =
     }, 5000, 'game stands where the session stands');
   }, 90_000);
 
+  it('expired session: renewed in the background, the game stays connected and moves into the new connection', async () => {
+    const stateFile = path.join(tmp, 'instances', fs.readdirSync(path.join(tmp, 'instances'))[0], 'emulator-state.json');
+    const read = () => {
+      try {
+        return JSON.parse(fs.readFileSync(stateFile, 'utf8'));
+      } catch {
+        return null;
+      }
+    };
+    const pid = suite.sessions.getState(sid).game!.pid!;
+    const loginsBefore = read().logins;
+    server.kick('Taker', 'Invalid session (Try restarting your game and the launcher)');
+    // no launcher restart, no manual reconnect: the session comes back by itself …
+    await waitFor(() => server.joins.filter((j) => j.username === 'Taker').length === 2, 30_000, 'session reconnected');
+    await waitFor(() => suite.sessions.getState(sid).state === 'ONLINE' && suite.sessions.getState(sid).takeover === 'attached', 30_000, 'ONLINE + game attached again');
+    // … and the game was never disconnected: same process, same connection, a new world join
+    expect(() => process.kill(pid, 0)).not.toThrow();
+    await waitFor(() => read()?.logins > loginsBefore && read()?.spawned === true, 20_000, 'game joined the renewed world');
+    expect(read().ended).toBe(false);
+    expect(suite.repo.sessionEvents({ sessionId: sid }).some((e) => e.kind === 'renew')).toBe(true);
+    expect(suite.sessions.getState(sid).state).not.toBe('BLOCKED');
+    // the game plays on the new connection: its position is the one the server sees
+    await waitFor(() => {
+      const p = server.positionOf('Taker');
+      const g = read()?.position;
+      return !!p && !!g && Math.hypot(g.x - p.x, g.z - p.z) < 1.5;
+    }, 10_000, 'game position = server position after renewal');
+  }, 90_000);
+
   it('Back to AFK keeps the session', async () => {
     const pid = suite.sessions.getState(sid).game!.pid!;
     await suite.sessions.closeGame(sid);
@@ -104,7 +133,7 @@ describe.each(['1.20.2', '1.21.1'])('live takeover on Minecraft %s', (version) =
     }, 15_000, 'game closed');
     await new Promise((r) => setTimeout(r, 1500));
     expect(suite.sessions.getState(sid).state).toBe('ONLINE');
-    expect(server.joins.filter((j) => j.username === 'Taker')).toHaveLength(1);
+    expect(server.joins.filter((j) => j.username === 'Taker')).toHaveLength(2); // initial + renewed session
     expect(server.players()).toContain('Taker');
   }, 30_000);
 });

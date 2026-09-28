@@ -29,6 +29,7 @@ import { Updater } from './ops/updater.js';
 import { BackendLink } from './relay/backendLink.js';
 import { ProxyPool } from './network/proxyPool.js';
 import { MicrosoftAccountService } from './identity/microsoftAccount.js';
+import { MacroService } from './macros/service.js';
 import type { JsonHttp, XboxEndpoints } from './minecraft/xboxChain.js';
 import { GameClientRuntime, type GameClientOptions } from './client/gameClientRuntime.js';
 import { createWindowController } from './client/window.js';
@@ -158,6 +159,15 @@ export function createSuite(deps: SuiteDeps) {
   const microsoft = new MicrosoftAccountService(repo, vault, oauth, mail, auth, audit, bus, deps.xboxHttp, deps.xboxEndpoints);
   mail.identityAccessToken = (identityId) => microsoft.accessToken(identityId, 'outlook');
   auth.directSession = (identityId) => microsoft.minecraftSession(identityId);
+  auth.renewDirect = (identityId) => microsoft.renewMinecraft(identityId);
+  sessions.renewAuth = (identityId) => auth.renew(identityId);
+  const macros = new MacroService(db, runtime, audit, bus);
+  sessions.macrosFor = (identityId, serverId) => macros.forSession(identityId, serverId);
+  macros.runningSessions = () =>
+    sessions
+      .list()
+      .filter((x) => ['ONLINE', 'CONNECTING', 'AUTHENTICATING', 'STARTING'].includes(x.state))
+      .map((x) => ({ sessionId: x.id, identityId: x.identityId, serverId: x.serverId }));
   discord.verificationLink = async (identityId) => {
     const msgs = mail.listForIdentity(identityId, { category: 'verification-any', limit: 10 }).filter((m) => /discord/i.test(`${m.from ?? ''} ${m.provider ?? ''}`));
     for (const m of msgs) {
@@ -243,6 +253,7 @@ export function createSuite(deps: SuiteDeps) {
     network,
     proxies,
     microsoft,
+    macros,
     auth,
     linking,
     rewards,

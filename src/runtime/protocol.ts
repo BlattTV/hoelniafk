@@ -12,6 +12,10 @@ export type MainToHost =
   | { cmd: 'game.close'; sessionId: string }
   | { cmd: 'game.show'; sessionId: string }
   | { cmd: 'auth.reply'; reqId: number; session?: JavaSession; error?: string }
+  /** Macro builder: replace the session's macros / run / stop one. */
+  | { cmd: 'macros.set'; sessionId: string; macros: import('../macros/types.js').MacroProgram[] }
+  | { cmd: 'macro.run'; sessionId: string; macroId: number }
+  | { cmd: 'macro.stop'; sessionId: string; macroId: number }
   | { cmd: 'crash' } // test hook: simulates a runtime crash
   | { cmd: 'shutdown' };
 

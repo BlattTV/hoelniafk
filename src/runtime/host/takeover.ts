@@ -13,6 +13,10 @@
  *       2. live: server→client packets are forwarded as they arrive,
  *                client→server packets go upstream through the bot's connection
  *       3. client leaves (game closed / "Back to AFK"): the bot simply continues
+ *       4. the upstream connection ends (expired session, server restart, network) or the server
+ *          moves the player (configuration restart): the game stays connected ("parked") and is
+ *          switched into the new connection once it is in the world again – like a proxy server
+ *          switch. No launcher restart, no manual reconnect.
  *
  * While the client is attached the bot sends no movement/actions of its own; the
  * client's movement is mirrored into the bot so it continues from the same spot.
@@ -217,6 +221,8 @@ function deltaChunk(name: string, d: any): string | null {
 export interface TakeoverEvents {
   onAttached(username: string): void;
   onDetached(reason: string): void;
+  /** The upstream connection is gone; the game waits for the renewed session. */
+  onParked?(reason: string): void;
   log(level: 'info' | 'warn' | 'error', msg: string): void;
 }
 
@@ -228,18 +234,29 @@ export class TakeoverServer {
   private server: any = null;
   private client: any = null;
   private attached = false;
+  private parked = false;
+  private switching = false;
   private readonly offs: Array<() => void> = [];
   private origWrite: ((name: string, params: any) => void) | null = null;
   port = 0;
 
   constructor(
-    private readonly bot: any,
-    private readonly cache: StateCache,
+    private bot: any,
+    private cache: StateCache,
     private readonly events: TakeoverEvents,
   ) {}
 
   get isAttached(): boolean {
     return this.attached;
+  }
+
+  /** A game is connected (attached or parked while the session reconnects). */
+  get hasGame(): boolean {
+    return !!this.client;
+  }
+
+  get isParked(): boolean {
+    return this.parked;
   }
 
   async open(): Promise<number> {
@@ -302,6 +319,36 @@ export class TakeoverServer {
       this.attach(client);
     }
     client.on('end', (reason: string) => this.detach(`Game left the session${reason ? ` (${reason})` : ''}`));
+    // live: client → server (registered once – the upstream may change on reconnects)
+    const conv = require('mineflayer/lib/conversions');
+    client.on('packet', (data: any, meta: any, raw: Buffer) => {
+      if (!this.attached || meta.state !== 'play') return;
+      const bot = this.bot;
+      const up = bot._client;
+      const name = meta.name as string;
+      if (CLIENT_DROP.has(name)) return;
+      if (name === 'custom_payload' && /brand/i.test(String(data.channel))) return;
+      if (name === 'chat_message' || name === 'chat') {
+        if (data.message) bot.chat(String(data.message));
+        return;
+      }
+      if (name === 'chat_command' || name === 'chat_command_signed') {
+        bot.chat(`/${data.command}`);
+        return;
+      }
+      if (name === 'position' || name === 'position_look' || name === 'look' || name === 'flying') {
+        const e = bot.entity;
+        if (e && data.x !== undefined) e.position.set(data.x, data.y, data.z);
+        if (e && data.yaw !== undefined) {
+          e.yaw = conv.fromNotchianYaw(data.yaw);
+          e.pitch = conv.fromNotchianPitch(data.pitch);
+        }
+        if (e) e.onGround = data.onGround ?? data.flags?.onGround ?? e.onGround;
+      } else if (name === 'held_item_slot' && typeof data.slotId === 'number') {
+        bot.quickBarSlot = data.slotId;
+      }
+      up.writeRaw(raw);
+    });
   }
 
   private attach(client: any): void {
@@ -330,7 +377,9 @@ export class TakeoverServer {
       if (!this.attached) return;
       if (meta.state !== 'play') return;
       if (meta.name === 'start_configuration') {
-        client.end('The server moved you to another server – press "Open game" again');
+        // The server moves the player (proxy server switch): follow it once the bot is in the new world.
+        this.park('Switching server…');
+        void this.waitForWorld().then((ok) => ok && this.parked && this.switchWorld());
         return;
       }
       if (SERVER_DROP.has(meta.name)) return;
@@ -339,41 +388,92 @@ export class TakeoverServer {
     up.on('packet', onPacket);
     this.offs.push(() => up.removeListener('packet', onPacket));
     const onEnd = (reason: string) => {
-      if (this.attached) client.end(`Disconnected from the server: ${reason}`);
+      // Keep the game connected – the session reconnects (renewed if it expired) and the game follows.
+      if (this.attached) this.park(`Connection lost (${reason}) – reconnecting…`);
     };
     bot.once('end', onEnd);
     this.offs.push(() => bot.removeListener('end', onEnd));
 
-    // live: client → server
-    const conv = require('mineflayer/lib/conversions');
-    client.on('packet', (data: any, meta: any, raw: Buffer) => {
-      if (!this.attached || meta.state !== 'play') return;
-      const name = meta.name as string;
-      if (CLIENT_DROP.has(name)) return;
-      if (name === 'custom_payload' && /brand/i.test(String(data.channel))) return;
-      if (name === 'chat_message' || name === 'chat') {
-        if (data.message) bot.chat(String(data.message));
-        return;
-      }
-      if (name === 'chat_command' || name === 'chat_command_signed') {
-        bot.chat(`/${data.command}`);
-        return;
-      }
-      if (name === 'position' || name === 'position_look' || name === 'look' || name === 'flying') {
-        const e = bot.entity;
-        if (e && data.x !== undefined) e.position.set(data.x, data.y, data.z);
-        if (e && data.yaw !== undefined) {
-          e.yaw = conv.fromNotchianYaw(data.yaw);
-          e.pitch = conv.fromNotchianPitch(data.pitch);
-        }
-        if (e) e.onGround = data.onGround ?? data.flags?.onGround ?? e.onGround;
-      } else if (name === 'held_item_slot' && typeof data.slotId === 'number') {
-        bot.quickBarSlot = data.slotId;
-      }
-      up.writeRaw(raw);
-    });
     this.events.onAttached(client.username);
     this.events.log('info', `Game attached to the live session (${this.cache.stats().chunks} chunks, ${this.cache.stats().entities} entities replayed)`);
+  }
+
+  /** Upstream gone: stop forwarding, keep the game connected and tell the player. */
+  park(reason: string): void {
+    if (!this.client || this.parked) return;
+    this.attached = false;
+    this.parked = true;
+    for (const off of this.offs.splice(0)) off();
+    if (this.origWrite) {
+      try {
+        this.bot._client.write = this.origWrite;
+      } catch {
+        /* old connection already gone */
+      }
+      this.origWrite = null;
+    }
+    notify(this.client, `Hoelni: ${reason}`);
+    this.events.log('info', `Game parked: ${reason}`);
+    this.events.onParked?.(reason);
+  }
+
+  /** The renewed session is in the world: move the parked game into it. */
+  rebind(bot: any, cache: StateCache): void {
+    this.bot = bot;
+    this.cache = cache;
+    if (this.parked && this.client) this.switchWorld();
+  }
+
+  /** Waits until the (same) bot is in the new world after a configuration restart. */
+  private waitForWorld(timeoutMs = 60_000): Promise<boolean> {
+    const up = this.bot._client;
+    return new Promise((resolve) => {
+      let sawLogin = false;
+      const t = setTimeout(() => done(false), timeoutMs);
+      const onPacket = (_d: any, meta: any) => {
+        if (meta.state !== 'play') return;
+        if (meta.name === 'login') sawLogin = true;
+        else if (sawLogin && meta.name === 'position') setImmediate(() => done(true));
+      };
+      const done = (ok: boolean) => {
+        clearTimeout(t);
+        up.removeListener('packet', onPacket);
+        resolve(ok);
+      };
+      up.on('packet', onPacket);
+    });
+  }
+
+  /** Server switch for the local game: configuration restart (1.20.2+) or a new join (older). */
+  private switchWorld(): void {
+    const client = this.client;
+    if (!client || this.switching) return;
+    this.switching = true;
+    const finish = () => {
+      this.switching = false;
+      this.parked = false;
+      this.attach(client);
+    };
+    try {
+      if (client.supportFeature?.('hasConfigurationState')) {
+        client.once('configuration_acknowledged', () => {
+          client.state = 'configuration';
+          for (const raw of this.cache.config) client.writeRaw(raw);
+          client.once('finish_configuration', () => {
+            client.state = 'play';
+            finish();
+          });
+          client.write('finish_configuration', {});
+        });
+        client.write('start_configuration', {});
+      } else {
+        finish(); // the replay starts with a new "login" (join game) – the client rebuilds its world
+      }
+    } catch (e) {
+      this.switching = false;
+      this.events.log('error', `Switching the game into the renewed session failed: ${(e as Error).message}`);
+      client.end('The session could not be renewed – press "Open game" again');
+    }
   }
 
   /** Sends the cached state so the client enters the world exactly where the bot is. */
@@ -440,8 +540,9 @@ export class TakeoverServer {
   }
 
   private detach(reason: string): void {
-    const was = this.attached;
+    const was = this.attached || this.parked;
     this.attached = false;
+    this.parked = false;
     this.client = null;
     for (const off of this.offs.splice(0)) off();
     if (this.origWrite) {
@@ -450,6 +551,7 @@ export class TakeoverServer {
     }
     if (was) {
       try {
+        if (this.bot._client?.state !== 'play') throw new Error('upstream gone');
         if (this.bot.currentWindow) this.bot.closeWindow(this.bot.currentWindow);
         // The game may have raised the view distance – restore the AFK client's own settings.
         this.bot.setSettings?.({});
@@ -468,6 +570,18 @@ export class TakeoverServer {
     const s = this.server;
     this.server = null;
     if (s) await new Promise<void>((resolve) => s.close(() => resolve())).catch(() => undefined);
+  }
+}
+
+/** Short message for the player (system chat); silently skipped where the packet layout differs. */
+function notify(client: any, text: string): void {
+  try {
+    if (hasPacket(client, 'system_chat')) {
+      const nbtText = client.supportFeature?.('chatPacketsUseNbtComponents');
+      client.write('system_chat', { content: nbtText ? { type: 'compound', name: '', value: { text: { type: 'string', value: text } } } : JSON.stringify({ text, color: 'yellow' }), isActionBar: false });
+    }
+  } catch {
+    /* informational only */
   }
 }
 

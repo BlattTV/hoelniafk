@@ -364,6 +364,21 @@ const MIGRATIONS: string[] = [
     UNIQUE (kind, host, port, username)
   );
   `,
+  // v5: macro builder
+  `
+  CREATE TABLE macros (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    trigger_json TEXT NOT NULL,
+    blocks_json TEXT NOT NULL,
+    humanize INTEGER NOT NULL DEFAULT 1,
+    identity_ids TEXT,
+    server_ids TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+  `,
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.length;

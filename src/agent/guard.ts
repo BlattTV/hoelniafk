@@ -10,6 +10,18 @@ import dns from 'node:dns/promises';
 import net from 'node:net';
 import type { MainToHost } from '../runtime/protocol.js';
 import type { RuntimeSessionSpec } from '../runtime/types.js';
+import { assertLoopsTakeTime, validateBlocks, validateTrigger } from '../macros/types.js';
+
+/** Macros from the manager are re-validated on the agent (limits, no tight loops). */
+function checkMacros(list: unknown): void {
+  if (list === undefined) return;
+  if (!Array.isArray(list) || list.length > 100) throw new Error('invalid macro list');
+  for (const m of list as any[]) {
+    if (!Number.isInteger(m?.id)) throw new Error('invalid macro id');
+    validateTrigger(m.trigger);
+    assertLoopsTakeTime(validateBlocks(m.blocks));
+  }
+}
 
 const SESSION_ID = /^\d{1,9}:\d{1,9}$/;
 const HOSTNAME = /^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*\.?$/i;
@@ -65,7 +77,13 @@ async function checkSpec(spec: RuntimeSessionSpec, allowPrivate: boolean): Promi
 /** Returns null when the command may run, else the reason it is refused. */
 export async function refuseReason(m: MainToHost, allowPrivate: boolean): Promise<string | null> {
   try {
-    if (m.cmd === 'start') await checkSpec(m.spec, allowPrivate);
+    if (m.cmd === 'start') {
+      await checkSpec(m.spec, allowPrivate);
+      checkMacros(m.spec.macros);
+    } else if (m.cmd === 'macros.set') {
+      if (!SESSION_ID.test(String(m.sessionId))) throw new Error('invalid session id');
+      checkMacros(m.macros);
+    }
     else if (m.cmd === 'game.open') {
       await checkSpec(m.spec, allowPrivate);
       if (m.spec.sessionId !== m.sessionId) throw new Error('session id mismatch');

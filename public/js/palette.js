@@ -6,7 +6,7 @@ import { closeGame, guard, h, identityName, openGame, toast } from './ui.js';
  * check for updates. Type to filter; words match in any order.
  */
 const PAGES = [
-  ['Identities', '#/'], ['Accounts × servers', '#/matrix'], ['New identity', '#/new'], ['Discord', '#/discord'], ['Sessions', '#/sessions'],
+  ['Identities', '#/'], ['Accounts × servers', '#/matrix'], ['New identity', '#/new'], ['Discord', '#/discord'], ['Macros', '#/macros'], ['Sessions', '#/sessions'],
   ['Chat', '#/chat'], ['Schedules', '#/schedules'], ['All mail', '#/inbox'], ['Verification mail', '#/verification'],
   ['Mailboxes & aliases', '#/mailboxes'], ['Servers', '#/servers'], ['Templates', '#/templates'], ['Setup check', '#/setup'],
   ['Settings & vault', '#/settings'], ['Monitoring', '#/monitoring'], ['Logs', '#/logs'], ['Audit log', '#/audit'],

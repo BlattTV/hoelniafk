@@ -208,6 +208,13 @@ export class MineflayerRuntime implements MinecraftRuntime {
     return true;
   }
 
+  macroCommand(m: Extract<MainToHost, { cmd: 'macros.set' | 'macro.run' | 'macro.stop' }>): boolean {
+    const h = this.sessionHost.get(m.sessionId);
+    if (!h) return false;
+    this.send(h, m);
+    return true;
+  }
+
   isRemoteSession(sessionId: string): boolean {
     return !!this.sessionHost.get(sessionId)?.remote;
   }
@@ -219,7 +226,12 @@ export class MineflayerRuntime implements MinecraftRuntime {
     else if (h.child?.connected) h.child.send(m);
   }
 
-  private pickHost(identityId: number, agentId: number | null = null): HostHandle {
+  /** Hosts holding a parked game for a session that is reconnecting (the session restarts there). */
+  private readonly parkedOn = new Map<string, HostHandle>();
+
+  private pickHost(identityId: number, agentId: number | null = null, sessionId?: string): HostHandle {
+    const parkedHost = sessionId ? this.parkedOn.get(sessionId) : undefined;
+    if (parkedHost?.alive && !parkedHost.remote && agentId === null) return parkedHost; // the waiting game is there
     if (agentId !== null) {
       const remote = this.remoteHost(agentId);
       if (!remote) throw new Error(`Agent #${agentId} is offline – the session starts as soon as it connects`);
@@ -268,6 +280,15 @@ export class MineflayerRuntime implements MinecraftRuntime {
       }
       case 'runtime': {
         const e = m.event;
+        if (e.type === 'takeover') {
+          if (e.status === 'parked') this.parkedOn.set(e.sessionId, h);
+          else if (['attached', 'closed', 'detached'].includes(e.status) && this.parkedOn.get(e.sessionId) === h) this.parkedOn.delete(e.sessionId);
+          // a parked game outlives its session: its events still matter
+          if (this.sessionHost.get(e.sessionId) !== h && (e.status === 'closed' || e.status === 'detached')) {
+            this.emit(e);
+            return;
+          }
+        }
         if (this.sessionHost.get(e.sessionId) !== h) {
           return; // stale event of a session that moved or ended
         }
@@ -296,6 +317,7 @@ export class MineflayerRuntime implements MinecraftRuntime {
   private onHostExit(h: HostHandle, why: string): void {
     if (!h.alive) return;
     h.alive = false;
+    for (const [id, host] of this.parkedOn) if (host === h) this.parkedOn.delete(id);
     this.hosts.delete(h.id);
     const affected = [...h.sessions];
     if (!this.shuttingDown) log.warn(`Runtime host ${h.id} exited (${why}); ${affected.length} session(s) affected`);
@@ -321,7 +343,7 @@ export class MineflayerRuntime implements MinecraftRuntime {
         }
         continue;
       }
-      if (!h.remote && h.sessions.size === 0 && h.idleSince && now - h.idleSince > (this.opts.idleHostTtlMs ?? 60_000)) {
+      if (!h.remote && h.sessions.size === 0 && h.idleSince && now - h.idleSince > (this.opts.idleHostTtlMs ?? 60_000) && ![...this.parkedOn.values()].includes(h)) {
         this.stopHost(h);
       }
     }
@@ -343,7 +365,7 @@ export class MineflayerRuntime implements MinecraftRuntime {
   async startSession(spec: RuntimeSessionSpec): Promise<void> {
     if (this.shuttingDown) throw new Error('Runtime is shutting down');
     if (this.sessionHost.has(spec.sessionId)) await this.stopSession(spec.sessionId, 'restart');
-    const h = this.pickHost(spec.identityId, spec.placement?.agentId ?? null);
+    const h = this.pickHost(spec.identityId, spec.placement?.agentId ?? null, spec.sessionId);
     h.sessions.add(spec.sessionId);
     h.identities.set(spec.identityId, (h.identities.get(spec.identityId) ?? 0) + 1);
     h.idleSince = null;
@@ -401,7 +423,7 @@ export class MineflayerRuntime implements MinecraftRuntime {
   }
 
   async closeTakeover(sessionId: string, reason = 'Back to AFK'): Promise<void> {
-    const h = this.sessionHost.get(sessionId);
+    const h = this.sessionHost.get(sessionId) ?? this.parkedOn.get(sessionId);
     if (!h) return;
     await new Promise<void>((resolve) => {
       const timer = setTimeout(() => {

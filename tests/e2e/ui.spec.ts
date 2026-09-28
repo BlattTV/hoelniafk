@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 
-const PAGES = ['/', '/matrix', '/sessions', '/chat', '/inbox', '/verification', '/mailboxes', '/servers', '/templates', '/monitoring', '/logs', '/audit', '/setup', '/settings', '/wizard', '/identity/1', '/wizard/1/5', '/schedules', '/agents', '/accounts', '/proxies', '/new', '/discord'];
+const PAGES = ['/', '/matrix', '/sessions', '/chat', '/inbox', '/verification', '/mailboxes', '/servers', '/templates', '/monitoring', '/logs', '/audit', '/setup', '/settings', '/wizard', '/identity/1', '/wizard/1/5', '/schedules', '/agents', '/accounts', '/proxies', '/new', '/discord', '/macros'];
 
 function trackErrors(page: Page): string[] {
   const errors: string[] = [];
@@ -259,5 +259,40 @@ test('quick setup: name → one Microsoft sign-in (Outlook + Minecraft) → Disc
   await page.goto('/#/discord');
   await expect(page.locator('#view')).toContainText('Without Discord');
   await expect(page.locator('#view')).toContainText('Quick Demo');
+  expect(errors).toEqual([]);
+});
+
+test('macro builder: drag blocks like in Scratch, save and run on a session', async ({ page }) => {
+  const errors = trackErrors(page);
+  await page.goto('/#/macros');
+  await page.getByRole('button', { name: '+ New macro' }).click();
+  await page.locator('.macro-name').fill('E2E stars');
+  // drag "command /" from the palette into the script (after the default wait block)
+  const slots = page.locator('.macro-script .drop-slot');
+  await page.locator('.macro-palette .blk', { hasText: 'command /' }).dragTo(slots.last());
+  await expect(page.locator('.macro-script .blk', { hasText: 'command /' })).toHaveCount(1);
+  await page.locator('.macro-script .blk', { hasText: 'command /' }).locator('input').fill('stars');
+  await page.locator('.macro-script .blk', { hasText: 'command /' }).locator('input').blur();
+  // a C-block by click, then a block dragged INTO it
+  await page.locator('.macro-palette .blk', { hasText: 'repeat' }).click();
+  await page.locator('.macro-palette .blk', { hasText: 'swing hand' }).dragTo(page.locator('.macro-script .blk.c .blk-inner .drop-slot').first());
+  await expect(page.locator('.macro-script .blk.c .blk-inner')).toContainText('swing hand');
+  await expect(page.locator('.badge', { hasText: 'unsaved changes' })).toBeVisible();
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(page.locator('.macro-item', { hasText: 'E2E stars' })).toBeVisible();
+
+  const token = await page.evaluate(() => document.querySelector<HTMLMetaElement>('meta[name="hoelni-token"]')!.content);
+  const macros = (await (await page.request.get('/api/macros', { headers: { 'x-hoelni-token': token } })).json()).macros;
+  const saved = macros.find((m: any) => m.name === 'E2E stars');
+  expect(saved.blocks.map((b: any) => b.type)).toEqual(['wait', 'command', 'repeat']);
+  expect(saved.blocks[1].text).toBe('stars');
+  expect(saved.blocks[2].body.map((b: any) => b.type)).toEqual(['swing']);
+
+  // run it on an online demo session
+  await waitOnline(page, 1);
+  await page.reload();
+  await page.locator('.macro-item', { hasText: 'E2E stars' }).click();
+  await page.getByRole('button', { name: 'Run', exact: true }).click();
+  await expect(page.locator('.macro-log')).toContainText('finished', { timeout: 20_000 });
   expect(errors).toEqual([]);
 });

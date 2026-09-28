@@ -16,7 +16,8 @@ export interface SuiteEvent {
     | 'network.checked'
     | 'auth.devicecode'
     | 'reward.changed'
-    | 'audit';
+    | 'audit'
+    | 'macro';
   identityId?: number | null;
   data?: unknown;
 }

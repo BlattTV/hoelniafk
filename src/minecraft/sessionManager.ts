@@ -113,6 +113,12 @@ export class SessionManager {
   private stopped = false;
   private readonly offRuntime: () => void;
 
+  /** Macros of a session (macro builder) – set by the app. */
+  macrosFor: ((identityId: number, serverId: number) => import('../macros/types.js').MacroProgram[]) | null = null;
+
+  /** Renews the Minecraft session of an identity (fresh token + chat keys) – set by the app. */
+  renewAuth: ((identityId: number) => Promise<void>) | null = null;
+
   constructor(
     private readonly repo: IdentityRepository,
     private readonly network: NetworkService,
@@ -471,6 +477,7 @@ export class SessionManager {
       viewDistance: s.viewDistance,
       takeover: (!!this.game || s.agentId !== null) && s.gameClient.mode === 'takeover',
       placement: s.agentId !== null && s.agentId !== undefined ? { agentId: s.agentId } : null,
+      macros: this.macrosFor?.(r.identityId, r.serverId) ?? [],
     };
   }
 
@@ -671,6 +678,16 @@ export class SessionManager {
       r.wantGame = false;
       r.lastError = `Game could not be opened: ${e.message ?? 'takeover failed'}`;
       this.setState(r, r.state, r.lastError);
+    } else if (e.status === 'parked') {
+      // The live session is reconnecting (expired session renewed, server restart …): the game waits.
+      this.repo.addSessionEvent(r.identityId, r.serverId, r.id, 'game-parked', e.message ?? '');
+      this.setState(r, r.state);
+    } else if (e.status === 'closed' && r.takeover !== 'none' && r.state !== 'ONLINE') {
+      // A parked game gave up waiting (session did not come back in time).
+      r.takeover = 'none';
+      r.wantGame = false;
+      if (this.game?.has(r.id)) void this.game.stopSession(r.id, 'Session did not come back');
+      this.setState(r, r.state);
     } else if (e.status === 'detached') {
       if (r.takeover === 'none') return; // closed by us ("Back to AFK")
       // The game left the session (quit to title, closed, kicked): close it, the AFK client carries on.
@@ -685,11 +702,8 @@ export class SessionManager {
 
   private onEnded(r: SessionRecord, e: Extract<RuntimeEvent, { type: 'ended' }>): void {
     r.releaseStart?.();
-    if (r.takeover !== 'none') {
-      // The live session ended while the game was on it – the game has nothing to play on anymore.
-      r.takeover = 'none';
-      if (this.game?.has(r.id)) void this.game.stopSession(r.id, 'Session ended');
-    }
+    // A game on the live session stays connected ("parked") while the session reconnects; it is
+    // switched into the new connection automatically. It only ends if the session does not come back.
     const detail = [e.error, e.reason].filter(Boolean).join(' | ');
     r.lastEndReason = e.reason;
     this.repo.addSessionEvent(r.identityId, r.serverId, r.id, e.kicked ? 'kicked' : 'ended', detail);
@@ -715,6 +729,7 @@ export class SessionManager {
     const a = this.repo.getAssignment(r.identityId, r.serverId);
     const desiredOnline = !!a && a.enabled && a.desiredState === 'ONLINE';
     if (r.state === 'STOPPING' || !desiredOnline || this.stopped) {
+      this.endParkedGame(r, 'Session ended');
       this.setState(r, 'STOPPED', r.state === 'STOPPING' ? null : e.error);
       return;
     }
@@ -727,11 +742,36 @@ export class SessionManager {
     if (decision.action === 'block') {
       this.audit.record(r.identityId, 'Automatic reconnect blocked', { server: r.serverName, rule: decision.label });
       this.setState(r, 'BLOCKED', `${decision.label}: ${r.lastError}`);
+      this.endParkedGame(r, `Session blocked: ${decision.label}`);
+      return;
+    }
+    if (decision.action === 'renew') {
+      // Expired session: fresh Minecraft token + chat keys in the background, then reconnect immediately.
+      this.repo.addSessionEvent(r.identityId, r.serverId, r.id, 'renew', decision.label);
+      this.setState(r, 'RECONNECTING', `${decision.label} – renewing the session`);
+      void (this.renewAuth?.(r.identityId) ?? Promise.resolve())
+        .then(() => this.audit.record(r.identityId, 'Session renewed automatically', { server: r.serverName }))
+        .catch((err) => {
+          r.lastError = `Session renewal failed: ${(err as Error).message}`.slice(0, 500);
+          this.audit.record(r.identityId, 'Session renewal failed', { server: r.serverName });
+        })
+        .finally(() => {
+          r.nextAttemptAt = Date.now();
+          void this.reconcile();
+        });
       return;
     }
     r.nextAttemptAt = Date.now() + decision.delaySec * 1000;
     this.setState(r, 'RECONNECTING', r.lastError);
     setTimeout(() => void this.reconcile(), decision.delaySec * 1000 + 50).unref?.();
+  }
+
+  /** The session will not come back: a game parked on it is closed. */
+  private endParkedGame(r: SessionRecord, reason: string): void {
+    if (r.takeover === 'none') return;
+    r.takeover = 'none';
+    void this.runtime.closeTakeover(r.id, reason).catch(() => undefined);
+    if (this.game?.has(r.id)) void this.game.stopSession(r.id, reason);
   }
 
   private onChat(r: SessionRecord, text: string, ts: string): void {

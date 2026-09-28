@@ -123,9 +123,14 @@ reconnect:
     - label: duplicate login
       action: block
       match: ["logged in from another location", "already (online|connected)"]
+    # Session expired (token or chat signing keys): renewed in the background, reconnect at once –
+    # no launcher restart, no manual reconnect. Only blocked if two renewals in a row do not help.
+    - label: session expired
+      action: renew
+      match: ["Failed to verify username", "Invalid session", "invalid_session", "expired profile public key", "Invalid signature for profile public key", "Chat disabled due to expired", "missing profile public key"]
     - label: authentication
       action: block
-      match: ["authFailed", "Failed to verify username", "Invalid session"]
+      match: ["authFailed"]
     - label: throttled
       action: delay
       delaySec: 60

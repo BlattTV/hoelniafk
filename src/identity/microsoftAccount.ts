@@ -207,6 +207,16 @@ export class MicrosoftAccountService {
     return r;
   }
 
+  /** Renew for an expired session: fresh Minecraft token/keys from the grant (false = not a direct identity). */
+  async renewMinecraft(identityId: number): Promise<boolean> {
+    const g = await this.grant(identityId);
+    if (!g || g.minecraft !== 'direct') return false;
+    this.mc.delete(identityId);
+    this.access.delete(`${identityId}:xbox`);
+    await this.minecraftDirect(identityId, true);
+    return true;
+  }
+
   async unlink(identityId: number): Promise<void> {
     await this.vault.forIdentity(identityId).delete(this.ref(identityId));
     for (const k of [...this.access.keys()]) if (k.startsWith(`${identityId}:`)) this.access.delete(k);

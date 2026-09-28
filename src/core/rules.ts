@@ -50,7 +50,8 @@ export interface RewardRuleSet {
   discordNotLinked: string[];
 }
 
-export type ReconnectAction = 'retry' | 'delay' | 'block';
+/** renew: the session (Minecraft token / chat keys) expired – renew it in the background and reconnect at once. */
+export type ReconnectAction = 'retry' | 'delay' | 'block' | 'renew';
 
 export interface ReconnectRule {
   /** Case-insensitive regexes matched against the kick/disconnect reason. */
@@ -157,7 +158,7 @@ export function parseRules(text: string): RulesConfig {
     stableAfterSec: Number(rc.stableAfterSec ?? DEFAULT_RECONNECT.stableAfterSec),
     rules: (Array.isArray(rc.rules) ? rc.rules : []).map((r: any, i: number) => {
       const action = String(r?.action ?? 'retry') as ReconnectAction;
-      if (!['retry', 'delay', 'block'].includes(action)) throw new ValidationError(`reconnect.rules[${i}].action must be retry|delay|block`);
+      if (!['retry', 'delay', 'block', 'renew'].includes(action)) throw new ValidationError(`reconnect.rules[${i}].action must be retry|delay|block|renew`);
       return {
         match: arr(r?.match).map((p) => checkRegex(p, `reconnect.rules[${i}].match`)),
         action,
@@ -322,6 +323,8 @@ export function decideReconnect(policy: ReconnectPolicy, reason: string, failure
   for (const r of policy.rules) {
     if (r.match.some((p) => new RegExp(p, 'i').test(text))) {
       if (r.action === 'block') return { action: 'block', delaySec: 0, label: r.label };
+      // Expired session: renew right away – twice in a row means the renewal itself does not help.
+      if (r.action === 'renew') return failures <= 2 ? { action: 'renew', delaySec: 0, label: r.label } : { action: 'block', delaySec: 0, label: `${r.label} (renewal did not help)` };
       if (r.action === 'delay') {
         const d = Math.max(r.delaySec ?? policy.baseDelaySec, backoff(policy, failures));
         return { action: 'delay', delaySec: Math.min(d, Math.max(policy.maxDelaySec, r.delaySec ?? 0)), label: r.label };
