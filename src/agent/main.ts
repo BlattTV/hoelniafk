@@ -1,8 +1,9 @@
 /**
  * Hoelni Agent – command line / background process.
  *
- *   node dist/agent/main.js login --user NAME --password PW [--name "Living room PC"] [--trust-cert]
- *   node dist/agent/main.js change-backend --backend https://… --admin-user A --admin-password P
+ *   node dist/agent/main.js login --user NAME [--name "Living room PC"] [--trust-cert SHA256-FINGERPRINT]
+ *        (password: HOELNI_AGENT_PASSWORD or --password)
+ *   node dist/agent/main.js change-backend --backend https://… --admin-user A   (HOELNI_ADMIN_PASSWORD or --admin-password)
  *   node dist/agent/main.js set-proxy socks5://user:pass@host:1080     (connection to the backend; "" = none)
  *   node dist/agent/main.js run          (with an IPC channel: controlled by the Hoelni Agent window)
  *   node dist/agent/main.js status | logout
@@ -17,10 +18,15 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { AgentCore, type AgentStatus } from './agentCore.js';
 import { DEFAULT_BACKEND, normalizeBackendUrl, probeCertificate, requestJson, type TransportOptions } from './transport.js';
+import { createKeyProvider } from '../vault/keyProviders.js';
+import { refs } from '../vault/refs.js';
+import { EncryptedFileVault, type SecretStore } from '../vault/vault.js';
 
 interface Stored {
   backendUrl: string;
+  /** Only when no OS key protection is available (e.g. Linux without keyring) – file mode 0600. */
   token?: string;
+  tokenInVault?: boolean;
   deviceId?: number;
   username?: string;
   name?: string;
@@ -52,6 +58,38 @@ function save(s: Stored): void {
   fs.renameSync(`${file}.tmp`, file);
 }
 
+// ------------------------------------------------------------------ device token (never in plain text on Windows)
+const TOKEN_REF = refs.app('agent-token');
+
+async function vault(): Promise<SecretStore | null> {
+  try {
+    fs.mkdirSync(dataDir, { recursive: true });
+    return await EncryptedFileVault.open(path.join(dataDir, 'agent-vault.json'), createKeyProvider('auto', path.join(dataDir, 'agent-key.dpapi')));
+  } catch {
+    return null;
+  }
+}
+
+async function storeToken(s: Stored, token: string): Promise<Stored> {
+  const v = await vault();
+  if (v) {
+    await v.set(TOKEN_REF, token);
+    return { ...s, token: undefined, tokenInVault: true };
+  }
+  return { ...s, token, tokenInVault: false };
+}
+
+async function readToken(s: Stored): Promise<string | null> {
+  if (!s.tokenInVault) return s.token ?? null;
+  return (await (await vault())?.get(TOKEN_REF)) ?? null;
+}
+
+async function forgetToken(s: Stored): Promise<void> {
+  if (s.tokenInVault) await (await vault())?.delete(TOKEN_REF);
+}
+
+const signedIn = (s: Stored) => !!(s.tokenInVault || s.token) && !!s.deviceId;
+
 const transport = (s: Stored): TransportOptions => ({ pinnedCert: s.pinnedCert ?? null, proxy: s.proxy ?? null });
 
 function out(result: unknown, text: string): void {
@@ -77,12 +115,14 @@ async function login(): Promise<void> {
   if (process.env.HOELNI_AGENT_BACKEND) s.backendUrl = normalizeBackendUrl(process.env.HOELNI_AGENT_BACKEND); // development / tests
   const user = flag('user');
   const password = flag('password') ?? process.env.HOELNI_AGENT_PASSWORD;
-  if (!user || !password) fail('usage: login --user NAME --password PW [--name NAME] [--trust-cert]');
-  // Self-signed backend certificate: the user confirms its fingerprint once (--trust-cert).
+  if (!user || !password) fail('usage: login --user NAME --password PW [--name NAME] [--trust-cert FINGERPRINT]');
+  // Self-signed backend certificate: the user confirms its fingerprint once (--trust-cert <fingerprint>).
   if (!s.pinnedCert) {
     const cert = await probeCertificate(s.backendUrl, { proxy: s.proxy }).catch((e) => fail(`Backend not reachable: ${(e as Error).message}`));
     if (cert && !cert.trusted) {
-      if (!has('trust-cert')) fail('The backend uses a certificate that is not publicly trusted – compare the fingerprint and confirm', { needsTrust: true, fingerprint: cert.fingerprint256, subject: cert.subject }, 4);
+      const confirmed = flag('trust-cert');
+      if (!confirmed) fail('The backend uses a certificate that is not publicly trusted – compare the fingerprint and confirm', { needsTrust: true, fingerprint: cert.fingerprint256, subject: cert.subject }, 4);
+      if (confirmed!.toUpperCase() !== cert.fingerprint256.toUpperCase()) fail('The backend certificate changed since you confirmed it – check again', { needsTrust: true, fingerprint: cert.fingerprint256, subject: cert.subject }, 4);
       s.pinnedCert = cert.pem;
     }
   }
@@ -93,7 +133,8 @@ async function login(): Promise<void> {
     { username: user, password, client: 'agent', name, info: { hostname: os.hostname(), os: `${os.platform()} ${os.release()}`, version: version() } },
     transport(s),
   ).catch((e) => fail((e as Error).message));
-  save({ ...s, token: r.token, deviceId: r.deviceId, username: r.user.username, name });
+  await forgetToken(s);
+  save(await storeToken({ ...s, deviceId: r.deviceId, username: r.user.username, name }, r.token));
   out({ ok: true, username: r.user.username, backendUrl: s.backendUrl }, `Signed in as ${r.user.username} at ${s.backendUrl}`);
 }
 
@@ -106,27 +147,33 @@ async function changeBackend(): Promise<void> {
   await requestJson(`${s.backendUrl}/api/verify-admin`, 'POST', { username: adminUser, password: adminPassword }, transport(s)).catch((e) =>
     fail(`The current backend (${s.backendUrl}) did not confirm the admin account: ${(e as Error).message}`),
   );
-  const url = normalizeBackendUrl(target);
+  const url = normalizeBackendUrl(target!);
+  const token = await readToken(s);
+  if (token) await requestJson(`${s.backendUrl}/api/logout`, 'POST', {}, transport(s), { Authorization: `Bearer ${token}` }).catch(() => undefined);
+  await forgetToken(s);
   save({ backendUrl: url, proxy: s.proxy ?? null, pinnedCert: null });
   out({ ok: true, backendUrl: url }, `Backend changed to ${url} – sign in again`);
 }
 
 async function logout(): Promise<void> {
   const s = load();
-  if (s.token) await requestJson(`${s.backendUrl}/api/logout`, 'POST', {}, transport(s), { Authorization: `Bearer ${s.token}` }).catch(() => undefined);
+  const token = await readToken(s);
+  if (token) await requestJson(`${s.backendUrl}/api/logout`, 'POST', {}, transport(s), { Authorization: `Bearer ${token}` }).catch(() => undefined);
+  await forgetToken(s);
   save({ backendUrl: s.backendUrl, proxy: s.proxy ?? null, pinnedCert: s.pinnedCert ?? null });
   out({ ok: true }, 'Signed out');
 }
 
 async function run(): Promise<void> {
   const s = load();
-  if (!s.token || !s.deviceId) fail('not signed in – run "login" first', { needsLogin: true }, 3);
+  const token = signedIn(s) ? await readToken(s) : null;
+  if (!token || !s.deviceId) fail('not signed in – run "login" first', { needsLogin: true }, 3);
   const report = (st: AgentStatus) => {
     if (process.send) process.send({ type: 'status', status: { ...st, username: s.username } });
     else if (!json) console.log(`${new Date().toISOString()} ${st.state}${st.managerOnline ? '' : ' (manager offline)'} – ${st.sessions.length} session(s)${st.lastError ? ` – ${st.lastError}` : ''}`);
   };
   const agent = new AgentCore(
-    { backendUrl: s.backendUrl, token: s.token!, agentId: s.deviceId!, name: s.name ?? os.hostname(), transport: transport(s), dataDir, version: version() },
+    { backendUrl: s.backendUrl, token: token!, agentId: s.deviceId!, name: s.name ?? os.hostname(), transport: transport(s), dataDir, version: version() },
     report,
   );
   agent.start();
@@ -161,7 +208,7 @@ switch (argv[0]) {
     break;
   case 'status': {
     const s = load();
-    out({ ok: true, backendUrl: s.backendUrl, signedIn: !!s.token, username: s.username ?? null, name: s.name ?? null, proxy: !!s.proxy }, `${s.backendUrl} – ${s.token ? `signed in as ${s.username}` : 'not signed in'}`);
+    out({ ok: true, backendUrl: s.backendUrl, signedIn: signedIn(s), username: s.username ?? null, name: s.name ?? null, proxy: !!s.proxy, tokenProtected: !!s.tokenInVault }, `${s.backendUrl} – ${signedIn(s) ? `signed in as ${s.username}` : 'not signed in'}`);
     break;
   }
   case 'run':

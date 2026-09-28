@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:">
+  <title>Hoelni Agent</title>
+  <style>
+    :root { --bg:#f1eee7; --panel:#faf8f3; --line:#d9d3c6; --text:#22201c; --muted:#6e685d; --accent:#3f6b3a; --accent-ink:#f6f3ea; --ok:#3f7d3a; --warn:#9a6512; --err:#a63d28; --input:#fffdf8;
+      --sans:'Segoe UI Variable Text','Segoe UI',system-ui,sans-serif; --mono:'Cascadia Mono',Consolas,monospace; }
+    @media (prefers-color-scheme: dark) { :root { --bg:#1b1a17; --panel:#22211d; --line:#37342d; --text:#e9e5da; --muted:#9c968a; --accent:#93b872; --accent-ink:#1b1a17; --ok:#93b872; --warn:#d9a441; --err:#e07b61; --input:#1f1e1a; color-scheme: dark; } }
+    * { box-sizing: border-box; }
+    body { margin:0; background:var(--bg); color:var(--text); font:14px/1.45 var(--sans); }
+    header { display:flex; align-items:center; gap:10px; padding:14px 18px; border-bottom:1px solid var(--line); background:var(--panel); }
+    header .mark { width:14px; height:14px; background:var(--accent); }
+    header strong { font-size:15px; }
+    header small { color:var(--muted); margin-left:auto; font-family:var(--mono); }
+    main { padding:16px 18px; }
+    section { background:var(--panel); border:1px solid var(--line); border-radius:3px; padding:14px 16px; margin-bottom:12px; }
+    h2 { font-size:13px; text-transform:uppercase; letter-spacing:.06em; margin:0 0 10px; color:var(--muted); font-weight:600; }
+    label { display:block; margin-bottom:8px; font-size:13px; color:var(--muted); }
+    input { display:block; width:100%; margin-top:3px; padding:7px 9px; border:1px solid var(--line); border-radius:3px; background:var(--input); color:var(--text); font:inherit; }
+    button { padding:7px 14px; border:1px solid var(--line); border-radius:3px; background:var(--panel); color:var(--text); font:inherit; cursor:pointer; }
+    button.primary { background:var(--accent); border-color:var(--accent); color:var(--accent-ink); }
+    button:disabled { opacity:.6; cursor:default; }
+    .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+    .state { display:inline-block; padding:2px 8px; border-radius:3px; font-weight:600; font-size:12px; border:1px solid currentColor; }
+    .s-online { color:var(--ok); } .s-paused, .s-offline, .s-connecting { color:var(--warn); } .s-revoked { color:var(--err); }
+    .kv { display:grid; grid-template-columns: 130px 1fr; gap:4px 10px; margin:10px 0; }
+    .kv div:nth-child(odd) { color:var(--muted); }
+    .mono { font-family:var(--mono); font-size:12.5px; word-break:break-all; }
+    .muted { color:var(--muted); font-size:12.5px; }
+    .error { color:var(--err); margin-top:8px; }
+    ul { margin:6px 0 0; padding-left:18px; }
+    details summary { cursor:pointer; color:var(--muted); }
+    .fingerprint { font-family:var(--mono); font-size:12px; padding:8px; background:var(--bg); border:1px solid var(--line); word-break:break-all; }
+    [hidden] { display:none !important; }
+  </style>
+  <script src="ui.js" defer></script>
+</head>
+<body>
+  <header><span class="mark"></span><strong>Hoelni Agent</strong><small id="version"></small></header>
+  <main>
+    <!-- not signed in -->
+    <section id="login" hidden>
+      <h2>Anmelden</h2>
+      <p class="muted">Melde dich mit dem Hoelni-Konto an, das du bekommen hast. Danach kann dieser PC AFK-Sessions für dieses Konto ausführen – du siehst hier jederzeit, was läuft, und kannst pausieren.</p>
+      <label>Benutzername <input id="user" autocomplete="username"></label>
+      <label>Passwort <input id="pw" type="password" autocomplete="current-password"></label>
+      <label>Name dieses PCs <input id="name" placeholder="z. B. Wohnzimmer-PC"></label>
+      <div id="trust" hidden>
+        <p class="muted">Der Server verwendet ein eigenes Zertifikat. Vergleiche den Fingerabdruck mit dem, den dir der Betreiber genannt hat:</p>
+        <div class="fingerprint" id="fp"></div>
+      </div>
+      <div class="row"><button class="primary" id="login-btn">Anmelden</button></div>
+      <div class="error" id="login-error"></div>
+      <p class="muted">Server: <span class="mono" id="login-backend"></span></p>
+    </section>
+
+    <!-- signed in -->
+    <section id="status" hidden>
+      <h2>Status</h2>
+      <div class="row"><span class="state" id="state"></span><span class="muted" id="manager"></span></div>
+      <div class="kv">
+        <div>Konto</div><div id="account"></div>
+        <div>Dieser PC</div><div id="pcname"></div>
+        <div>Server</div><div class="mono" id="backend"></div>
+        <div>Hinweis</div><div id="lasterror" class="muted">–</div>
+      </div>
+      <div class="row">
+        <button class="primary" id="pause-btn">Pausieren</button>
+        <button id="resume-btn" hidden>Fortsetzen</button>
+        <button id="logout-btn">Abmelden</button>
+      </div>
+    </section>
+    <section id="sessions" hidden>
+      <h2>Läuft auf diesem PC</h2>
+      <div id="session-list" class="muted">Nichts.</div>
+      <div id="game" class="muted"></div>
+    </section>
+    <section>
+      <details>
+        <summary>Einstellungen</summary>
+        <p></p>
+        <label><input type="checkbox" id="autostart" style="display:inline;width:auto;margin-right:6px">Mit Windows starten</label>
+        <label>Proxy für die Verbindung zum Server (optional)
+          <input id="proxy" placeholder="socks5://benutzer:passwort@host:1080 oder http://host:3128">
+        </label>
+        <div class="row"><button id="proxy-btn">Proxy speichern</button></div>
+        <h2 style="margin-top:14px">Serveradresse ändern</h2>
+        <p class="muted">Nur mit einem Admin-Konto des aktuellen Servers möglich.</p>
+        <label>Neue Adresse <input id="new-url" placeholder="https://afk.hoelni.de"></label>
+        <label>Admin-Benutzer <input id="admin-user" autocomplete="off"></label>
+        <label>Admin-Passwort <input id="admin-pw" type="password" autocomplete="off"></label>
+        <div class="row"><button id="change-btn">Adresse ändern</button></div>
+        <div class="error" id="settings-error"></div>
+      </details>
+    </section>
+    <p class="muted">Der Agent führt nur Minecraft-Sessions des Kontos aus (starten, stoppen, Chat, Spielfenster). Er kann keine Befehle ausführen und nicht auf deine Dateien zugreifen.</p>
+  </main>
+</body>
+</html>

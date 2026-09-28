@@ -10,3 +10,5 @@ playwright-report/
 desktop/backend/
 desktop/release/
 .update/
+agent-app/runtime/
+agent-app/release/

@@ -1,0 +1,34 @@
+{
+  "name": "hoelni-agent",
+  "productName": "Hoelni Agent",
+  "version": "0.3.0",
+  "description": "Hoelni Agent – lets this PC run AFK sessions for your Hoelni account (sign in, done)",
+  "main": "main.cjs",
+  "private": true,
+  "license": "UNLICENSED",
+  "scripts": {
+    "start": "electron .",
+    "prepare-runtime": "node prepare.cjs",
+    "dist": "node prepare.cjs && electron-builder --win --x64"
+  },
+  "devDependencies": {
+    "electron": "^44.4.5",
+    "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "net.hoelni.agent",
+    "productName": "Hoelni Agent",
+    "directories": { "output": "release", "buildResources": "build" },
+    "files": ["main.cjs", "preload.cjs", "ui.html", "ui.js", "build/icon.png", "build/tray.png"],
+    "extraResources": [{ "from": "runtime", "to": "runtime" }],
+    "win": { "target": ["nsis"], "icon": "build/icon.png" },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Hoelni Agent",
+      "artifactName": "Hoelni-Agent-Setup-${version}.${ext}"
+    }
+  }
+}
