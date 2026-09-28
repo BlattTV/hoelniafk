@@ -419,6 +419,7 @@ Hinweise:
 | Suite: „did not confirm the admin account“ | Beim Adresswechsel wurden keine gültigen Admin-Daten des **aktuellen** Backends angegeben |
 | Suite: *another manager of this account took over* | Ein zweiter Manager mit demselben Konto hat sich verbunden – dort abmelden |
 | „Too many failed sign-ins“ | 10 Fehlversuche von derselben Adresse → 10 Minuten warten |
+| Nginx Proxy Manager zeigt **502 Bad Gateway**, `hoelni-backend info` zeigt `127.0.0.1:8480` | Backend wurde in der Variante *caddy* installiert und lauscht nur lokal → Installer erneut mit `TLS=proxy` ausführen (stellt auf `0.0.0.0` um und schaltet Caddy ab) |
 | Hinter Nginx Proxy Manager: Agents verbinden nicht | Im Proxy-Host **Websockets Support** einschalten |
 
 ---

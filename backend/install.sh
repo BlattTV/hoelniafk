@@ -111,6 +111,20 @@ if [ ! -f "$CONF_DIR/config.json" ]; then
   esac
 fi
 
+if [ "$FIRST_RUN" = "0" ] && [ "$TLS" = "proxy" ]; then
+  # Switching an existing install to an external reverse proxy (e.g. Nginx Proxy Manager on another host):
+  # listen on all interfaces with X-Forwarded-For trust, and stop a Caddy set up by an earlier run.
+  say "Reverse-proxy mode: backend listens on 0.0.0.0:$PORT"
+  node -e '
+    const fs = require("fs"); const f = process.argv[1]; const c = JSON.parse(fs.readFileSync(f, "utf8"));
+    c.host = "0.0.0.0"; c.trustProxy = true; c.tls = { cert: "", key: "" };
+    fs.writeFileSync(f, JSON.stringify(c, null, 2), { mode: 0o600 });' "$CONF_DIR/config.json"
+  if [ -f /etc/caddy/sites/hoelni-backend.caddy ]; then
+    rm -f /etc/caddy/sites/hoelni-backend.caddy
+    systemctl disable --now caddy 2>/dev/null || true
+  fi
+fi
+
 if [ "$TLS" = "caddy" ]; then
   if ! command -v caddy >/dev/null; then
     say "Installing Caddy (HTTPS with Let's Encrypt)"
