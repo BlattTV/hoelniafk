@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 
-const PAGES = ['/', '/matrix', '/sessions', '/chat', '/inbox', '/verification', '/mailboxes', '/servers', '/templates', '/monitoring', '/logs', '/audit', '/setup', '/settings', '/wizard', '/identity/1', '/wizard/1/5', '/schedules'];
+const PAGES = ['/', '/matrix', '/sessions', '/chat', '/inbox', '/verification', '/mailboxes', '/servers', '/templates', '/monitoring', '/logs', '/audit', '/setup', '/settings', '/wizard', '/identity/1', '/wizard/1/5', '/schedules', '/agents', '/accounts'];
 
 function trackErrors(page: Page): string[] {
   const errors: string[] = [];
@@ -133,4 +133,58 @@ test('setup check lists the configuration state', async ({ page }) => {
   await expect(page.locator('.health-list li')).toHaveCount(await page.locator('.health-list li').count());
   await expect(page.locator('#view')).toContainText('Credential vault');
   await expect(page.locator('#view')).toContainText('Minecraft servers');
+});
+
+test('backend: account administration is only shown to admins; agents appear', async ({ page }) => {
+  const errors = trackErrors(page);
+  await page.goto('/#/settings');
+  const card = page.locator('#backend-card');
+  await expect(card).toContainText('127.0.0.1');
+  await expect(page.locator('#nav-accounts')).toBeHidden();
+
+  // A normal account: no administration.
+  await card.getByLabel('Username').fill('friend');
+  await card.getByLabel('Password').fill('friend-password');
+  await card.getByRole('button', { name: 'Sign in' }).click();
+  await expect(card).toContainText('connected');
+  await expect(card).toContainText('friend');
+  await expect(page.locator('#nav-accounts')).toBeHidden();
+  await card.getByRole('button', { name: 'Sign out' }).click();
+  await expect(card).toContainText('signed out');
+
+  // Changing the address needs an admin of the current backend.
+  await card.getByRole('button', { name: 'Change address…' }).click();
+  const dlg = page.locator('.modal');
+  await dlg.getByLabel('New address').fill('https://other.example');
+  await dlg.getByLabel('Admin username').fill('friend');
+  await dlg.getByLabel('Admin password').fill('friend-password');
+  await dlg.getByRole('button', { name: 'Change address' }).click();
+  await expect(page.locator('.toast.error')).toContainText('did not confirm the admin');
+  await dlg.getByRole('button', { name: 'Close' }).click();
+
+  // Admin account: the administration appears.
+  await card.getByLabel('Username').fill('demo');
+  await card.getByLabel('Password').fill('demo-password');
+  await card.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page.locator('#backend-card')).toContainText('demo · admin');
+  await expect(page.locator('#nav-accounts')).toBeVisible();
+
+  await page.goto('/#/agents');
+  await expect(page.locator('#view')).toContainText('Demo agent');
+  await expect(page.locator('#view tbody')).toContainText('online');
+
+  await page.goto('/#/accounts');
+  await expect(page.locator('#view')).toContainText('friend');
+  await page.getByRole('button', { name: 'New account' }).click();
+  await page.locator('.modal').getByLabel('Username').fill('neighbour');
+  await page.locator('.modal').getByLabel('Password (min. 10 characters)').fill('neighbour-pass-1');
+  await page.locator('.modal').getByRole('button', { name: 'Create' }).click();
+  await expect(page.locator('#view')).toContainText('neighbour');
+  await expect(page.locator('#view')).toContainText('Demo agent');
+
+  // Identity settings: "Run on" lists the agent.
+  await page.goto('/#/identity/1');
+  await expect(page.locator('select[name=agentId]')).toContainText('Demo agent');
+  // The only failed request is the rejected address change (400) above.
+  expect(errors.filter((e) => !/status of 400/.test(e))).toEqual([]);
 });

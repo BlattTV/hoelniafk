@@ -137,7 +137,7 @@ export class AgentCore {
       return;
     }
     if (f?.t === 'bye') {
-      if (/revoked|removed/i.test(String(f.reason))) {
+      if (/revoked|removed|signed out|disabled|deleted/i.test(String(f.reason))) {
         this.stopped = true;
         this.set('revoked', String(f.reason));
       } else this.status.lastError = String(f.reason);

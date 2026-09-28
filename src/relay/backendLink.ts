@@ -12,6 +12,7 @@
 import os from 'node:os';
 import type { AuditLog } from '../core/audit.js';
 import type { EventBus } from '../core/events.js';
+import { SuiteError } from '../core/errors.js';
 import { createLogger } from '../core/logger.js';
 import type { IdentityRepository } from '../identity/repository.js';
 import type { MineflayerRuntime } from '../runtime/mineflayerRuntime.js';
@@ -21,6 +22,14 @@ import type { Vault } from '../vault/vault.js';
 import { DEFAULT_BACKEND, normalizeBackendUrl, openWebSocket, probeCertificate, requestJson, type ServerCertificate, type TransportOptions } from '../agent/transport.js';
 
 const log = createLogger('backend');
+
+/** Backend answers become user-facing errors (4xx from the backend → 400, network problems → 502). */
+function userError(e: unknown, prefix = ''): SuiteError {
+  if (e instanceof SuiteError) return e;
+  const status = (e as { status?: number }).status;
+  const msg = `${prefix}${(e as Error).message}`;
+  return new SuiteError(status && status < 500 ? msg : `Backend not reachable or failed: ${msg}`, status && status < 500 ? 400 : 502);
+}
 const TOKEN_REF = refs.app('backend-token');
 
 export interface AgentInfo {
@@ -42,6 +51,7 @@ export class BackendLink {
   private stopped = false;
   private readonly agents = new Map<number, AgentInfo>();
   private readonly hosts = new Map<number, { deliver: (m: HostToMain) => void; detach: (why: string) => void }>();
+  private closed = false;
   state: LinkState = 'signed-out';
   lastError: string | null = null;
 
@@ -82,6 +92,7 @@ export class BackendLink {
   }
 
   private changed(): void {
+    if (this.closed) return;
     this.bus.emit({ type: 'agents.changed', data: this.status() });
   }
 
@@ -89,7 +100,9 @@ export class BackendLink {
 
   /** Certificate check before the first sign-in: a self-signed certificate must be confirmed by fingerprint. */
   async checkCertificate(): Promise<ServerCertificate | null> {
-    return probeCertificate(this.url, { proxy: this.transport().proxy });
+    return probeCertificate(this.url, { proxy: this.transport().proxy }).catch((e) => {
+      throw userError(e);
+    });
   }
 
   async login(username: string, password: string, trustCertPem?: string | null): Promise<ReturnType<BackendLink['status']>> {
@@ -99,7 +112,9 @@ export class BackendLink {
       'POST',
       { username, password, client: 'manager', name: `Manager on ${os.hostname()}`, info: { hostname: os.hostname(), os: `${os.platform()} ${os.release()}` } },
       this.transport(),
-    );
+    ).catch((e) => {
+      throw userError(e);
+    });
     await this.vault.store.set(TOKEN_REF, r.token);
     this.repo.setSetting('backend.username', r.user.username);
     this.repo.setSetting('backend.role', r.user.role);
@@ -119,9 +134,14 @@ export class BackendLink {
 
   /** Changing the backend address needs valid admin credentials of the CURRENT backend. */
   async changeBackend(newUrl: string, adminUser: string, adminPassword: string, opts: { proxy?: string } = {}): Promise<ReturnType<BackendLink['status']>> {
-    const target = normalizeBackendUrl(newUrl);
+    let target: string;
+    try {
+      target = normalizeBackendUrl(newUrl);
+    } catch (e) {
+      throw new SuiteError(`Invalid address: ${(e as Error).message}`);
+    }
     await requestJson(`${this.url}/api/verify-admin`, 'POST', { username: adminUser, password: adminPassword }, this.transport()).catch((e) => {
-      throw new Error(`The current backend (${this.url}) did not confirm the admin account: ${(e as Error).message}`);
+      throw userError(e, `The current backend (${this.url}) did not confirm the admin account: `);
     });
     await this.logout().catch(() => undefined);
     this.repo.setSetting('backend.url', target === DEFAULT_BACKEND ? '' : target);
@@ -133,26 +153,42 @@ export class BackendLink {
   }
 
   setProxy(proxy: string): void {
-    if (proxy && !/^(https?|socks5h?):\/\//i.test(proxy)) throw new Error('Proxy must look like http://host:port or socks5://user:pass@host:port');
+    if (proxy && !/^(https?|socks5h?):\/\//i.test(proxy)) throw new SuiteError('Proxy must look like http://host:port or socks5://user:pass@host:port');
     this.repo.setSetting('backend.proxy', proxy);
     this.disconnect(this.state === 'signed-out' ? 'signed-out' : 'offline');
     void this.start();
   }
 
+  /** All agents of this account (also offline ones) with live state – for "Run on" and the Agents page. */
+  async agentList(): Promise<Array<AgentInfo & { sessions: string[]; lastSeenAt: string | null }>> {
+    const token = await this.token();
+    const known = token
+      ? await requestJson<Array<{ id: number; name: string; info: Record<string, string>; lastSeenAt: string | null; lastIp: string | null }>>(`${this.url}/api/agents`, 'GET', undefined, this.transport(), { Authorization: `Bearer ${token}` }).catch(() => [])
+      : [];
+    const out = new Map<number, AgentInfo & { sessions: string[]; lastSeenAt: string | null }>();
+    for (const d of known) out.set(d.id, { id: d.id, name: d.name, info: d.info ?? {}, paused: false, ip: d.lastIp, connectedAt: null, online: false, sessions: [], lastSeenAt: d.lastSeenAt });
+    for (const a of this.agents.values()) out.set(a.id, { ...(out.get(a.id) ?? { lastSeenAt: null }), ...a, sessions: this.runtime?.agentSessions(a.id) ?? [] });
+    return [...out.values()].sort((a, b) => Number(b.online) - Number(a.online) || a.name.localeCompare(b.name));
+  }
+
   /** Account administration (admins only) – proxied to the backend's admin API. */
   async admin(method: string, path: string, body?: unknown): Promise<unknown> {
     const token = await this.token();
-    if (!token) throw new Error('Not signed in to the backend');
-    if (this.repo.getSetting('backend.role') !== 'admin') throw new Error('Only admins can manage accounts');
-    return requestJson(`${this.url}/api/admin/${path.replace(/^\/+/, '')}`, method, method === 'GET' || method === 'DELETE' ? undefined : body ?? {}, this.transport(), { Authorization: `Bearer ${token}` });
+    if (!token) throw new SuiteError('Not signed in to the backend');
+    if (this.repo.getSetting('backend.role') !== 'admin') throw new SuiteError('Only admins can manage accounts', 403);
+    return requestJson(`${this.url}/api/admin/${path.replace(/^\/+/, '')}`, method, method === 'GET' || method === 'DELETE' ? undefined : body ?? {}, this.transport(), { Authorization: `Bearer ${token}` }).catch((e) => {
+      throw userError(e);
+    });
   }
 
   // ------------------------------------------------------------------ relay connection
 
   async start(): Promise<void> {
+    if (this.closed) return;
     this.stopped = false;
     if (this.ws) return;
     const token = await this.token();
+    if (this.closed || this.ws) return;
     if (!token) {
       this.state = 'signed-out';
       this.changed();
@@ -223,6 +259,7 @@ export class BackendLink {
   }
 
   private onFrame(text: string): void {
+    if (this.closed) return;
     let f: any;
     try {
       f = JSON.parse(text);
@@ -293,5 +330,6 @@ export class BackendLink {
 
   shutdown(): void {
     this.disconnect(this.state === 'signed-out' ? 'signed-out' : 'offline');
+    this.closed = true;
   }
 }

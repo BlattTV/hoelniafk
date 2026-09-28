@@ -1,12 +1,13 @@
 import { api } from '../api.js';
 import { clear, copy, field, guard, h, mount } from '../ui.js';
 import { updatesCard } from './updates.js';
+import { backendCard } from './remote.js';
 import { notificationsEnabled, setNotifications } from '../notify.js';
 import { toggleTheme } from '../palette.js';
 
 export async function settingsView(root) {
   const render = async () => {
-    const [settings, status, vault, rules, updates] = await Promise.all([api.get('/api/settings'), api.get('/api/status'), api.get('/api/vault'), api.get('/api/rules'), api.get('/api/updates')]);
+    const [settings, status, vault, rules, updates, backend] = await Promise.all([api.get('/api/settings'), api.get('/api/status'), api.get('/api/vault'), api.get('/api/rules'), api.get('/api/updates'), api.get('/api/backend')]);
     const oauthCard = (p, title, hint) => {
       const s = settings.oauth[p];
       const id = h('input', { value: s.clientId, placeholder: 'client id', style: { width: '100%' } });
@@ -20,6 +21,7 @@ export async function settingsView(root) {
     };
     mount(root, 
       h('div', { class: 'page-head' }, h('h1', null, 'Settings & Credential Vault')),
+      backendCard(backend, render),
       updatesCard(updates, render),
       h('section', { class: 'card' }, h('h2', null, 'This PC'),
         h('div', { class: 'toolbar' },

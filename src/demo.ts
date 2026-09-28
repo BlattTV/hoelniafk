@@ -13,7 +13,17 @@
  * data/minecraft on first use) and joins the local offline-mode server – no account needed.
  * HOELNI_DEMO_FAKE_GAME=1 serves the downloads from a local fake mirror and runs the client
  * emulator instead of Java (used by the automated tests in environments without Mojang access).
+ *
+ * LOCAL backend: a hoelni-backend (accounts + relay) on port+1 with the admin "demo" /
+ * "demo-password" and one demo agent ("Demo agent") signed in with that account –
+ * sign in under Settings → Backend & account to see Agents and the account administration.
  */
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { AgentCore } from './agent/agentCore.js';
+import { requestJson } from './agent/transport.js';
 import { createSuite } from './app.js';
 import { DEFAULT_CONFIG } from './config.js';
 import { openDatabase } from './core/db.js';
@@ -119,6 +129,34 @@ async function main() {
   });
   suite.repo.setSetting('oauth.discord.clientId', 'demo-client');
 
+  // ---------------------------------------------------------------- local backend + demo agent
+  let stopBackend: (() => Promise<void>) | null = null;
+  if (process.env.HOELNI_DEMO_BACKEND !== '0') {
+    const dir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../backend/src');
+    const load = (f: string) => import(pathToFileURL(path.join(dir, f)).href);
+    const [{ Accounts }, { openDb }, { Relay }, { createBackendServer }] = await Promise.all([load('accounts.mjs'), load('db.mjs'), load('relay.mjs'), load('server.mjs')]);
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hoelni-demo-backend-'));
+    const accounts = new Accounts(openDb(path.join(tmp, 'backend.db')));
+    accounts.createUser('demo', 'demo-password', 'admin');
+    accounts.createUser('friend', 'friend-password', 'user');
+    const quiet = { info: () => undefined, error: (m: string) => log.error(m) };
+    const relay = new Relay(accounts, quiet);
+    const server = createBackendServer({ accounts, relay, config: {}, log: quiet });
+    await new Promise<void>((r) => server.listen(PORT + 1, '127.0.0.1', r));
+    const backendUrl = `http://127.0.0.1:${PORT + 1}`;
+    suite.repo.setSetting('backend.url', backendUrl);
+    const a = await requestJson<{ token: string; deviceId: number }>(`${backendUrl}/api/login`, 'POST', { username: 'demo', password: 'demo-password', client: 'agent', name: 'Demo agent' });
+    const agent = new AgentCore({ backendUrl, token: a.token, agentId: a.deviceId, name: 'Demo agent', transport: {}, dataDir: tmp });
+    agent.start();
+    stopBackend = async () => {
+      await agent.stop();
+      relay.close();
+      await new Promise((r) => server.close(r));
+      fs.rmSync(tmp, { recursive: true, force: true });
+    };
+    log.info(`Local backend on ${backendUrl} (admin demo / demo-password)`);
+  }
+
   // ---------------------------------------------------------------- seed
   const srv = names.map((name, i) => suite.repo.upsertServer({ name, host: '127.0.0.1', port: servers[i].port, version: '1.20.1' }));
   const tpl = suite.repo.saveTemplate({
@@ -175,6 +213,7 @@ async function main() {
     stopping = true;
     await app.close().catch(() => undefined);
     await suite.shutdown().catch(() => undefined);
+    await stopBackend?.().catch(() => undefined);
     for (const s of servers) await s.close();
     await closeFake?.();
     process.exit(0);

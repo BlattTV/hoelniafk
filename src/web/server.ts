@@ -182,6 +182,7 @@ export async function buildServer(suite: Suite, opts: ServerOptions = {}): Promi
 
   // ------------------------------------------------------------------ backend (afk.hoelni.de): sign-in, agents, account administration
   app.get('/api/backend', async () => suite.backend.status());
+  app.get('/api/backend/agents', async () => suite.backend.agentList());
   app.post('/api/backend/certificate', async () => suite.backend.checkCertificate());
   app.post('/api/backend/login', async (req: Req) => {
     const b = bodyOf(req);
@@ -304,11 +305,12 @@ export async function buildServer(suite: Suite, opts: ServerOptions = {}): Promi
     const { label, settings, networkProfileId } = bodyOf(req);
     const gc = settings?.gameClient;
     if (gc) {
-      if (gc.mode !== undefined && !['handover', 'background'].includes(gc.mode)) throw new ValidationError('gameClient.mode must be handover or background');
+      if (gc.mode !== undefined && !['takeover', 'handover', 'background'].includes(gc.mode)) throw new ValidationError('gameClient.mode must be takeover, handover or background');
       if (gc.loader !== undefined && !['vanilla', 'fabric'].includes(gc.loader)) throw new ValidationError('gameClient.loader must be vanilla or fabric');
       if (gc.version !== undefined && !/^(auto|latest-release|latest-snapshot|[0-9A-Za-z._-]{1,40})$/.test(String(gc.version))) throw new ValidationError('gameClient.version is invalid');
       if (gc.memoryMb !== undefined && (!Number.isInteger(gc.memoryMb) || gc.memoryMb < 1024 || gc.memoryMb > 32768)) throw new ValidationError('gameClient.memoryMb must be 1024–32768');
     }
+    if (settings && settings.agentId !== undefined && settings.agentId !== null && !(Number.isInteger(settings.agentId) && settings.agentId > 0)) throw new ValidationError('agentId must be an agent id or null (this PC)');
     const updated = suite.repo.updateIdentity(id, { label, settings, networkProfileId });
     suite.bus.emit({ type: 'identity.changed', identityId: id });
     return updated;

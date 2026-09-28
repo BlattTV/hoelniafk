@@ -474,6 +474,21 @@ export function rewardsSection(ctx) {
 
 // ---------------------------------------------------------------- settings
 
+/** "Run on": this PC or an agent of the same backend account (filled asynchronously). */
+function runOnSelect(current) {
+  const sel = h('select', { name: 'agentId', title: 'Agents are PCs in other households signed in with your account (Hoelni Agent)' }, h('option', { value: '' }, 'This PC'));
+  if (current) sel.appendChild(h('option', { value: String(current), selected: true }, `Agent #${current}`));
+  api.get('/api/backend/agents').then((agents) => {
+    for (const a of agents) {
+      const text = `Agent: ${a.name}${a.online ? (a.paused ? ' (paused)' : ' (online)') : ' (offline)'}`;
+      const existing = [...sel.options].find((o) => o.value === String(a.id));
+      if (existing) existing.textContent = text;
+      else sel.appendChild(h('option', { value: String(a.id), selected: a.id === current }, text));
+    }
+  }).catch(() => undefined);
+  return sel;
+}
+
 export function settingsSection(ctx) {
   const { id, data, meta } = ctx;
   const s = data.identity.settings;
@@ -493,6 +508,8 @@ export function settingsSection(ctx) {
       field('UI color', h('input', { type: 'color', name: 'color', value: s.ui.color || '#5fb3ff' })),
       field('Tags (comma separated)', h('input', { name: 'tags', value: s.ui.tags.join(', ') })),
     ),
+    h('h3', null, 'Where it runs'),
+    h('div', { class: 'form-grid' }, field('Run on', runOnSelect(s.agentId))),
     h('h3', null, 'Game client (“Open game”)'),
     h('div', { class: 'form-grid' },
       field('Mode', select('gcMode', [['takeover', 'Takeover – the game takes over the running session (no re-login)'], ['handover', 'Handover – quick re-login into the game'], ['background', 'Background – the game holds the session minimized, Open game = restore window']], s.gameClient?.mode ?? 'takeover')),
@@ -524,6 +541,7 @@ export function settingsSection(ctx) {
           networkGuard: f.networkGuard,
           viewDistance: f.viewDistance,
           lightweight: f.lightweight,
+          agentId: f.agentId ? Number(f.agentId) : null,
           gameClient: { mode: f.gcMode, version: f.gcVersion.trim() || 'auto', loader: f.gcLoader, memoryMb: Number(f.gcMemoryMb) },
           discordLinking: f.discordLinking,
           reconnectDelaySec: f.reconnectDelaySec,

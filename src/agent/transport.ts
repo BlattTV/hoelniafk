@@ -105,7 +105,7 @@ export async function requestJson<T>(url: string, method: string, body: unknown,
           } catch {
             /* not json */
           }
-          if ((res.statusCode ?? 500) >= 400) return reject(new Error(json?.error ?? `HTTP ${res.statusCode}`));
+          if ((res.statusCode ?? 500) >= 400) return reject(Object.assign(new Error(json?.error ?? `HTTP ${res.statusCode}`), { status: res.statusCode }));
           resolve(json as T);
         });
       },

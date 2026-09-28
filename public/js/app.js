@@ -16,6 +16,7 @@ import { templatesView } from './views/templates.js';
 import { auditView } from './views/audit.js';
 import { settingsView } from './views/settings.js';
 import { schedulesView } from './views/schedules.js';
+import { accountsView, agentsView } from './views/remote.js';
 import { openPalette, toggleTheme } from './palette.js';
 import { handleEvent, primeStates } from './notify.js';
 
@@ -37,6 +38,8 @@ const routes = [
   [/^\/audit$/, 'audit', auditView],
   [/^\/settings$/, 'settings', settingsView],
   [/^\/schedules$/, 'schedules', schedulesView],
+  [/^\/agents$/, 'agents', agentsView],
+  [/^\/accounts$/, 'accounts', accountsView],
 ];
 
 let current = null; // { onEvent }
@@ -84,6 +87,12 @@ const showUpdate = (st) => {
   if (st.latest) el.textContent = `Update ${st.latest.version} ready`;
 };
 api.get('/api/updates').then(showUpdate).catch(() => undefined);
+// The account administration is only shown to admins signed in to the backend.
+const showBackend = (st) => {
+  const el = document.getElementById('nav-accounts');
+  if (el && st) el.hidden = !(st.role === 'admin' && st.state !== 'signed-out');
+};
+api.get('/api/backend').then(showBackend).catch(() => undefined);
 api.get('/api/sessions').then(primeStates).catch(() => undefined);
 
 subscribe(
@@ -93,6 +102,7 @@ subscribe(
     }
     handleEvent(ev);
     if (ev.type === 'updates.status') showUpdate(ev.data);
+    if (ev.type === 'agents.changed') showBackend(ev.data);
     if (current && current.onEvent) current.onEvent(ev);
   },
   (live) => {
