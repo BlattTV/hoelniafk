@@ -6,9 +6,8 @@ is protected by DPAPI for exactly this user.
 
 ## 1. Install prerequisites
 
-1. **Node.js 20 LTS or 22 LTS (x64)** – <https://nodejs.org> → Windows Installer.
-   Keep "Automatically install the necessary tools" enabled (Python + VS Build Tools are needed
-   to compile `better-sqlite3` if no prebuilt binary matches).
+1. **Node.js 22 LTS (22.13 or newer) or 24 (x64)** – <https://nodejs.org> → Windows Installer.
+   No compiler / Visual Studio is needed: the database uses Node's built-in SQLite.
 2. **Git** – <https://git-scm.com/download/win>.
 3. Open a new *PowerShell* and check:
 
@@ -174,7 +173,8 @@ npm run testserver -- --port 25601 --count 1   # a local offline test server for
 | Symptom | Fix |
 |---|---|
 | `Vault key is invalid` | the suite runs as a different Windows user than the one that created the vault → run as that user, or `npm run vault -- recover --kit <kit>` |
-| `npm ci` fails at `better-sqlite3` | install Node LTS with "necessary tools", or `npm install --global windows-build-tools` (older Node) |
+| `npm ci` fails with `EPERM … rmdir` | a previous run or an editor still holds files in `node_modules` – close VS Code/Explorer windows on the folder, delete `node_modules` and run `npm ci` again |
+| "no built-in SQLite (node:sqlite)" | Node.js is older than 22.13 – install the current Node.js 22 LTS or 24 |
 | Session BLOCKED | see the reason in the session row / Session log; fix it (whitelist, ban, duplicate login) and press Start |
 | Session RECONNECTING with "Network guard" | exit IP mismatch – run *Network → Diagnose* |
 | Microsoft sign-in keeps asking | complete the device code within 15 minutes; check *Minecraft auth* in the identity |

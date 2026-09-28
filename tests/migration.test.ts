@@ -1,13 +1,12 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import Database from 'better-sqlite3';
 import { describe, expect, it } from 'vitest';
-import { migrate, openDatabase, SCHEMA_VERSION, schemaVersion } from '../src/core/db.js';
+import { DB, migrate, openDatabase, SCHEMA_VERSION, schemaVersion } from '../src/core/db.js';
 import { IdentityRepository } from '../src/identity/repository.js';
 
 function v1Database(file: string) {
-  const db = new Database(file);
+  const db = new DB(file);
   db.pragma('foreign_keys = ON');
   migrate(db, 1);
   const ts = new Date().toISOString();
@@ -48,7 +47,7 @@ describe('database migrations', () => {
   });
 
   it('rolls back a failing migration step atomically', () => {
-    const db = new Database(':memory:');
+    const db = new DB(':memory:');
     migrate(db, 1);
     db.exec('CREATE TABLE session_events (x INTEGER)'); // collides with v2
     expect(() => migrate(db)).toThrow();

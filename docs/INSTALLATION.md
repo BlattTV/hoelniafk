@@ -18,7 +18,7 @@ Teil B ist optional, aber empfohlen: Danach aktualisierst du die Clients mit ein
 | Was | Warum |
 |---|---|
 | Windows 10 oder 11, 64 Bit | Zielsystem |
-| **Node.js 22 LTS** (x64) von <https://nodejs.org> | Laufzeit der Suite. Im Installer den Haken **„Automatically install the necessary tools“** gesetzt lassen. |
+| **Node.js 22 LTS (ab 22.13) oder 24** (x64) von <https://nodejs.org> | Laufzeit der Suite. Visual Studio oder andere Compiler sind **nicht** nötig. |
 | **Git** von <https://git-scm.com/download/win> | Code herunterladen |
 | ca. 3 GB freier Speicher | Suite, Minecraft-Dateien und Java (lädt „Open game“ beim ersten Mal herunter) |
 | Grafikkarte mit aktuellem Treiber | für das echte Minecraft-Fenster |
@@ -47,6 +47,16 @@ npm run build
 
 Bei einem privaten Repository fragt Git nach Zugangsdaten. Melde dich mit deinem GitHub-Konto an
 oder verwende einen Token.
+
+**Falls `npm ci` mit `EPERM … rmdir` abbricht:** Ein Programm (Explorer, VS Code, Virenscanner) hält
+noch Dateien im Ordner fest. Fenster auf `C:\hoelniafk` schließen, dann neu anfangen:
+
+```powershell
+cd C:\hoelniafk
+Remove-Item -Recurse -Force node_modules
+npm ci
+npm run build
+```
 
 ### A3. Das Programm (Installer) bauen und installieren
 

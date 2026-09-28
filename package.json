@@ -6,7 +6,7 @@
   "type": "module",
   "main": "dist/index.js",
   "engines": {
-    "node": ">=20"
+    "node": ">=22.13"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
@@ -26,7 +26,6 @@
   "license": "UNLICENSED",
   "dependencies": {
     "@fastify/static": "^10.1.5",
-    "better-sqlite3": "^13.0.3",
     "fastify": "^5.12.5",
     "fflate": "^0.8.3",
     "flying-squid": "^1.12.0",
@@ -42,7 +41,6 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0",
-    "@types/better-sqlite3": "^9.6.0",
     "@types/mailparser": "^3.4.6",
     "@types/node": "^26.6.3",
     "@types/nodemailer": "^8.0.2",

@@ -1,7 +1,127 @@
 import fs from 'node:fs';
-import Database from 'better-sqlite3';
+import { createRequire } from 'node:module';
 
-export type DB = Database.Database;
+/*
+ * SQLite through Node's built-in `node:sqlite` – no native add-on to compile, so `npm ci`
+ * works on every Windows PC without Visual Studio, and updates never need a rebuild.
+ * The small wrapper below offers the subset of the better-sqlite3 API the suite uses.
+ */
+const require = createRequire(import.meta.url);
+
+type SqlValue = null | number | bigint | string | Uint8Array;
+interface RawStatement {
+  run(...params: unknown[]): { changes: number | bigint; lastInsertRowid: number | bigint };
+  get(...params: unknown[]): unknown;
+  all(...params: unknown[]): unknown[];
+}
+interface RawDatabase {
+  exec(sql: string): void;
+  prepare(sql: string): RawStatement;
+  close(): void;
+}
+
+function loadSqlite(): { DatabaseSync: new (file: string) => RawDatabase } {
+  // node:sqlite prints an "experimental" warning on Node 22 – it is stable enough for us; hide that one line.
+  const orig = process.emitWarning;
+  process.emitWarning = ((warning: string | Error, ...rest: unknown[]) => {
+    const msg = typeof warning === 'string' ? warning : warning?.message;
+    if (/SQLite is an experimental feature/.test(msg ?? '')) return;
+    return (orig as any).call(process, warning, ...rest);
+  }) as typeof process.emitWarning;
+  try {
+    return require('node:sqlite');
+  } catch (e) {
+    throw new Error(`This Node.js version has no built-in SQLite (node:sqlite) – install Node.js 22.13 or newer (${(e as Error).message})`);
+  } finally {
+    process.emitWarning = orig;
+  }
+}
+
+const toNumber = (v: number | bigint) => (typeof v === 'bigint' ? Number(v) : v);
+
+const isPlainObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v) && !ArrayBuffer.isView(v);
+
+export class Statement {
+  private readonly names: Set<string>;
+  constructor(private readonly raw: RawStatement, sql: string) {
+    this.names = new Set([...sql.matchAll(/[@:$]([A-Za-z_][A-Za-z0-9_]*)/g)].map((m) => m[1]));
+  }
+  /** Like better-sqlite3: extra keys in a named-parameter object are ignored. */
+  private bind(params: unknown[]): SqlValue[] {
+    if (params.length === 1 && isPlainObject(params[0])) {
+      const o = params[0];
+      const picked: Record<string, unknown> = {};
+      for (const k of Object.keys(o)) if (this.names.has(k)) picked[k] = o[k];
+      return [picked as unknown as SqlValue];
+    }
+    return params as SqlValue[];
+  }
+  run(...params: unknown[]): { changes: number; lastInsertRowid: number } {
+    const r = this.raw.run(...this.bind(params));
+    return { changes: toNumber(r.changes), lastInsertRowid: toNumber(r.lastInsertRowid) };
+  }
+  get(...params: unknown[]): unknown {
+    return this.raw.get(...this.bind(params));
+  }
+  all(...params: unknown[]): unknown[] {
+    return this.raw.all(...this.bind(params));
+  }
+}
+
+export class DB {
+  readonly memory: boolean;
+  private readonly raw: RawDatabase;
+  private depth = 0;
+
+  constructor(readonly name: string) {
+    const { DatabaseSync } = loadSqlite();
+    this.raw = new DatabaseSync(name);
+    this.memory = name === ':memory:';
+  }
+
+  exec(sql: string): this {
+    this.raw.exec(sql);
+    return this;
+  }
+
+  prepare(sql: string): Statement {
+    return new Statement(this.raw.prepare(sql), sql);
+  }
+
+  /** `PRAGMA x` – returns the rows (like better-sqlite3's db.pragma). */
+  pragma(source: string): unknown[] {
+    return this.raw.prepare(`PRAGMA ${source}`).all();
+  }
+
+  /** Wraps fn in a transaction (savepoints when nested); call the returned function to run it. */
+  transaction<A extends unknown[], R>(fn: (...args: A) => R): (...args: A) => R {
+    return (...args: A) => {
+      const sp = `sp_${this.depth}`;
+      this.raw.exec(this.depth === 0 ? 'BEGIN' : `SAVEPOINT ${sp}`);
+      this.depth++;
+      try {
+        const r = fn(...args);
+        this.depth--;
+        this.raw.exec(this.depth === 0 ? 'COMMIT' : `RELEASE ${sp}`);
+        return r;
+      } catch (e) {
+        this.depth--;
+        this.raw.exec(this.depth === 0 ? 'ROLLBACK' : `ROLLBACK TO ${sp}; RELEASE ${sp}`);
+        throw e;
+      }
+    };
+  }
+
+  /** Consistent online copy of the database into a new file. */
+  async backup(file: string): Promise<void> {
+    fs.rmSync(file, { force: true });
+    this.raw.prepare('VACUUM INTO ?').run(file);
+  }
+
+  close(): void {
+    this.raw.close();
+  }
+}
 
 /**
  * SQLite schema. IMPORTANT: no column in this database ever holds a secret.
@@ -228,7 +348,7 @@ const MIGRATIONS: string[] = [
 export const SCHEMA_VERSION = MIGRATIONS.length;
 
 export function openDatabase(file: string): DB {
-  const db = new Database(file);
+  const db = new DB(file);
   db.pragma('busy_timeout = 5000');
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');

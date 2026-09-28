@@ -12,7 +12,7 @@ Windows user session (VM)
 │
 ├── suite main process  (dist/index.js)                         127.0.0.1:7420 only
 │     ├── Web UI + REST API + SSE (Fastify)      per-launch API token, Host/Origin checks, CSP
-│     ├── SQLite (better-sqlite3, WAL)           identities, assignments, desired state, logs …
+│     ├── SQLite (node:sqlite built in, WAL)           identities, assignments, desired state, logs …
       ├── Credential vault (AES-256-GCM file)    master key via DPAPI / Credential Manager / passphrase
       ├── Services: identities · mail · discord · network · minecraft auth · rewards · linking
 │     ├── SessionManager + desired-state reconciler

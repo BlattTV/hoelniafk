@@ -1,7 +1,7 @@
 /**
  * Prepares desktop/backend for packaging: builds the suite, copies the runtime files,
  * installs production dependencies and bundles the Node binary that installed them
- * (native modules such as better-sqlite3 must match that exact Node version).
+ * (the suite has no native add-ons of its own; Node 22.13+ provides SQLite built in).
  *
  *   cd desktop && npm install && npm run dist      (on Windows → release/*.exe)
  */
