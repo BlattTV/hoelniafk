@@ -57,6 +57,13 @@ function newToken() {
   return { token, hash: crypto.createHash('sha256').update(token).digest('hex') };
 }
 
+/** Address clients use: public URL, "local only" when bound to loopback (distributed via hoelni-backend), else the LAN IP. */
+function updateUrl(cfg) {
+  if (cfg.publicUrl) return cfg.publicUrl;
+  if (cfg.host === '127.0.0.1' || cfg.host === 'localhost') return `http://127.0.0.1:${cfg.port} (local only – clients use https://<backend>/updates)`;
+  return `http://${lanAddress()}:${cfg.port}`;
+}
+
 function lanAddress() {
   for (const list of Object.values(os.networkInterfaces())) for (const a of list ?? []) if (a.family === 'IPv4' && !a.internal) return a.address;
   return '127.0.0.1';
@@ -103,7 +110,7 @@ switch (cmd) {
     };
     saveConfig(cfg);
     fs.mkdirSync(dataDir, { recursive: true });
-    const url = cfg.publicUrl || `http://${lanAddress()}:${cfg.port}`;
+    const url = updateUrl(cfg);
     console.log(`Config:          ${CONFIG}`);
     console.log(`Update URL:      ${url}`);
     console.log(`Key fingerprint: ${fingerprint(publicKey)}`);
@@ -119,7 +126,7 @@ switch (cmd) {
   }
   case 'info': {
     const { cfg, publicKey, store } = open();
-    console.log(JSON.stringify({ config: CONFIG, url: cfg.publicUrl || `http://${lanAddress()}:${cfg.port}`, keyFingerprint: fingerprint(publicKey), repo: cfg.repo, branch: cfg.branch, channels: store.channels, state: store.state }, null, 2));
+    console.log(JSON.stringify({ config: CONFIG, url: updateUrl(cfg), keyFingerprint: fingerprint(publicKey), repo: cfg.repo, branch: cfg.branch, channels: store.channels, state: store.state }, null, 2));
     break;
   }
   case 'serve': {
