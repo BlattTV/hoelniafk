@@ -343,6 +343,27 @@ const MIGRATIONS: string[] = [
   `
   ALTER TABLE server_assignments ADD COLUMN schedule_json TEXT;
   `,
+  // v4: proxy pool
+  `
+  CREATE TABLE proxies (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind TEXT NOT NULL CHECK (kind IN ('SOCKS5', 'HTTP')),
+    host TEXT NOT NULL,
+    port INTEGER NOT NULL,
+    username TEXT,
+    credential_ref TEXT,
+    label TEXT,
+    status TEXT NOT NULL DEFAULT 'UNKNOWN',
+    exit_ip TEXT,
+    latency_ms INTEGER,
+    last_checked_at TEXT,
+    last_error TEXT,
+    identity_id INTEGER REFERENCES identities(id) ON DELETE SET NULL,
+    network_profile_id INTEGER,
+    created_at TEXT NOT NULL,
+    UNIQUE (kind, host, port, username)
+  );
+  `,
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.length;

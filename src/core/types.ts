@@ -29,6 +29,8 @@ export interface IdentitySettings {
   lightweight: boolean;
   /** The real Minecraft client used by "Open game". */
   gameClient: GameClientSettings;
+  /** Run this identity's sessions on a remote agent (household PC); null = on the backend itself. */
+  agentId: number | null;
   viewDistance: 'tiny' | 'short' | 'normal' | 'far';
   ui: { color?: string; tags: string[]; notes?: string };
 }
@@ -281,6 +283,7 @@ export const DEFAULT_SETTINGS: IdentitySettings = {
   networkMode: 'PER_ACCOUNT',
   networkGuard: 'warn',
   lightweight: true,
+  agentId: null,
   gameClient: { mode: 'takeover', version: 'auto', loader: 'vanilla', memoryMb: 2048 },
   viewDistance: 'tiny',
   ui: { tags: [] },

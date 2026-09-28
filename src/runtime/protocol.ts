@@ -7,6 +7,10 @@ export type MainToHost =
   | { cmd: 'chat'; sessionId: string; text: string }
   | { cmd: 'takeover.open'; sessionId: string }
   | { cmd: 'takeover.close'; sessionId: string; reason: string }
+  /** Agents only: open / close / focus the real game window for a session running on that PC. */
+  | { cmd: 'game.open'; sessionId: string; spec: RuntimeSessionSpec; settings: import('../core/types.js').GameClientSettings; auth: { username: string; uuid: string } }
+  | { cmd: 'game.close'; sessionId: string }
+  | { cmd: 'game.show'; sessionId: string }
   | { cmd: 'auth.reply'; reqId: number; session?: JavaSession; error?: string }
   | { cmd: 'crash' } // test hook: simulates a runtime crash
   | { cmd: 'shutdown' };

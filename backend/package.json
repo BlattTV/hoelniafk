@@ -1,0 +1,12 @@
+{
+  "name": "hoelni-backend",
+  "version": "1.0.0",
+  "description": "Hoelni backend (afk.hoelni.de): user accounts, device logins for manager and agents, relay between a user's manager and agents",
+  "type": "module",
+  "private": true,
+  "license": "UNLICENSED",
+  "bin": { "hoelni-backend": "src/cli.mjs" },
+  "engines": { "node": ">=22.13" },
+  "scripts": { "start": "node src/cli.mjs serve" },
+  "dependencies": { "ws": "^8.22.0" }
+}

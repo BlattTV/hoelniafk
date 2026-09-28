@@ -38,9 +38,18 @@ export interface MineflayerRuntimeOptions {
   idleHostTtlMs?: number;
 }
 
+/** A runtime host on another machine (Hoelni Agent), connected over WebSocket. */
+export interface RemoteHostLink {
+  agentId: number;
+  name: string;
+  send(m: MainToHost): void;
+  close(reason: string): void;
+}
+
 interface HostHandle {
   id: string;
   child: ChildProcess | null;
+  remote: RemoteHostLink | null;
   inline: { deliver: (m: MainToHost) => void; core: RuntimeHostCore } | null;
   sessions: Set<string>;
   identities: Map<number, number>;
@@ -91,7 +100,7 @@ export class MineflayerRuntime implements MinecraftRuntime {
     let resolveReady!: () => void;
     const ready = new Promise<void>((r) => (resolveReady = r));
     const handle: HostHandle = {
-      id, child: null, inline: null, sessions: new Set(), identities: new Map(), stats: null,
+      id, child: null, remote: null, inline: null, sessions: new Set(), identities: new Map(), stats: null,
       lastBeat: Date.now(), alive: true, idleSince: null, ready,
     };
     const onMsg = (m: HostToMain) => {
@@ -143,15 +152,82 @@ export class MineflayerRuntime implements MinecraftRuntime {
     return handle;
   }
 
+  /**
+   * Registers a connected agent as runtime host. Returns the function that delivers the
+   * agent's messages and a close callback for when its connection ends.
+   */
+  attachRemoteHost(link: RemoteHostLink): { deliver: (m: HostToMain) => void; detach: (why: string) => void } {
+    const existing = this.remoteHost(link.agentId);
+    if (existing) {
+      existing.remote?.close('Replaced by a new connection');
+      this.onHostExit(existing, 'agent reconnected');
+    }
+    let resolveReady!: () => void;
+    const ready = new Promise<void>((r) => (resolveReady = r));
+    const handle: HostHandle = {
+      id: `agent-${link.agentId}`, child: null, remote: link, inline: null, sessions: new Set(), identities: new Map(), stats: null,
+      lastBeat: Date.now(), alive: true, idleSince: null, ready,
+    };
+    this.hosts.set(handle.id, handle);
+    log.info(`Agent "${link.name}" (#${link.agentId}) connected as runtime host`);
+    return {
+      deliver: (m) => {
+        if (!handle.alive) return;
+        if (m.evt === 'ready') resolveReady();
+        this.fromHost(handle, m);
+      },
+      detach: (why) => this.onHostExit(handle, why),
+    };
+  }
+
+  private remoteHost(agentId: number): HostHandle | undefined {
+    return [...this.hosts.values()].find((h) => h.alive && h.remote?.agentId === agentId);
+  }
+
+  private readonly pausedAgents = new Set<number>();
+
+  /** The household paused sharing: no new sessions are placed on this agent. */
+  setAgentPaused(agentId: number, paused: boolean): void {
+    if (paused) this.pausedAgents.add(agentId);
+    else this.pausedAgents.delete(agentId);
+  }
+
+  isAgentOnline(agentId: number): boolean {
+    return !!this.remoteHost(agentId);
+  }
+
+  agentSessions(agentId: number): string[] {
+    return [...(this.remoteHost(agentId)?.sessions ?? [])];
+  }
+
+  /** Sends a command to the agent that runs a session (used for the game window on agents). */
+  sendToSessionHost(sessionId: string, m: MainToHost): boolean {
+    const h = this.sessionHost.get(sessionId);
+    if (!h?.remote) return false;
+    this.send(h, m);
+    return true;
+  }
+
+  isRemoteSession(sessionId: string): boolean {
+    return !!this.sessionHost.get(sessionId)?.remote;
+  }
+
   private send(h: HostHandle, m: MainToHost): void {
     if (!h.alive) return;
-    if (h.inline) h.inline.deliver(m);
+    if (h.remote) h.remote.send(m);
+    else if (h.inline) h.inline.deliver(m);
     else if (h.child?.connected) h.child.send(m);
   }
 
-  private pickHost(identityId: number): HostHandle {
+  private pickHost(identityId: number, agentId: number | null = null): HostHandle {
+    if (agentId !== null) {
+      const remote = this.remoteHost(agentId);
+      if (!remote) throw new Error(`Agent #${agentId} is offline – the session starts as soon as it connects`);
+      if (this.pausedAgents.has(agentId)) throw new Error(`Agent "${remote.remote?.name}" is paused by the household`);
+      return remote;
+    }
     const cap = Math.max(1, this.opts.sessionsPerHost);
-    const alive = [...this.hosts.values()].filter((h) => h.alive && h.sessions.size < cap);
+    const alive = [...this.hosts.values()].filter((h) => h.alive && !h.remote && h.sessions.size < cap);
     if (this.opts.grouping === 'identity') {
       const same = alive.find((h) => h.identities.has(identityId));
       if (same) return same;
@@ -235,14 +311,17 @@ export class MineflayerRuntime implements MinecraftRuntime {
     for (const h of this.hosts.values()) {
       if (now - h.lastBeat > timeout) {
         log.error(`Runtime host ${h.id} missed heartbeats for ${Math.round((now - h.lastBeat) / 1000)}s – restarting`);
-        if (h.child) h.child.kill('SIGKILL');
+        if (h.remote) {
+          h.remote.close('heartbeat timeout');
+          this.onHostExit(h, 'agent heartbeat timeout');
+        } else if (h.child) h.child.kill('SIGKILL');
         else {
           h.inline?.core.dispose();
           this.onHostExit(h, 'heartbeat timeout');
         }
         continue;
       }
-      if (h.sessions.size === 0 && h.idleSince && now - h.idleSince > (this.opts.idleHostTtlMs ?? 60_000)) {
+      if (!h.remote && h.sessions.size === 0 && h.idleSince && now - h.idleSince > (this.opts.idleHostTtlMs ?? 60_000)) {
         this.stopHost(h);
       }
     }
@@ -264,7 +343,7 @@ export class MineflayerRuntime implements MinecraftRuntime {
   async startSession(spec: RuntimeSessionSpec): Promise<void> {
     if (this.shuttingDown) throw new Error('Runtime is shutting down');
     if (this.sessionHost.has(spec.sessionId)) await this.stopSession(spec.sessionId, 'restart');
-    const h = this.pickHost(spec.identityId);
+    const h = this.pickHost(spec.identityId, spec.placement?.agentId ?? null);
     h.sessions.add(spec.sessionId);
     h.identities.set(spec.identityId, (h.identities.get(spec.identityId) ?? 0) + 1);
     h.idleSince = null;

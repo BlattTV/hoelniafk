@@ -459,7 +459,8 @@ export class SessionManager {
       afk: s.afk,
       lightweight: s.lightweight,
       viewDistance: s.viewDistance,
-      takeover: !!this.game && s.gameClient.mode === 'takeover',
+      takeover: (!!this.game || s.agentId !== null) && s.gameClient.mode === 'takeover',
+      placement: s.agentId !== null && s.agentId !== undefined ? { agentId: s.agentId } : null,
     };
   }
 
@@ -655,6 +656,11 @@ export class SessionManager {
       this.game?.notifyJoined(r.id);
       this.repo.addSessionEvent(r.identityId, r.serverId, r.id, 'game-attached', 'live takeover');
       this.setState(r, r.state);
+    } else if (e.status === 'error' && r.takeover === 'launching') {
+      r.takeover = 'none';
+      r.wantGame = false;
+      r.lastError = `Game could not be opened: ${e.message ?? 'takeover failed'}`;
+      this.setState(r, r.state, r.lastError);
     } else if (e.status === 'detached') {
       if (r.takeover === 'none') return; // closed by us ("Back to AFK")
       // The game left the session (quit to title, closed, kicked): close it, the AFK client carries on.
@@ -776,10 +782,11 @@ export class SessionManager {
    *  - session offline: the game starts and joins directly
    */
   async openGame(sessionId: string): Promise<SessionInfo> {
-    if (!this.game) throw new ValidationError('The game client is not available');
     const r = this.get(sessionId);
     const a = this.repo.getAssignment(r.identityId, r.serverId);
     if (!a) throw new ValidationError('Identity is not assigned to this server');
+    if (this.repo.getIdentity(r.identityId).settings.agentId != null) return this.openGameOnAgent(r, a.desiredState);
+    if (!this.game) throw new ValidationError('The game client is not available');
     r.wantGame = true;
     if (this.game.has(r.id)) {
       await this.game.show(r.id);
@@ -810,6 +817,27 @@ export class SessionManager {
       r.nextAttemptAt = null;
       await this.launch(r);
     });
+    return this.info(r);
+  }
+
+  /**
+   * The identity runs on a remote agent: the game window opens on THAT PC (the agent launches the
+   * official client and lets it take over the session there).
+   */
+  private async openGameOnAgent(r: SessionRecord, desired: DesiredState): Promise<SessionInfo> {
+    if (desired !== 'ONLINE') this.setDesired(r.identityId, r.serverId, 'ONLINE');
+    if (r.state !== 'ONLINE') await this.waitOnline(r);
+    if (!this.runtime.isRemoteSession?.(r.id)) throw new ValidationError('The session is not running on its agent yet');
+    if (r.takeover !== 'none') {
+      this.runtime.sendToSessionHost?.(r.id, { cmd: 'game.show', sessionId: r.id });
+      return this.info(r);
+    }
+    const spec = await this.buildSpec(r);
+    r.takeover = 'launching';
+    r.wantGame = true;
+    this.audit.record(r.identityId, 'Game window opened on agent', { server: r.serverName });
+    this.runtime.sendToSessionHost?.(r.id, { cmd: 'game.open', sessionId: r.id, spec, settings: this.gameSettings(r), auth: { username: r.username ?? spec.username, uuid: r.uuid ?? '' } });
+    this.setState(r, r.state);
     return this.info(r);
   }
 
@@ -884,6 +912,12 @@ export class SessionManager {
   async closeGame(sessionId: string): Promise<SessionInfo> {
     const r = this.get(sessionId);
     r.wantGame = false;
+    if (r.takeover !== 'none' && this.runtime.isRemoteSession?.(r.id)) {
+      r.takeover = 'none';
+      this.runtime.sendToSessionHost?.(r.id, { cmd: 'game.close', sessionId: r.id });
+      this.setState(r, r.state);
+      return this.info(r);
+    }
     if (r.takeover !== 'none') {
       this.audit.record(r.identityId, 'Game closed – back to AFK', { server: r.serverName });
       r.takeover = 'none';

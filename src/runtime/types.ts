@@ -29,6 +29,8 @@ export interface RuntimeSessionSpec {
   viewDistance: 'tiny' | 'short' | 'normal' | 'far';
   /** Record the session state so the real game can take over the live connection ("Open game"). */
   takeover?: boolean;
+  /** Run on this remote agent (household PC) instead of a local runtime host. */
+  placement?: { agentId: number } | null;
 }
 
 /** Serializable Minecraft Java session obtained by the main process (tokens never leave memory). */
@@ -111,6 +113,10 @@ export interface MinecraftRuntime {
   openTakeover(sessionId: string): Promise<number>;
   /** Disconnects the game from the session (the session itself stays online). */
   closeTakeover(sessionId: string, reason?: string): Promise<void>;
+  /** The session runs on a remote agent (household PC). */
+  isRemoteSession?(sessionId: string): boolean;
+  /** Command for the agent that runs a session (game window on that PC). */
+  sendToSessionHost?(sessionId: string, m: import('./protocol.js').MainToHost): boolean;
   onEvent(listener: (e: RuntimeEvent) => void): () => void;
   stats(): RuntimeStats;
   shutdown(): Promise<void>;

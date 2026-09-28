@@ -26,6 +26,7 @@ import { detectPublicIp } from './network/publicIp.js';
 import { BulkOperations } from './ops/bulk.js';
 import { MetricsCollector } from './core/metrics.js';
 import { Updater } from './ops/updater.js';
+import { BackendLink } from './relay/backendLink.js';
 import { GameClientRuntime, type GameClientOptions } from './client/gameClientRuntime.js';
 import { createWindowController } from './client/window.js';
 
@@ -147,6 +148,7 @@ export function createSuite(deps: SuiteDeps) {
   const identities = new IdentityService(repo, vault, network, sessions, linking, audit, bus);
   const bulk = new BulkOperations(repo, mail, network, sessions, discord, audit, auth);
   const updater = new Updater(repo, audit, bus);
+  const backend = new BackendLink(repo, vault, audit, bus, runtime instanceof MineflayerRuntime ? runtime : null);
   updater.autoInstallAllowed = () => !sessions.list().some((s) => s.runtime === 'game' || s.takeover !== 'none');
   const metrics = new MetricsCollector(sessions, runtime, 180, () => game?.stats().hosts ?? []);
 
@@ -193,6 +195,7 @@ export function createSuite(deps: SuiteDeps) {
     if (a.restoreSessions) sessions.startReconciler();
     metrics.start();
     updater.start(config.updates?.checkHours ?? 6);
+    void backend.start();
   }
 
   let closed = false;
@@ -202,6 +205,7 @@ export function createSuite(deps: SuiteDeps) {
     for (const t of timers) clearInterval(t);
     metrics.stop();
     updater.stop();
+    backend.shutdown();
     await sessions.shutdown();
     db.close();
   }
@@ -221,6 +225,7 @@ export function createSuite(deps: SuiteDeps) {
     runtime,
     game,
     updater,
+    backend,
     sessions,
     mail,
     discord,

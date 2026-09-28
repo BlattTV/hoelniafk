@@ -180,6 +180,31 @@ export async function buildServer(suite: Suite, opts: ServerOptions = {}): Promi
     };
   });
 
+  // ------------------------------------------------------------------ backend (afk.hoelni.de): sign-in, agents, account administration
+  app.get('/api/backend', async () => suite.backend.status());
+  app.post('/api/backend/certificate', async () => suite.backend.checkCertificate());
+  app.post('/api/backend/login', async (req: Req) => {
+    const b = bodyOf(req);
+    return suite.backend.login(String(b.username ?? ''), String(b.password ?? ''), b.trustCert ? String(b.trustCert) : null);
+  });
+  app.post('/api/backend/logout', async () => {
+    await suite.backend.logout();
+    return suite.backend.status();
+  });
+  app.post('/api/backend/change', async (req: Req) => {
+    const b = bodyOf(req);
+    return suite.backend.changeBackend(String(b.url ?? ''), String(b.adminUser ?? ''), String(b.adminPassword ?? ''), b.proxy !== undefined ? { proxy: String(b.proxy) } : {});
+  });
+  app.put('/api/backend/proxy', async (req: Req) => {
+    suite.backend.setProxy(String(bodyOf(req).proxy ?? '').trim());
+    return suite.backend.status();
+  });
+  app.get('/api/backend/admin/overview', async () => suite.backend.admin('GET', 'overview'));
+  app.post('/api/backend/admin/users', async (req: Req) => suite.backend.admin('POST', 'users', bodyOf(req)));
+  app.patch('/api/backend/admin/users/:id', async (req: Req) => suite.backend.admin('PATCH', `users/${num(req.params.id)}`, bodyOf(req)));
+  app.delete('/api/backend/admin/users/:id', async (req: Req) => suite.backend.admin('DELETE', `users/${num(req.params.id)}`));
+  app.delete('/api/backend/admin/devices/:id', async (req: Req) => suite.backend.admin('DELETE', `devices/${num(req.params.id)}`));
+
   // ------------------------------------------------------------------ updates (self-hosted update server)
   app.get('/api/updates', async () => suite.updater.status());
   app.post('/api/updates/probe', async (req: Req) => suite.updater.probe(String(bodyOf(req).url ?? '')));
