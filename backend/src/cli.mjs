@@ -2,7 +2,7 @@
 /**
  * hoelni-backend – accounts + relay for the Hoelni AFK suite (afk.hoelni.de).
  *
- *   hoelni-backend init [--port 8480] [--trust-proxy] [--data-dir DIR]
+ *   hoelni-backend init [--host 0.0.0.0] [--port 8480] [--trust-proxy] [--data-dir DIR] [--public-url URL] [--tls-cert F --tls-key F]
  *   hoelni-backend serve
  *   hoelni-backend user add <name> [--admin] [--password PW]     (asks for the password if not given)
  *   hoelni-backend user passwd <name> [--password PW]
@@ -10,11 +10,13 @@
  *   hoelni-backend user disable|enable|delete <name>
  *   hoelni-backend user list
  *   hoelni-backend devices                                      signed-in managers and agents
+ *   hoelni-backend info                                         address, certificate fingerprint, accounts
  *
  * Config: $HOELNI_BACKEND_CONFIG or /etc/hoelni-backend/config.json
  */
 import fs from 'node:fs';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import readline from 'node:readline';
 import { Accounts } from './accounts.mjs';
 import { openDb } from './db.mjs';
@@ -75,7 +77,7 @@ const [cmd, sub, name, extra] = pos;
 switch (cmd) {
   case 'init': {
     if (fs.existsSync(CONFIG) && !flag('force')) die(`${CONFIG} exists (use --force)`);
-    const cfg = { host: flag('host', '0.0.0.0'), port: Number(flag('port', 8480)), dataDir: flag('data-dir', '/var/lib/hoelni-backend'), trustProxy: flag('trust-proxy', false) === true, tls: { cert: flag('tls-cert', ''), key: flag('tls-key', '') } };
+    const cfg = { host: flag('host', '0.0.0.0'), port: Number(flag('port', 8480)), dataDir: flag('data-dir', '/var/lib/hoelni-backend'), trustProxy: flag('trust-proxy', false) === true, publicUrl: flag('public-url', ''), tls: { cert: flag('tls-cert', ''), key: flag('tls-key', '') } };
     fs.mkdirSync(path.dirname(CONFIG), { recursive: true });
     fs.writeFileSync(CONFIG, JSON.stringify(cfg, null, 2), { mode: 0o600 });
     fs.mkdirSync(cfg.dataDir, { recursive: true });
@@ -133,7 +135,25 @@ switch (cmd) {
     for (const d of accounts.listDevices()) if (!d.revoked) console.log(`#${d.id}\t${d.username}\t${d.kind}\t${d.name}\tlast ${d.lastSeenAt ?? '–'} ${d.lastIp ?? ''}`);
     break;
   }
+  case 'info': {
+    const { cfg, accounts } = openAccounts();
+    const users = accounts.listUsers();
+    const devices = accounts.listDevices().filter((d) => !d.revoked);
+    console.log(`hoelni-backend ${pkg.version}`);
+    console.log(`Listening:     ${cfg.host}:${cfg.port}${cfg.tls?.cert ? ' (TLS)' : cfg.trustProxy ? ' (behind a reverse proxy)' : ' (plain HTTP)'}`);
+    if (cfg.publicUrl) console.log(`Public URL:    ${cfg.publicUrl}`);
+    if (cfg.tls?.cert) {
+      const cert = new crypto.X509Certificate(fs.readFileSync(cfg.tls.cert));
+      console.log(`Certificate:   ${cert.subject.replace(/\n/g, ', ')} (valid until ${cert.validTo})`);
+      console.log(`Fingerprint:   ${cert.fingerprint256}`);
+      console.log('               → compare with the fingerprint the manager / agent shows on first sign-in');
+    }
+    console.log(`Accounts:      ${users.length} (${users.filter((u) => u.role === 'admin').length} admin) – ${users.map((u) => `${u.username}${u.role === 'admin' ? '*' : ''}`).join(', ') || 'none'}`);
+    console.log(`Devices:       ${devices.filter((d) => d.kind === 'manager').length} manager, ${devices.filter((d) => d.kind === 'agent').length} agent(s) signed in`);
+    if (!accounts.admins().length) console.log('\nNo admin yet – create one: hoelni-backend user add <name> --admin');
+    break;
+  }
   default:
-    console.log(fs.readFileSync(new URL(import.meta.url), 'utf8').split('\n').slice(2, 15).map((l) => l.replace(/^ \* ?/, '')).join('\n'));
+    console.log(fs.readFileSync(new URL(import.meta.url), 'utf8').split('\n').slice(2, 16).map((l) => l.replace(/^ \* ?/, '')).filter((l) => l !== '/').join('\n'));
     if (cmd && cmd !== 'help') process.exit(1);
 }
