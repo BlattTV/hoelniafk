@@ -52,6 +52,8 @@ export class BackendLink {
   private readonly agents = new Map<number, AgentInfo>();
   private readonly hosts = new Map<number, { deliver: (m: HostToMain) => void; detach: (why: string) => void }>();
   private closed = false;
+  /** Called when an agent becomes usable (online and not paused) – wired to the session manager. */
+  onAgentAvailable: (agentId: number) => void = () => undefined;
   state: LinkState = 'signed-out';
   lastError: string | null = null;
 
@@ -273,6 +275,7 @@ export class BackendLink {
         this.agents.set(a.id, { id: a.id, name: a.name, info: a.info ?? {}, paused: !!a.paused, ip: a.ip ?? null, connectedAt: a.connectedAt ?? null, online: true });
         if (!known?.online || !this.hosts.has(a.id)) this.agentOnline(a.id, a.name);
         this.runtime?.setAgentPaused(a.id, !!a.paused);
+        if (!a.paused) this.onAgentAvailable(a.id);
         break;
       }
       case 'agent.offline':
@@ -282,6 +285,7 @@ export class BackendLink {
         const a = this.agents.get(f.id);
         if (a) a.paused = !!f.value;
         this.runtime?.setAgentPaused(f.id, !!f.value);
+        if (!f.value) this.onAgentAvailable(f.id);
         break;
       }
       case 'from': {

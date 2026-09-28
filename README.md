@@ -18,7 +18,7 @@ Identity
 
 | Datei | Inhalt |
 |---|---|
-| **[docs/INSTALLATION.md](docs/INSTALLATION.md)** | **Schritt-für-Schritt: Client unter Windows installieren, Update-Server im Proxmox-LXC aufsetzen** |
+| **[docs/INSTALLATION.md](docs/INSTALLATION.md)** | **Schritt für Schritt: Client unter Windows, Update-Server und Backend `afk.hoelni.de` im Proxmox-LXC, Hoelni Agent für andere Haushalte** |
 | [SETUP.md](SETUP.md) | Vom frischen Windows bis zur laufenden Suite, OAuth-Apps, Betrieb, Updates |
 | [NETWORKING.md](NETWORKING.md) | Windows-Bind-IPs → OPNsense → VPN → Exit-VPS mit mehreren IPv4, Troubleshooting |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Tatsächlich implementierte Architektur, Session-Lebenszyklus, Sicherheitsmodell |
@@ -46,6 +46,13 @@ npm run demo              # → http://127.0.0.1:7421
 ```
 
 ## Kernfunktionen
+
+* **Backend & Agents:** Konten und Geräte-Anmeldungen laufen über das Backend (`afk.hoelni.de`,
+  `backend/`). Die Kontoverwaltung sitzt in der Suite und ist nur für Admins sichtbar.
+  Der **Hoelni Agent** (`agent-app/`, Windows-Installer) meldet sich mit demselben Konto an.
+  Danach führt dieser PC die Sessions aus, die du ihm zuweist (*Run on*); das Spielfenster öffnet sich dort.
+* **Proxy-Pool:** Proxy-Listen importieren und testen (Exit-IP, Latenz), dann automatisch je Identität
+  einen Proxy mit eigener Exit-IP zuweisen. Das gilt auch für Sessions auf Agents.
 
 * **Minecraft-Runtime:** mineflayer-Sessions in überwachten Runtime-Host-Prozessen
   (Crash → Neustart, Heartbeats), Desired-State-Reconciler mit regelbasierter Reconnect-Policy,

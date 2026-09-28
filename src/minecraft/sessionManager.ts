@@ -225,6 +225,16 @@ export class SessionManager {
     return r;
   }
 
+  /** An agent came online or was resumed: sessions waiting for it retry right away instead of after their backoff. */
+  agentAvailable(agentId: number): void {
+    for (const r of this.records.values()) {
+      if (r.state !== 'RECONNECTING') continue;
+      if (this.repo.getIdentity(r.identityId).settings.agentId !== agentId) continue;
+      r.nextAttemptAt = Date.now();
+      r.consecutiveFailures = 0;
+    }
+  }
+
   getState(sessionId: string): SessionInfo {
     return this.info(this.get(sessionId));
   }

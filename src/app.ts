@@ -151,6 +151,7 @@ export function createSuite(deps: SuiteDeps) {
   const bulk = new BulkOperations(repo, mail, network, sessions, discord, audit, auth);
   const updater = new Updater(repo, audit, bus);
   const backend = new BackendLink(repo, vault, audit, bus, runtime instanceof MineflayerRuntime ? runtime : null);
+  backend.onAgentAvailable = (agentId) => sessions.agentAvailable(agentId);
   updater.autoInstallAllowed = () => !sessions.list().some((s) => s.runtime === 'game' || s.takeover !== 'none');
   const metrics = new MetricsCollector(sessions, runtime, 180, () => game?.stats().hosts ?? []);
 

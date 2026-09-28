@@ -69,7 +69,8 @@ beforeAll(async () => {
     config: { ...DEFAULT_CONFIG, runtime: { ...DEFAULT_CONFIG.runtime, mode: 'process', heartbeatMs: 1000, heartbeatTimeoutMs: 10000 } },
     db: openDatabase(':memory:'),
     store,
-    rules: TEST_RULES,
+    // Long reconnect backoff: sessions waiting for an agent must still start at once when it comes back.
+    rules: { ...TEST_RULES, reconnect: { ...TEST_RULES.reconnect, baseDelaySec: 30, maxDelaySec: 60 } },
     gameClient: null,
     sessionOptions: { reconcileIntervalMs: 300 },
   });
@@ -160,7 +161,7 @@ describe('backend relay: manager and agent of the same account', () => {
     await new Promise((r) => setTimeout(r, 1500));
     expect(suite.sessions.getState(sid).state).not.toBe('ONLINE');
     agent.resume();
-    await waitFor(() => suite.sessions.getState(sid).state === 'ONLINE', 40_000, 'back ONLINE after resume');
+    await waitFor(() => suite.sessions.getState(sid).state === 'ONLINE', 10_000, 'back ONLINE right after resume (no backoff wait)');
   }, 60_000);
 
   it('admin API is only available to admins signed in to a manager', async () => {

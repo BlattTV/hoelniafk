@@ -62,9 +62,37 @@ Discord / Cloudflare / public IP endpoints), **REAL ACCOUNT** (real Minecraft ac
 - Local flying-squid test servers (`npm run testserver`), demo with real sessions (`npm run demo`), benchmark (`npm run bench`).
 - Windows helper scripts: start, autostart at logon (scheduled task), adding bind IPs.
 
+## IMPLEMENTED – backend, agents, proxy pool
+
+- **Backend `hoelni-backend`** (`backend/`, default address `https://afk.hoelni.de`):
+  - accounts with admin/user roles and scrypt password hashes;
+  - device sign-ins (manager/agent) whose tokens are stored only as SHA-256;
+  - sign-in lockout;
+  - per-account relay over WebSocket, with one active manager per account;
+  - admin API that answers only to an admin signed in to a manager;
+  - CLI (`user add/passwd/role/disable/delete/list`, `devices`, `info`);
+  - LXC installer `backend/install.sh`, with TLS via Caddy/Let's Encrypt, via an existing reverse proxy, or with a self-signed certificate.
+- **Manager integration:**
+  - Settings → *Backend & account*: sign-in, certificate pinning with fingerprint confirmation, and a proxy for the backend connection;
+  - the backend address can only be changed after an admin of the current backend confirms it;
+  - *Agents* page;
+  - *Accounts* page with users, devices, revoke and activity – visible only to admins;
+  - identity setting *Run on: this PC / agent*.
+- **Hoelni Agent** (`agent-app/`, Windows installer via electron-builder; `src/agent/`):
+  - sign-in once, then it is controlled as a runtime host of the account's manager;
+  - it runs only assigned sessions: start/stop, chat, and the Minecraft window (takeover on the agent PC);
+  - the household can pause it; there is a tray icon and autostart;
+  - the device token is protected with DPAPI (keyring or passphrase outside Windows);
+  - passwords are never passed on the command line.
+- **Proxy pool:**
+  - import lists (socks5/http URLs, `host:port[:user:pass]`), with passwords stored only in the vault;
+  - test each proxy for exit IP and latency, and flag proxies that share an exit;
+  - auto-assign one proxy per identity with a distinct exit IP; the proxy becomes the identity's network profile and also applies on agents;
+  - release or remove a proxy.
+
 ## TESTED
 
-`npm test` – 21 test files / 146 tests green, `npm run test:e2e` – 9 Playwright tests green; typecheck clean, production build OK:
+`npm test` – 23 test files / 157 tests green, `npm run test:e2e` – 11 Playwright tests green; typecheck clean, production build OK:
 
 | Area | Level | Tests |
 |---|---|---|
@@ -84,6 +112,40 @@ Discord / Cloudflare / public IP endpoints), **REAL ACCOUNT** (real Minecraft ac
 | Source-IP binding, SOCKS5 (RFC 1929 auth) and HTTP CONNECT proxies, exit-IP detection & mismatch, network guard, diagnosis | LOCAL INTEGRATION (Linux) | `tests/integration/network.int.test.ts` |
 | IMAP (imapflow ↔ local IMAP server) incl. XOAUTH2, SMTP (PLAIN, XOAUTH2), OAuth2 code exchange with PKCE verification + refresh, Discord API over HTTP | LOCAL INTEGRATION | `tests/integration/mail.int.test.ts` |
 | UI: all pages without console errors, dashboard filter/context menu, matrix toggle → ONLINE, **Open game → 🎮 game (live) → Back to AFK**, global chat command | LOCAL INTEGRATION (Playwright) | `tests/e2e/ui.spec.ts` (`npm run test:e2e`) |
+| Backend ↔ manager ↔ agent over the real relay:
+  - default address; an address change only with admin credentials;
+  - a real mineflayer session placed on the agent reaches ONLINE;
+  - chat round-trips; a pool SOCKS5 proxy is used from the agent (auth + exit address seen by the server);
+  - pause/resume, where resume starts the session immediately despite a 30 s backoff;
+  - admin API only for admin managers (not for users or agents), with no hashes in responses;
+  - accounts cannot reach each other's agents;
+  - revoking disconnects the agent for good | LOCAL INTEGRATION | `tests/integration/backend-relay.int.test.ts` |
+| Proxy pool:
+  - parser formats;
+  - import without passwords in SQLite, API or audit;
+  - de-duplication;
+  - tests with exit IP and latency;
+  - auto-assign with distinct exit IPs;
+  - credentials copied into the identity vault scope;
+  - release/remove | MOCK | `tests/proxypool.test.ts` |
+| UI:
+  - backend sign-in as user (no *Accounts*) and as admin (*Accounts* visible);
+  - rejected address change;
+  - agent listed; account created;
+  - *Run on* lists the agent;
+  - proxy import hides passwords; assign/release | LOCAL INTEGRATION (Playwright, demo with a local backend + agent) | `tests/e2e/ui.spec.ts` |
+| Agent CLI against a TLS backend with a self-signed certificate:
+  - unconfirmed or wrong fingerprint refused;
+  - wrong password refused;
+  - sign-in, status, run, logout;
+  - token in the passphrase vault vs. 0600 fallback;
+  - admin check before an address change | LOCAL INTEGRATION (manual run) | documented here |
+| `backend/install.sh` in a fresh `node:22-bookworm` container:
+  - user/dirs, clone, `npm ci`, config, self-signed cert, service;
+  - HTTPS `/health` and login against the installed service;
+  - interactive admin prompt through a pty (password not echoed);
+  - re-run as upgrade keeps data;
+  - modes 700/600 | LOCAL INTEGRATION (Docker; apt/Caddy/systemd stubbed – Debian mirrors blocked here) | documented here |
 | Performance 1–100 sessions, reconnect after connection drop | LOCAL INTEGRATION | `npm run bench` → docs/PERFORMANCE.md |
 | Fresh checkout acceptance: `git clone` → `npm ci` → `npm run build` → `npm start` (supervisor) → setup check → identity + server via API → session ONLINE in a runtime host → SIGTERM: clean shutdown (no processes left) → restart: session restored automatically → SIGKILL of the main process: supervisor restarts it, session restored, the old host exits on IPC disconnect | LOCAL INTEGRATION (manual run, built `dist/`) | documented here |
 
@@ -110,7 +172,7 @@ Fabric or public-IP services (egress blocked) and no credentials were provided.
 (Mojang downloads blocked – the tests run the identical launch command line against a
 protocol-level client emulator), the Windows window control (no Windows), the Electron
 desktop program and its installer (Electron binaries not downloadable here; syntax-checked
-only). First real run: `npm run demo` on Windows → *Open game* on any online session downloads
+only), the same applies to the **Hoelni Agent** window (its HTML/JS was exercised in Chromium with a mocked bridge; the Electron shell is syntax-checked only). First real run: `npm run demo` on Windows → *Open game* on any online session downloads
 Minecraft 1.20.1 and takes over the session on the local offline test server – no account needed.
 
 ## REQUIRES USER CREDENTIALS
@@ -166,6 +228,7 @@ public-IP verification through the real VPN exits; the rules against your server
 - Validate takeover with the real client on your server version; extend the state cache if a
   plugin feature (e.g. custom map art, resource-pack prompts) needs it.
 - Code-signing for the installer; automatic replacement of the desktop shell itself (today: installer download link).
-- `install.sh` was syntax-checked and its steps executed individually (init/build/serve as a normal user); the systemd/apt parts need a real Debian/Ubuntu container to verify.
+- `update-server/install.sh` was syntax-checked and its steps executed individually (init/build/serve as a normal user); the systemd/apt parts need a real Debian/Ubuntu container to verify.
+- `backend/install.sh`: package installation (NodeSource, Caddy repository), the real systemd unit and the Let's Encrypt certificate were not executable here (no Debian mirrors / no public DNS) – verify during the first real install.
 - Per-host CPU/RAM limits and automatic rebalancing of sessions across hosts.
 - Windows service packaging (installer) and signed builds.

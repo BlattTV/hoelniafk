@@ -1,13 +1,26 @@
-# Installation – Hoelni Client Suite und Update-Server
+# Installation – Hoelni Client Suite, Update-Server, Backend und Agent
 
-Diese Anleitung führt in zwei Teilen zum laufenden System:
+Diese Anleitung führt in vier Teilen zum laufenden System:
 
 * **Teil A – Client auf deinem Windows-PC:** das Programm mit eigenem Fenster und Tray-Symbol,
   den AFK-Sessions und dem echten Minecraft über „Open game“.
 * **Teil B – Update-Server im Proxmox-LXC:** baut jede neue Version automatisch und verteilt sie
   signiert an deine Clients.
 
+* **Teil C – Backend `afk.hoelni.de` im Proxmox-LXC:** Konten, Anmeldungen von Manager und Agents
+  und die Verbindung zwischen ihnen.
+* **Teil D – Hoelni Agent auf PCs in anderen Haushalten:** einmal anmelden, danach führt dieser PC
+  AFK-Sessions deines Kontos aus.
+
 Teil B ist optional, aber empfohlen: Danach aktualisierst du die Clients mit einem Klick.
+Teil C brauchst du, sobald Agents oder mehrere Konten ins Spiel kommen.
+
+```
+  Dein PC: Manager (Hoelni Client Suite)  ──┐
+                                             ├──  wss://afk.hoelni.de  (Backend im LXC)
+  Anderer Haushalt: Hoelni Agent  ───────────┘
+      └─ führt die Sessions aus, die du ihm in der Suite zuweist ("Run on")
+```
 
 ---
 
@@ -265,3 +278,221 @@ außen brauchst: Reverse-Proxy mit TLS davor. Die Signatur schützt die Updates 
 | Client: „key is not confirmed“ | *Connect* in *Settings & vault → Updates* ausführen und den Fingerprint bestätigen |
 | Client findet den Server nicht | IP und Port prüfen, `curl http://IP:8787/health` vom PC aus. Windows-Firewall und VLANs prüfen. |
 | Update installiert, aber alte Version aktiv | Die neue Version ist abgestürzt und wurde zurückgerollt. Unter *Updates → Last problem* steht der Grund. |
+
+
+---
+
+## Teil C – Backend `afk.hoelni.de` im Proxmox-LXC
+
+Das Backend verwaltet die **Konten**: dein Admin-Konto sowie Konten für Freunde. Es verwaltet außerdem
+die **Anmeldungen** von Manager und Agents und leitet zwischen ihnen weiter. Minecraft-Zugangsdaten
+und Tokens liegen weiterhin nur im Tresor der Suite; das Backend sieht sie nie gespeichert.
+Passwörter der Konten speichert es nur als scrypt-Hash, Geräte-Tokens nur als SHA-256.
+
+### C1. Container anlegen
+
+Wie in B1, nur mit anderem Namen und weniger Ressourcen. 1 Kern und 512 MB RAM reichen:
+
+```bash
+pct create 211 local:vztmpl/debian-12-standard_12.7-1_amd64.tar.zst \
+  --hostname hoelni-backend \
+  --cores 1 --memory 512 --swap 256 \
+  --rootfs local-lvm:4 \
+  --net0 name=eth0,bridge=vmbr0,ip=192.168.1.51/24,gw=192.168.1.1 \
+  --unprivileged 1 --features nesting=1 \
+  --onboot 1
+pct start 211
+```
+
+Die feste IP (hier `192.168.1.51`) passt du an dein Netz an. Der Router leitet später auf sie weiter.
+
+### C2. Domain und Router vorbereiten
+
+Das Backend muss **aus dem Internet** erreichbar sein, denn die Agents sitzen in anderen Haushalten.
+
+1. **DNS:** Lege bei deinem Domain-Anbieter für `afk.hoelni.de` einen **A-Record** auf deine
+   öffentliche IPv4 an, bei IPv6 zusätzlich einen AAAA-Record auf die IPv6 des Containers.
+   Hast du eine wechselnde IP, nutze DynDNS (z. B. über die Fritzbox) und lege für `afk` einen
+   **CNAME** auf deinen DynDNS-Namen an.
+2. **Router-Portfreigabe** auf die Container-IP `192.168.1.51`:
+   * Variante *caddy* (Standard): **TCP 80 und TCP 443**. Port 80 braucht Let's Encrypt für das Zertifikat.
+   * Variante *self*: nur **TCP 443**.
+   * Variante *proxy*: keine neue Freigabe; dein vorhandener Reverse-Proxy leitet weiter.
+
+Prüfen: `nslookup afk.hoelni.de` muss deine öffentliche IP liefern.
+
+### C3. Backend mit einem Befehl installieren
+
+```bash
+pct enter 211
+```
+
+Im Container, Standardvariante mit Let's-Encrypt-Zertifikat über Caddy:
+
+```bash
+apt-get update && apt-get install -y curl
+curl -fsSL https://raw.githubusercontent.com/BlattTV/hoelniafk/claude/practical-hopper-o4bpyw/backend/install.sh | DOMAIN=afk.hoelni.de bash
+```
+
+Ist das Repository privat, brauchst du einen GitHub-Token mit Lesezugriff:
+
+```bash
+curl -fsSL -H "Authorization: token DEIN_TOKEN" \
+  https://raw.githubusercontent.com/BlattTV/hoelniafk/claude/practical-hopper-o4bpyw/backend/install.sh \
+  | GIT_TOKEN=DEIN_TOKEN DOMAIN=afk.hoelni.de bash
+```
+
+Der Installer:
+
+1. installiert Node.js 22 und Caddy;
+2. legt den Dienstbenutzer `hoelni-backend` an;
+3. richtet den systemd-Dienst ein;
+4. holt das HTTPS-Zertifikat;
+5. **fragt nach Namen und Passwort deines Admin-Kontos**. Das Passwort braucht mindestens 10 Zeichen und wird beim Tippen nicht angezeigt.
+
+Am Ende gibt er eine Übersicht mit `hoelni-backend info` aus.
+
+**Andere Varianten** (Umgebungsvariable `TLS=`):
+
+| Variante | Wann | Befehl |
+|---|---|---|
+| `caddy` (Standard) | Domain zeigt auf dich, 80/443 sind frei | `… \| DOMAIN=afk.hoelni.de bash` |
+| `proxy` | Du hast schon Nginx Proxy Manager, Traefik o. ä. auf 80/443 | `… \| TLS=proxy DOMAIN=afk.hoelni.de bash` – dann im Proxy: `afk.hoelni.de` → `http://192.168.1.51:8480`, **WebSocket-Support an**, SSL-Zertifikat dort anfordern |
+| `self` | Keine Domain / kein Let's Encrypt möglich | `… \| TLS=self DOMAIN=afk.hoelni.de bash` – eigenes Zertifikat; Manager und Agent zeigen beim ersten Anmelden den Fingerabdruck, den du mit `hoelni-backend info` vergleichst |
+
+Den Installer kannst du jederzeit erneut ausführen. Er **aktualisiert** das Backend und behält
+Konfiguration, Datenbank und Zertifikat.
+
+### C4. Prüfen
+
+```bash
+systemctl status hoelni-backend        # active (running)
+curl -s https://afk.hoelni.de/health   # {"ok":true,"service":"hoelni-backend",…}
+hoelni-backend info                    # Konten, angemeldete Geräte, ggf. Fingerabdruck
+```
+
+Von einem Handy **im Mobilfunknetz** (nicht im WLAN) `https://afk.hoelni.de/health` öffnen. Erscheint
+`{"ok":true…}`, ist das Backend von außen erreichbar.
+
+### C5. Manager (deine Suite) anmelden
+
+In der Suite: **Settings & vault → Backend & account**.
+
+1. Die Adresse steht schon auf `https://afk.hoelni.de`. Ändern kann sie nur ein Admin des aktuellen
+   Backends (*Change address…*).
+2. Admin-Benutzername und Passwort eingeben → **Sign in**. Bei der Variante *self* erscheint vorher
+   der Fingerabdruck: mit `hoelni-backend info` vergleichen und bestätigen.
+3. Danach zeigt die Karte *connected · admin*. In der linken Leiste erscheint **Accounts**; der
+   Eintrag ist nur für Admins sichtbar.
+
+**Konten anlegen:** *Accounts → New account* mit Benutzername, Passwort und Rolle. Dort kannst du auch
+Passwörter zurücksetzen, Konten sperren oder löschen und angemeldete Manager/Agents einzeln
+**widerrufen**. Das wirkt sofort: Das Gerät wird getrennt und muss sich neu anmelden.
+Alternativ im Container: `hoelni-backend user add <name>` bzw. `user passwd`, `user disable`, `user list`, `devices`.
+
+Hinweise:
+
+* Pro Konto ist **ein Manager** gleichzeitig aktiv. Meldet sich ein zweiter an, übernimmt er.
+* Ohne verbundenen Manager führen die Agents nichts aus. Sessions laufen nur, solange die Suite läuft.
+* **Proxy zum Backend:** Muss der Manager selbst über einen Proxy ins Internet, trägst du ihn in derselben
+  Karte ein (`socks5://…` oder `http://…`).
+
+### C6. Betrieb und Wartung
+
+| Aufgabe | Befehl |
+|---|---|
+| Logs live | `journalctl -u hoelni-backend -f` |
+| Neustart | `systemctl restart hoelni-backend` |
+| Update | Installationsbefehl aus C3 erneut ausführen |
+| Sicherung | Datei `/var/lib/hoelni-backend/backend.db` (plus `/etc/hoelni-backend/`) sichern – oder den Container per Proxmox-Backup |
+| Admin-Passwort vergessen | `hoelni-backend user passwd <name>` im Container |
+
+### C7. Wenn etwas nicht klappt
+
+| Problem | Lösung |
+|---|---|
+| Caddy bekommt kein Zertifikat | DNS zeigt noch nicht auf dich (`nslookup`), Port 80 nicht weitergeleitet, oder der Provider blockiert 80 → Variante `proxy` oder `self` |
+| Suite: „Backend not reachable“ | `curl https://afk.hoelni.de/health` vom PC; Router-Freigabe und Firewall prüfen |
+| Suite: „did not confirm the admin account“ | Beim Adresswechsel wurden keine gültigen Admin-Daten des **aktuellen** Backends angegeben |
+| Suite: *another manager of this account took over* | Ein zweiter Manager mit demselben Konto hat sich verbunden – dort abmelden |
+| „Too many failed sign-ins“ | 10 Fehlversuche von derselben Adresse → 10 Minuten warten |
+| Hinter Nginx Proxy Manager: Agents verbinden nicht | Im Proxy-Host **Websockets Support** einschalten |
+
+---
+
+## Teil D – Hoelni Agent auf PCs in anderen Haushalten
+
+Der Agent ist ein kleines Windows-Programm. Wer es installiert und sich mit einem Hoelni-Konto
+anmeldet, stellt diesen PC dem **Manager desselben Kontos** zur Verfügung. Dort starten dann
+AFK-Sessions, die du in der Suite diesem Agent zuweist.
+
+**Was der Agent darf:** Minecraft-Sessions des Kontos starten und stoppen, Chat, auf Wunsch das
+Minecraft-Spielfenster öffnen. **Was er nicht darf:** Befehle ausführen, Dateien lesen, den Bildschirm
+übertragen. Der Haushalt sieht im Fenster und im Tray, was läuft, und kann jederzeit **pausieren**.
+Alles läuft dann über die Internetleitung dieses Haushalts, außer die Identität hat einen Proxy
+(siehe D4).
+
+### D1. Installer bauen (einmal, auf deinem Windows-PC)
+
+Voraussetzungen wie in A1. Im Repository:
+
+```powershell
+cd agent-app
+npm install
+npm run dist
+```
+
+Ergebnis: `agent-app\release\Hoelni-Agent-Setup-0.3.0.exe`. Diese Datei gibst du weiter, z. B. per USB-Stick oder Cloud-Link.
+
+### D2. Beim anderen Haushalt installieren
+
+1. `Hoelni-Agent-Setup-….exe` ausführen. Die Installation läuft ohne Admin-Rechte, nur für diesen Windows-Benutzer.
+2. Im Fenster **Benutzername** und **Passwort** des Kontos eingeben. Du legst es unter *Accounts* an;
+   es kann auch dein eigenes Konto sein. Optional einen Namen wie „Wohnzimmer-PC“ vergeben.
+3. **Anmelden**. Zeigt das Fenster einen Fingerabdruck (nur bei Variante *self*), vergleichst du
+   ihn mit `hoelni-backend info` und klickst auf *Fingerabdruck stimmt – anmelden*.
+4. Fertig. Der Agent startet künftig mit Windows und läuft im Tray; das lässt sich abschalten.
+
+Das Passwort wird nicht gespeichert. Der Agent behält nur ein Geräte-Token, verschlüsselt mit
+Windows DPAPI und damit an diesen Windows-Benutzer gebunden.
+
+### D3. Sessions auf dem Agent laufen lassen
+
+In deiner Suite:
+
+1. **Agents** (linke Leiste) zeigt den neuen PC: *online*, *paused by household* oder *offline*.
+2. Identität öffnen → **Identity Settings → Run on → „Agent: Wohnzimmer-PC“** → *Save settings*.
+3. Session starten wie gewohnt. Sie läuft jetzt auf dem Agent; Chat, Status und Belohnungen siehst du
+   wie bei lokalen Sessions.
+4. **Open game** öffnet das echte Minecraft-Fenster **auf dem Agent-PC**. Minecraft wird dort beim
+   ersten Mal heruntergeladen.
+
+Ist der Agent offline oder pausiert, wartet die Session. Sie startet, sobald er wieder verfügbar ist.
+
+### D4. Proxy-Pool
+
+**Proxy pool** (linke Leiste, *Setup*):
+
+1. **Import:** Liste einfügen, eine Zeile pro Proxy. Erlaubt sind `socks5://user:pass@host:port`,
+   `http://host:port`, `host:port:user:pass` und `host:port`. Die Passwörter landen direkt im
+   verschlüsselten Tresor und werden nie wieder angezeigt.
+2. **Test all:** prüft jeden Proxy und zeigt Exit-IP und Latenz. Proxys mit derselben Exit-IP werden markiert.
+3. **Assign automatically:** Jede Identität ohne Pool-Proxy bekommt einen funktionierenden Proxy mit
+   einer Exit-IP, die keine andere Identität nutzt. Einzeln geht es über *assign to…* in der Tabelle.
+
+Der zugewiesene Proxy wird zum Netzwerkprofil der Identität. Er gilt auch dann, wenn die Identität
+auf einem Agent läuft: Die Verbindung geht vom Agent-PC über den Proxy zum Minecraft-Server.
+
+**Proxy für die Verbindung des Agents zum Backend** (z. B. in Firmennetzen): im Agent unter
+*Einstellungen → Proxy für die Verbindung zum Server*.
+
+### D5. Wenn etwas nicht klappt
+
+| Problem | Lösung |
+|---|---|
+| Agent: „Wrong username or password“ | Konto unter *Accounts* prüfen bzw. Passwort zurücksetzen |
+| Agent: „abgemeldet“ | Zugang wurde widerrufen oder das Passwort des Kontos geändert → neu anmelden |
+| Agent „verbunden“, aber „Verwaltung gerade offline“ | Deine Suite läuft nicht oder ist nicht am Backend angemeldet |
+| Suite: „Agent … is offline“ bei einer Session | PC aus, Agent beendet oder keine Internetverbindung dort |
+| Suite: „Agent … is paused by the household“ | Im Agent-Fenster wurde *Pausieren* gedrückt |
+| Session auf dem Agent: Proxy-Fehler | *Proxy pool → Test* für diesen Proxy; ggf. *Release* und neu zuweisen |
