@@ -2,7 +2,7 @@
   "name": "hoelni-desktop",
   "productName": "Hoelni Client Suite",
   "version": "0.2.0",
-  "description": "Hoelni Client Suite – desktop program (own window, tray, real Minecraft game windows)",
+  "description": "Hoelni Client Suite \u2013 desktop program (own window, tray, real Minecraft game windows)",
   "main": "main.cjs",
   "private": true,
   "license": "UNLICENSED",
@@ -18,10 +18,30 @@
   "build": {
     "appId": "net.hoelni.clientsuite",
     "productName": "Hoelni Client Suite",
-    "directories": { "output": "release", "buildResources": "build" },
-    "files": ["main.cjs", "build/icon.png", "build/tray.png"],
-    "extraResources": [{ "from": "backend", "to": "backend" }],
-    "win": { "target": ["nsis"], "icon": "build/icon.png" },
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.cjs",
+      "build/icon.png",
+      "build/tray.png"
+    ],
+    "extraResources": [
+      {
+        "from": "bundle",
+        "to": ".",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "build/icon.png"
+    },
     "nsis": {
       "oneClick": false,
       "perMachine": false,

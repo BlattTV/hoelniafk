@@ -2,7 +2,7 @@
   "name": "hoelni-agent",
   "productName": "Hoelni Agent",
   "version": "0.3.0",
-  "description": "Hoelni Agent – lets this PC run AFK sessions for your Hoelni account (sign in, done)",
+  "description": "Hoelni Agent \u2013 lets this PC run AFK sessions for your Hoelni account (sign in, done)",
   "main": "main.cjs",
   "private": true,
   "license": "UNLICENSED",
@@ -18,10 +18,33 @@
   "build": {
     "appId": "net.hoelni.agent",
     "productName": "Hoelni Agent",
-    "directories": { "output": "release", "buildResources": "build" },
-    "files": ["main.cjs", "preload.cjs", "ui.html", "ui.js", "build/icon.png", "build/tray.png"],
-    "extraResources": [{ "from": "runtime", "to": "runtime" }],
-    "win": { "target": ["nsis"], "icon": "build/icon.png" },
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.cjs",
+      "preload.cjs",
+      "ui.html",
+      "ui.js",
+      "build/icon.png",
+      "build/tray.png"
+    ],
+    "extraResources": [
+      {
+        "from": "bundle",
+        "to": ".",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "build/icon.png"
+    },
     "nsis": {
       "oneClick": true,
       "perMachine": false,

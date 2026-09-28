@@ -81,8 +81,19 @@ function startBackend() {
     backend = null;
     if (quitting) return;
     if (code === 3) {
+      // Missing packages: reinstall them once with the bundled npm, then start again.
+      if (!repairTried && repairPackages(root)) {
+        repairTried = true;
+        showStatus('Installing components…', 'Some packages of the suite were missing and are being installed (needs internet, about a minute).', {});
+        return void runRepair(root).then((ok) => {
+          if (ok && !quitting) startBackend();
+          else {
+            installBroken = true;
+            showStatus('The suite is not installed completely', 'Installing the missing packages failed – see the log below.', { log: logTail(), error: true });
+          }
+        });
+      }
       installBroken = true;
-      // Installation problem (missing packages) – restarting will not help; show the reason.
       showStatus('The suite is not installed completely', 'Some packages are missing – see the log below for the fix.', { log: logTail(), error: true });
       return;
     }
@@ -100,11 +111,31 @@ function startBackend() {
   });
 }
 
+let repairTried = false;
+
+/** Bundled npm (resources/backend/node/node_modules/npm) – present in installed programs. */
+function repairPackages(root) {
+  const cli = path.join(root, 'node', 'node_modules', 'npm', 'bin', 'npm-cli.js');
+  return fs.existsSync(cli) && fs.existsSync(path.join(root, 'package-lock.json')) ? cli : null;
+}
+
+function runRepair(root) {
+  return new Promise((resolve) => {
+    const out = fs.openSync(logFile(), 'a');
+    const env = { ...process.env };
+    delete env.ELECTRON_RUN_AS_NODE;
+    const p = spawn(nodeBinary(root), [repairPackages(root), 'ci', '--omit=dev', '--no-audit', '--no-fund'], { cwd: root, env, stdio: ['ignore', out, out], windowsHide: true });
+    p.on('exit', (c) => resolve(c === 0));
+    p.on('error', () => resolve(false));
+  });
+}
+
 async function ensureBackend() {
   if (await backendUp()) return; // e.g. started by the autostart task – just attach
   startBackend();
-  const deadline = Date.now() + 90_000;
+  let deadline = Date.now() + 90_000;
   while (Date.now() < deadline) {
+    if (repairTried && !installBroken && deadline - Date.now() < 60_000) deadline = Date.now() + 60_000; // package repair running
     if (installBroken) throw new Error('The suite is not installed completely – packages are missing (see the log).');
     if (await backendUp()) return;
     await new Promise((r) => setTimeout(r, 500));

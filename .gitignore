@@ -8,7 +8,9 @@ scratch/
 test-results/
 playwright-report/
 desktop/backend/
+desktop/bundle/
 desktop/release/
 .update/
 agent-app/runtime/
+agent-app/bundle/
 agent-app/release/

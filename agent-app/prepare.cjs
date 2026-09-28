@@ -9,7 +9,9 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const repo = path.resolve(__dirname, '..');
-const out = path.join(__dirname, 'runtime');
+// electron-builder drops node_modules at the root of an extraResources source → bundle/runtime.
+fs.rmSync(path.join(__dirname, 'runtime'), { recursive: true, force: true });
+const out = path.join(__dirname, 'bundle', 'runtime');
 const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 const run = (cmd, args, cwd) => execFileSync(cmd, args, { cwd, stdio: 'inherit', shell: process.platform === 'win32' });
 
@@ -27,4 +29,5 @@ run(npm, ['ci', '--omit=dev', '--no-audit', '--no-fund'], out);
 console.log(`› bundling Node ${process.version}`);
 fs.mkdirSync(path.join(out, 'node', 'bin'), { recursive: true });
 fs.copyFileSync(process.execPath, process.platform === 'win32' ? path.join(out, 'node', 'node.exe') : path.join(out, 'node', 'bin', 'node'));
-console.log('✓ agent-app/runtime ready');
+if (!fs.existsSync(path.join(out, 'node_modules', 'ws'))) throw new Error('node_modules missing after npm ci');
+console.log('✓ agent-app/bundle/runtime ready');
