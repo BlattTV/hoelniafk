@@ -1,6 +1,6 @@
 /**
  * Quick setup – a new identity in three steps:
- *   1. name + servers   2. Microsoft (Outlook + Minecraft)   3. Discord   → go online
+ *   1. name + servers   2. Microsoft (Minecraft + Outlook, one login)   3. Discord   → go online
  * Everything else (network profiles, templates, rules …) stays in "Advanced".
  */
 import { api } from '../api.js';
@@ -52,7 +52,7 @@ export async function quickView(root, [idStr, stepStr]) {
     if (step === 1) {
       mount(root, head, stepper(1, id),
         h('div', { class: 'narrow' },
-          h('p', { class: 'lead' }, 'Sign in once with the Microsoft account of this identity. The suite connects its Outlook mailbox and its Minecraft account at the same time.'),
+          h('p', { class: 'lead' }, 'Enter the Microsoft account of this identity and sign in once in its own Microsoft window. Minecraft is connected and Outlook opens in the same window – no extra setup, no app registration.'),
           microsoftTile(id, data, render),
           h('div', { class: 'form-actions' }, next(2), later(2))));
       return;
@@ -60,8 +60,8 @@ export async function quickView(root, [idStr, stepStr]) {
     if (step === 2) {
       mount(root, head, stepper(2, id),
         h('div', { class: 'narrow' },
-          h('p', { class: 'lead' }, 'Discord opens in its own window for this identity – with its own login, so several identities never mix. Create a new account or sign in to an existing one, then connect it.'),
-          discordTile(id, data.discord, data.mail?.address ?? null, render, { expanded: data.discord?.oauthState !== 'CONNECTED' }),
+          h('p', { class: 'lead' }, 'Discord opens in its own window for this identity – with its own login, so several identities never mix. Create a new account or sign in to an existing one, then click “Done”.'),
+          discordTile(id, data.discord, data.mail?.address ?? data.microsoft?.email ?? null, render, { expanded: false }),
           h('div', { class: 'form-actions' }, next(3), later(3))));
       return;
     }
@@ -71,9 +71,9 @@ export async function quickView(root, [idStr, stepStr]) {
       h('section', { class: 'card narrow' },
         h('h2', null, 'Ready'),
         h('ul', { class: 'summary' },
-          h('li', { class: data.mail ? 'ok' : '' }, data.mail ? `Mail: ${data.mail.address}` : 'Mail: not connected'),
+          h('li', { class: data.microsoft?.linked && mcOk ? 'ok' : '' }, data.microsoft?.linked && mcOk ? `Outlook: ${data.microsoft.email}` : 'Outlook: not connected'),
           h('li', { class: mcOk ? 'ok' : '' }, mcOk ? `Minecraft: ${data.minecraft.username}` : 'Minecraft: not connected'),
-          h('li', { class: data.discord?.oauthState === 'CONNECTED' ? 'ok' : '' }, data.discord?.oauthState === 'CONNECTED' ? `Discord: @${data.discord.username}` : 'Discord: not connected'),
+          h('li', { class: data.discord?.oauthState === 'CONNECTED' ? 'ok' : '' }, data.discord?.oauthState === 'CONNECTED' ? (data.discord.username ? `Discord: @${data.discord.username}` : 'Discord: set up') : 'Discord: not set up'),
           h('li', { class: servers ? 'ok' : '' }, `Servers: ${servers}`)),
         h('div', { class: 'form-actions' },
           h('button', { class: 'primary big', disabled: !mcOk || !servers, onclick: () => guard(async () => {

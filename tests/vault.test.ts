@@ -98,12 +98,9 @@ describe('SQLite never contains secrets', () => {
     await suite.network.setProxyPassword(id, p.id, 'PROXY-PASSWORD-987654');
     suite.repo.upsertMinecraft(id, { username: 'Player07', authType: 'microsoft', msaAccount: 'acc07@example.com' });
     await suite.auth.authenticate(id);
-    const { url } = await suite.discord.beginConnect(id);
-    const r = await suite.oauth.complete(new URL(url).searchParams.get('state')!, 'code-77');
-    await suite.discord.completeConnect(id, r.tokens);
     db.pragma('wal_checkpoint(TRUNCATE)');
     const bytes = Buffer.concat([dbFile, `${dbFile}-wal`].filter((f) => fs.existsSync(f)).map((f) => fs.readFileSync(f))).toString('latin1');
-    for (const secret of ['IMAP-PASSWORD-123456', 'PROXY-PASSWORD-987654', 'mc-token-for-acc07', 'refresh-77', 'access-77']) {
+    for (const secret of ['IMAP-PASSWORD-123456', 'PROXY-PASSWORD-987654', 'mc-token-for-acc07']) {
       expect(bytes).not.toContain(secret);
     }
     expect(bytes).toContain('vault://identity/');

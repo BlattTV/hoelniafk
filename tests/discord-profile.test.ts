@@ -1,7 +1,7 @@
 /**
  * Discord per identity: pages open in the identity's own profile (desktop window), the sign-up
- * helper keeps the generated password in the vault, the verification link comes from the
- * identity's own mail. The suite never submits Discord forms (only redirects to Discord pages).
+ * helper keeps the generated password in the vault, the Microsoft window opens the Minecraft
+ * confirmation page (code filled in) or Outlook. The suite never submits Discord forms (only redirects to Discord pages).
  */
 import { describe, expect, it } from 'vitest';
 import { buildServer } from '../src/web/server.js';
@@ -33,25 +33,35 @@ describe('Discord profile per identity', () => {
     expect(reg.headers['referrer-policy']).toBe('no-referrer');
     expect((await get(`/api/identities/${id}/discord/open?to=app&token=tok-1`)).headers.location).toBe('https://discord.com/app');
     expect((await get(`/api/identities/${id}/discord/open?to=evil&token=tok-1`)).statusCode).toBe(400);
-    // connect: the OAuth consent page for this identity (state bound to it)
-    const con = await get(`/api/identities/${id}/discord/open?to=connect&token=tok-1`);
-    expect(con.statusCode).toBe(302);
-    expect(new URL(con.headers.location as string).searchParams.get('scope')).toBe('identify');
-    expect(suite.repo.getDiscord(id)?.oauthState).toBe('PENDING');
-    // no verification mail yet
+    expect((await get(`/api/identities/${id}/discord/open?to=connect&token=tok-1`)).statusCode).toBe(400);
     expect((await get(`/api/identities/${id}/discord/open?to=verify&token=tok-1`)).statusCode).toBe(400);
   });
 
-  it('opens the verification link from the identity’s own Discord mail – and refuses foreign links', async () => {
+  it('Microsoft window: confirmation page with the code filled in, then Outlook – only Microsoft pages', async () => {
     const t = await setup();
-    t.mailServer.add('disc01@example.com', {
-      uid: 1, from: 'Discord <noreply@discord.com>', to: 'disc01@example.com', subject: 'Verify Email Address for Discord',
-      text: 'Verify here', html: '<a href="https://tracker.example/x">x</a> <a href="https://click.discord.com/ls/click?upn=verify123">Verify Email</a>',
-    });
-    await t.suite.mail.checkIdentity(t.id);
-    const r = await t.get(`/api/identities/${t.id}/discord/open?to=verify&token=tok-1`);
-    expect(r.statusCode).toBe(302);
-    expect(r.headers.location).toBe('https://click.discord.com/ls/click?upn=verify123');
+    const mid = t.suite.identities.create({ label: 'Ms01' }).identity.id;
+    let release!: () => void;
+    const confirmed = new Promise<void>((r) => (release = r));
+    (t.suite.auth as any).fetcher = async ({ onDeviceCode }: any) => {
+      onDeviceCode({ userCode: 'AB12CD34', verificationUri: 'https://www.microsoft.com/link', expiresIn: 900 });
+      await confirmed;
+      return { profile: { id: '0000000000000000000000000000ab01', name: 'MsPlayer' }, accessToken: 'tok', profileKeys: null };
+    };
+    const bad = await t.app.inject({ method: 'POST', url: `/api/identities/${mid}/microsoft/connect`, payload: { email: 'nope' }, headers: { host: '127.0.0.1:7420', 'x-hoelni-token': 'tok-1' } });
+    expect(bad.statusCode).toBe(400);
+    const r = (await t.app.inject({ method: 'POST', url: `/api/identities/${mid}/microsoft/connect`, payload: { email: 'Ms01@Outlook.com' }, headers: { host: '127.0.0.1:7420', 'x-hoelni-token': 'tok-1' } })).json();
+    expect(r).toMatchObject({ email: 'ms01@outlook.com', deviceCode: { userCode: 'AB12CD34' }, authStatus: 'PENDING' });
+    expect((await t.get(`/api/identities/${mid}/microsoft/open?to=link`)).statusCode).toBe(401);
+    const link = await t.get(`/api/identities/${mid}/microsoft/open?to=link&token=tok-1`);
+    expect(link.statusCode).toBe(302);
+    expect(link.headers.location).toBe('https://www.microsoft.com/link?otc=AB12CD34');
+    release();
+    await new Promise((res) => setTimeout(res, 50));
+    expect(t.suite.repo.getMinecraft(mid)).toMatchObject({ username: 'MsPlayer', authStatus: 'AUTHENTICATED', msaAccount: 'ms01@outlook.com' });
+    expect((await t.get(`/api/identities/${mid}/microsoft/open?to=outlook&token=tok-1`)).headers.location).toBe('https://outlook.live.com/mail/0/');
+    expect((await t.get(`/api/identities/${mid}/microsoft/open?to=evil&token=tok-1`)).statusCode).toBe(400);
+    // the Discord sign-up helper uses the Microsoft address when there is no IMAP mailbox
+    expect((await t.get(`/api/identities/${mid}/discord/signup-kit?token=tok-1`)).json().email).toBe('ms01@outlook.com');
   });
 
   it('sign-up helper: suggested name, password generated once and kept in the vault', async () => {

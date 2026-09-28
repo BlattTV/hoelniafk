@@ -1,16 +1,12 @@
 /**
  * LOCAL INTEGRATION: real IMAP (imapflow ↔ hoodiecrow IMAP server), real SMTP
- * (nodemailer ↔ smtp-server) and real HTTP OAuth2 (PKCE code exchange, refresh,
- * Discord /users/@me) against local servers.
+ * (nodemailer ↔ smtp-server) against local servers.
  */
 import crypto from 'node:crypto';
-import http from 'node:http';
 import net from 'node:net';
 import { createRequire } from 'node:module';
 import { SMTPServer } from 'smtp-server';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { defaultHttpPost } from '../../src/core/oauth.js';
-import { fetchDiscordUser } from '../../src/discord/discordService.js';
 import { createTestSuite } from '../helpers.js';
 
 const require = createRequire(import.meta.url);
@@ -34,17 +30,13 @@ let imapPort: number;
 let smtp: SMTPServer;
 let smtpPort: number;
 const smtpReceived: Array<{ from: string; to: string[]; user: string; method: string; data: string }> = [];
-let oauthServer: http.Server;
-let oauthPort: number;
-const oauthLog: Array<Record<string, string>> = [];
-const challenges = new Map<string, string>(); // code -> code_challenge
 
 beforeAll(async () => {
   imapPort = await freePort();
   imap = hoodiecrow({
-    plugins: ['ID', 'IDLE', 'UNSELECT', 'ENABLE', 'SASL-IR', 'AUTH-PLAIN', 'XOAUTH2', 'SPECIAL-USE', 'LITERALPLUS'],
+    plugins: ['ID', 'IDLE', 'UNSELECT', 'ENABLE', 'SASL-IR', 'AUTH-PLAIN', 'SPECIAL-USE', 'LITERALPLUS'],
     users: {
-      'real@example.com': { password: 'imap-pw', xoauth2: { accessToken: 'ms-access-2', sessionTimeout: 3600 } },
+      'real@example.com': { password: 'imap-pw' },
     },
     storage: {
       INBOX: {
@@ -61,11 +53,11 @@ beforeAll(async () => {
 
   smtpPort = await freePort();
   smtp = new SMTPServer({
-    authMethods: ['PLAIN', 'LOGIN', 'XOAUTH2'],
+    authMethods: ['PLAIN', 'LOGIN'],
     allowInsecureAuth: true,
     hideSTARTTLS: true,
     onAuth(auth, _session, cb) {
-      if (auth.method === 'XOAUTH2' ? auth.accessToken === 'ms-access-2' : auth.password === 'imap-pw') return cb(null, { user: `${auth.username}|${auth.method}` });
+      if (auth.password === 'imap-pw') return cb(null, { user: `${auth.username}|${auth.method}` });
       cb(new Error('Invalid credentials'));
     },
     onData(stream, session, cb) {
@@ -80,61 +72,16 @@ beforeAll(async () => {
   });
   await new Promise<void>((r) => smtp.listen(smtpPort, '127.0.0.1', () => r()));
 
-  // OAuth token endpoint + Discord API mock with real PKCE verification
-  oauthPort = await freePort();
-  oauthServer = http.createServer((req, res) => {
-    let body = '';
-    req.on('data', (c) => (body += c));
-    req.on('end', () => {
-      const url = new URL(req.url!, 'http://x');
-      if (url.pathname === '/users/@me') {
-        const token = String(req.headers.authorization ?? '').replace('Bearer ', '');
-        if (token !== 'discord-access-1' && token !== 'discord-access-2') return res.writeHead(401).end('{}');
-        return res.end(JSON.stringify({ id: '123456789012345678', username: 'hoelni_tester', global_name: 'Hoelni Tester', avatar: null }));
-      }
-      if (url.pathname === '/register-code') {
-        challenges.set(url.searchParams.get('code')!, url.searchParams.get('challenge')!);
-        return res.end('ok');
-      }
-      const form = Object.fromEntries(new URLSearchParams(body));
-      oauthLog.push({ path: url.pathname, ...form });
-      res.setHeader('Content-Type', 'application/json');
-      if (form.grant_type === 'authorization_code') {
-        const expected = challenges.get(form.code);
-        const actual = crypto.createHash('sha256').update(form.code_verifier ?? '').digest('base64url');
-        if (!expected || expected !== actual) return res.writeHead(400).end(JSON.stringify({ error: 'invalid_grant' }));
-        const prefix = url.pathname.includes('discord') ? 'discord' : 'ms';
-        return res.end(JSON.stringify({ access_token: `${prefix}-access-1`, refresh_token: `${prefix}-refresh-1`, expires_in: 1 }));
-      }
-      if (form.grant_type === 'refresh_token') {
-        const prefix = url.pathname.includes('discord') ? 'discord' : 'ms';
-        if (form.refresh_token !== `${prefix}-refresh-1`) return res.writeHead(400).end(JSON.stringify({ error: 'invalid_grant' }));
-        return res.end(JSON.stringify({ access_token: `${prefix}-access-2`, refresh_token: `${prefix}-refresh-1`, expires_in: 3600 }));
-      }
-      res.writeHead(400).end(JSON.stringify({ error: 'unsupported_grant_type' }));
-    });
-  });
-  await new Promise<void>((r) => oauthServer.listen(oauthPort, '127.0.0.1', () => r()));
-  process.env.HOELNI_DISCORD_API_BASE = `http://127.0.0.1:${oauthPort}`;
 });
 
 afterAll(async () => {
-  delete process.env.HOELNI_DISCORD_API_BASE;
   await new Promise((r) => imap?.close(r));
   await new Promise((r) => smtp?.close(() => r(null)));
-  oauthServer?.close();
 });
 
-/** Suite that uses the REAL IMAP source, OAuth HTTP client and Discord fetcher. */
+/** Suite that uses the REAL IMAP source. */
 async function realSuite() {
-  const t = await createTestSuite({ mailSourceFactory: undefined, oauthPost: defaultHttpPost, discordUserFetcher: fetchDiscordUser });
-  return t;
-}
-
-async function simulateAuthorize(authUrl: string, code: string): Promise<string> {
-  const u = new URL(authUrl);
-  await fetch(`http://127.0.0.1:${oauthPort}/register-code?code=${code}&challenge=${u.searchParams.get('code_challenge')}`);
-  return u.searchParams.get('state')!;
+  return createTestSuite({ mailSourceFactory: undefined });
 }
 
 describe('IMAP mailbox (password)', () => {
@@ -197,61 +144,5 @@ describe('IMAP mailbox (password)', () => {
     const got = smtpReceived.at(-1)!;
     expect(got).toMatchObject({ from: 'mc07@example.com', to: ['admin@hoelni.example'], user: 'real@example.com', method: 'PLAIN' });
     expect(got.data).toContain('hello from identity 7');
-  });
-});
-
-describe('OAuth2 (local identity provider, real HTTP + PKCE)', () => {
-  it('connects a Microsoft mailbox and uses XOAUTH2 for IMAP and SMTP with refreshed tokens', async () => {
-    const { suite } = await realSuite();
-    suite.repo.setSetting('oauth.microsoft.tokenUrl', `http://127.0.0.1:${oauthPort}/ms/token`);
-    const box = suite.repo.createMailAccount({
-      label: 'outlook', kind: 'microsoft', imapHost: '127.0.0.1', imapPort: imapPort, imapSecure: false, username: 'real@example.com',
-      smtpHost: '127.0.0.1', smtpPort: smtpPort, webmailUrl: null, exclusiveIdentityId: null, aliasProviderId: null,
-    });
-    const { url } = await suite.oauth.begin('microsoft', { type: 'mailbox', mailboxId: box.id }, { loginHint: 'real@example.com' });
-    expect(new URL(url).searchParams.get('login_hint')).toBe('real@example.com');
-    const state = await simulateAuthorize(url, 'ms-code-1');
-    const done = await suite.oauth.complete(state, 'ms-code-1');
-    await suite.mail.storeMailboxOAuth(box.id, done.provider, done.tokens);
-    const secret = await suite.vault.store.get(`vault://mailbox/${box.id}`);
-    expect(JSON.parse(secret!)).toMatchObject({ type: 'oauth', provider: 'microsoft', refreshToken: 'ms-refresh-1' });
-    // expires_in=1 → the next IMAP connection refreshes the token first
-    await new Promise((r) => setTimeout(r, 1100));
-    const id = suite.identities.create({}).identity.id;
-    suite.repo.assignMail(id, { mailAccountId: box.id, address: 'mc01@example.com', isAlias: true });
-    expect((await suite.mail.checkIdentity(id)).accessStatus).toBe('OK');
-    expect(oauthLog.some((l) => l.grant_type === 'refresh_token' && l.refresh_token === 'ms-refresh-1')).toBe(true);
-    await suite.mail.sendMail(id, { to: 'x@example.com', subject: 'oauth smtp', text: 'via xoauth2' });
-    expect(smtpReceived.at(-1)!.method).toBe('XOAUTH2');
-  });
-
-  it('rejects a code exchange with a wrong PKCE verifier', async () => {
-    const { suite } = await realSuite();
-    suite.repo.setSetting('oauth.discord.tokenUrl', `http://127.0.0.1:${oauthPort}/discord/token`);
-    const id = suite.identities.create({}).identity.id;
-    const { url } = await suite.discord.beginConnect(id);
-    const u = new URL(url);
-    await fetch(`http://127.0.0.1:${oauthPort}/register-code?code=discord-code-x&challenge=not-the-real-challenge`);
-    await expect(suite.oauth.complete(u.searchParams.get('state')!, 'discord-code-x')).rejects.toThrow(/invalid_grant/);
-  });
-
-  it('connects a Discord account end-to-end over HTTP and verifies it via refresh', async () => {
-    const { suite } = await realSuite();
-    suite.repo.setSetting('oauth.discord.tokenUrl', `http://127.0.0.1:${oauthPort}/discord/token`);
-    const id = suite.identities.create({}).identity.id;
-    const { url } = await suite.discord.beginConnect(id);
-    expect(new URL(url).searchParams.get('scope')).toBe('identify');
-    const state = await simulateAuthorize(url, 'discord-code-1');
-    const done = await suite.oauth.complete(state, 'discord-code-1');
-    const d = await suite.discord.completeConnect(id, done.tokens);
-    expect(d).toMatchObject({ discordUserId: '123456789012345678', username: 'hoelni_tester', oauthState: 'CONNECTED' });
-    const again = await suite.discord.verify(id); // refresh_token grant + /users/@me with the new token
-    expect(again.oauthState).toBe('CONNECTED');
-    expect(oauthLog.some((l) => l.path.includes('discord') && l.grant_type === 'refresh_token')).toBe(true);
-    // a revoked grant is detected
-    oauthLog.length = 0;
-    const secretRef = suite.repo.getDiscord(id)!.credentialRef!;
-    await suite.vault.forIdentity(id).setJson(secretRef, { refreshToken: 'revoked' });
-    expect((await suite.discord.verify(id)).oauthState).toBe('EXPIRED');
   });
 });

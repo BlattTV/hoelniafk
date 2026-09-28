@@ -1,5 +1,5 @@
 import { api } from '../api.js';
-import { clear, copy, field, guard, h, mount } from '../ui.js';
+import { guard, h, mount } from '../ui.js';
 import { updatesCard } from './updates.js';
 import { backendCard } from './remote.js';
 import { notificationsEnabled, setNotifications } from '../notify.js';
@@ -9,17 +9,6 @@ import { lang, LANGUAGES, setLanguage } from '../i18n.js';
 export async function settingsView(root) {
   const render = async () => {
     const [settings, status, vault, rules, updates, backend] = await Promise.all([api.get('/api/settings'), api.get('/api/status'), api.get('/api/vault'), api.get('/api/rules'), api.get('/api/updates'), api.get('/api/backend')]);
-    const oauthCard = (p, title, hint) => {
-      const s = settings.oauth[p];
-      const id = h('input', { value: s.clientId, placeholder: 'client id', style: { width: '100%' } });
-      const secret = h('input', { type: 'password', placeholder: s.hasClientSecret ? 'stored (leave empty to keep)' : 'optional for public clients', autocomplete: 'new-password', style: { width: '100%' } });
-      const tenant = p === 'microsoft' ? h('input', { value: s.tenant, style: { width: '100%' } }) : null;
-      return h('div', { class: 'card' }, h('h2', null, title), h('p', { class: 'muted' }, hint),
-        h('div', { class: 'form-grid' }, field('Client ID', id), field('Client secret', secret), tenant ? field('Tenant', tenant) : null),
-        h('div', { class: 'form-actions' },
-          h('button', { class: 'primary', onclick: () => guard(async () => { await api.put(`/api/settings/oauth/${p}`, { clientId: id.value, clientSecret: secret.value || undefined, tenant: tenant?.value }); await render(); }, 'Saved') }, 'Save'),
-          s.hasClientSecret ? h('button', { class: 'danger', onclick: () => guard(async () => { await api.put(`/api/settings/oauth/${p}`, { clientSecret: null }); await render(); }, 'Secret removed') }, 'Remove secret') : null));
-    };
     mount(root, 
       h('div', { class: 'page-head' }, h('h1', null, 'Settings & Credential Vault')),
       backendCard(backend, render),
@@ -55,9 +44,6 @@ export async function settingsView(root) {
             })(),
             h('h3', null, 'Stored secrets (references only)'),
             h('ul', { class: 'mono', style: { fontSize: '12px' } }, vault.refs.map((r) => h('li', null, r)))),
-          h('section', { class: 'card' }, h('h2', null, 'OAuth redirect URI'),
-            h('p', null, 'Register this redirect URI in every OAuth app (Discord, Microsoft, Google):'),
-            h('div', { class: 'toolbar' }, h('code', null, settings.redirectUri), h('button', { class: 'small', onclick: () => copy(settings.redirectUri, 'URI copied') }, 'Copy'))),
           h('section', { class: 'card' }, h('h2', null, 'Recognition rules'),
             h('p', { class: 'muted' }, `config/rules.yaml – ${rules.mailRules.length} mail rules, ${rules.chatRules.length} chat rule-sets.`),
             h('table', null, h('tbody', null,
@@ -68,14 +54,10 @@ export async function settingsView(root) {
             h('div', { class: 'kv' },
               h('div', null, 'Mail check'), h('div', null, settings.automation.mailCheckMinutes ? `every ${settings.automation.mailCheckMinutes} min` : 'off'),
               h('div', null, 'Network check'), h('div', null, settings.automation.networkCheckMinutes ? `every ${settings.automation.networkCheckMinutes} min` : 'off'),
-              h('div', null, 'Discord verify'), h('div', null, settings.automation.discordVerifyHours ? `every ${settings.automation.discordVerifyHours} h` : 'off'),
               h('div', null, 'Token refresh'), h('div', null, settings.automation.tokenRefreshHours ? `every ${settings.automation.tokenRefreshHours} h` : 'off'),
               h('div', null, 'Restore sessions'), h('div', null, settings.automation.restoreSessions ? 'desired-state reconciler active' : 'off')),
             h('p', { class: 'muted' }, 'Configured in config/app.yaml.'))),
         h('div', null,
-          oauthCard('discord', 'Discord OAuth2', 'Discord Developer Portal → your application → OAuth2. Used only to connect existing accounts (scope "identify").'),
-          oauthCard('microsoft', 'Microsoft OAuth2 (mail)', 'Azure portal → App registrations → public client ("Mobile and desktop") with IMAP.AccessAsUser.All / SMTP.Send.'),
-          oauthCard('google', 'Google OAuth2 (mail)', 'Google Cloud console → OAuth client of type "Desktop app" with the Gmail scope.'),
           h('section', { class: 'card' }, h('h2', null, 'About'), h('p', { class: 'muted' }, `${status.name} ${status.version}`)))),
     );
   };

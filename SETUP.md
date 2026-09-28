@@ -91,31 +91,27 @@ Open **Setup Check** – it lists what is still missing. Recommended order:
 1. **Settings & Vault → Export recovery kit.** Store the file offline and the passphrase separately.
    Without it, the secrets cannot be recovered on another PC / Windows user
    (`npm run vault -- recover --kit <file>`).
-2. **Settings & Vault → OAuth clients** (see section 6).
+2. Nothing to register – see section 6.
 3. **Server Profiles** – add your Minecraft server(s) (host, port, version or empty = auto).
-4. **Mailboxes & Aliases** – add mailbox(es): IMAP with password/app password, or
-   Microsoft/Google via OAuth2. Optional alias provider (plus addressing / Cloudflare).
+4. **Mailboxes & Aliases** (optional) – IMAP mailboxes with password/app password for automatic code
+   recognition. Optional alias provider (plus addressing / Cloudflare). Outlook needs nothing here.
 5. **Network** – follow [NETWORKING.md](NETWORKING.md) to give every identity its own source IP.
 6. **＋ New Identity** – run the wizard for **one** identity:
-   Mail → Minecraft (Microsoft sign-in via device code) → Discord (OAuth2) → Network profile
+   Microsoft (Minecraft + Outlook in the identity's window) → Discord (own window) → Network profile
    (+ Diagnose) → Server assignments → Verification. Continue until all six milestone items are
    green: `Minecraft ✓ Mail ✓ Discord ✓ Discord Link ✓ Exit IP ✓ Session ✓`.
 7. Then scale with **Templates** and **Clone (without secrets)**; set sessions online in the
    **Account × Server** matrix.
 
-## 6. OAuth applications (your own, one-time)
+## 6. No developer apps needed
 
-Redirect URI for all providers (also shown in *Settings & Vault*):
-`http://127.0.0.1:7420/oauth/callback`
+The suite needs no OAuth apps (no Azure app registration, no Discord or Google developer app):
 
-| Provider | Where | What to enter in the suite |
-|---|---|---|
-| Discord | <https://discord.com/developers/applications> → New Application → OAuth2 → add the redirect URI | Client ID (+ Client Secret, stored in the vault). Scope used: `identify` |
-| Microsoft (Outlook/Hotmail mailboxes) | Azure Portal → App registrations → New registration → "Personal Microsoft accounts" (or as needed) → Authentication → Mobile and desktop platform with the redirect URI → API permissions: `IMAP.AccessAsUser.All`, `SMTP.Send`, `offline_access` | Client ID, tenant (`consumers` for outlook.com) |
-| Google (Gmail) | Google Cloud Console → APIs & Services → OAuth consent screen + Credentials → OAuth client ID type "Desktop app" → scope `https://mail.google.com/` | Client ID (+ secret for desktop clients) |
-
-Minecraft login needs **no** app registration: the suite uses the Microsoft device-code flow of
-prismarine-auth; the wizard shows the code to enter at microsoft.com/link.
+* **Minecraft:** Microsoft's own Minecraft sign-in (device code). The desktop program opens the
+  confirmation page with the code already filled in, in the identity's own Microsoft window.
+* **Outlook:** runs in the same Microsoft window (same login). The suite stores no mail tokens.
+* **Discord:** its own window per identity; the user registers / signs in there and marks it as set up.
+* **Optional IMAP mailboxes** (automatic code recognition): password / app password, stored in the vault.
 
 ## 7. Operating
 

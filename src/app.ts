@@ -6,9 +6,8 @@ import { AuditLog } from './core/audit.js';
 import { openDatabase, type DB } from './core/db.js';
 import { EventBus } from './core/events.js';
 import { createLogger } from './core/logger.js';
-import { OAuthManager, defaultHttpPost, type HttpPost, type OAuthProviderName } from './core/oauth.js';
 import { loadRules, parseRules, type RulesConfig } from './core/rules.js';
-import { DiscordService, fetchDiscordUser, type DiscordUserFetcher } from './discord/discordService.js';
+import { DiscordService } from './discord/discordService.js';
 import { IdentityRepository } from './identity/repository.js';
 import { IdentityService } from './identity/identityService.js';
 import { MailService, type SourceFactory } from './mail/mailService.js';
@@ -30,7 +29,6 @@ import { BackendLink } from './relay/backendLink.js';
 import { ProxyPool } from './network/proxyPool.js';
 import { MicrosoftAccountService } from './identity/microsoftAccount.js';
 import { MacroService } from './macros/service.js';
-import type { JsonHttp, XboxEndpoints } from './minecraft/xboxChain.js';
 import { GameClientRuntime, type GameClientOptions } from './client/gameClientRuntime.js';
 import { createWindowController } from './client/window.js';
 
@@ -63,11 +61,6 @@ export interface SuiteDeps {
   ipDetector?: IpDetector;
   tokenFetcher?: TokenFetcher;
   mailSourceFactory?: SourceFactory;
-  discordUserFetcher?: DiscordUserFetcher;
-  oauthPost?: HttpPost;
-  /** Xbox Live / Minecraft services HTTP (tests use local fakes). */
-  xboxHttp?: JsonHttp;
-  xboxEndpoints?: XboxEndpoints;
   httpJson?: HttpJson;
   /** Overrides for the real game client (tests: emulator as java, local mirror). null = disabled. */
   gameClient?: Partial<GameClientOptions> | null;
@@ -90,24 +83,6 @@ export function createSuite(deps: SuiteDeps) {
     audit.record(null, 'Rules reloaded', { mailRules: rules.mailRules.length, chatRules: rules.chatRules.length });
     return rules;
   };
-
-  const oauth = new OAuthManager(
-    async (p: OAuthProviderName) => {
-      const clientId = repo.getSetting(`oauth.${p}.clientId`) || (config.oauth as any)[p]?.clientId || '';
-      if (!clientId) return null;
-      const clientSecret = await vault.store.get(refs.app(`oauth-${p}`));
-      const tenant = repo.getSetting('oauth.microsoft.tenant') || config.oauth.microsoft.tenant;
-      return {
-        clientId,
-        clientSecret,
-        tenant,
-        authorizeUrl: repo.getSetting(`oauth.${p}.authorizeUrl`),
-        tokenUrl: repo.getSetting(`oauth.${p}.tokenUrl`),
-      };
-    },
-    () => `http://127.0.0.1:${config.port}/oauth/callback`,
-    deps.oauthPost ?? defaultHttpPost,
-  );
 
   const network = new NetworkService(repo, vault, audit, bus, deps.ipDetector ?? detectPublicIp);
   network.endpoints = config.network.ipEndpoints;
@@ -150,16 +125,13 @@ export function createSuite(deps: SuiteDeps) {
     });
     sessions.attachGameClient(game);
   }
-  const mail = new MailService(repo, vault, oauth, audit, bus, getRules, deps.mailSourceFactory, deps.httpJson);
+  const mail = new MailService(repo, vault, audit, bus, getRules, deps.mailSourceFactory, deps.httpJson);
   mail.syncLimit = config.mail.syncLimit;
-  const discord = new DiscordService(repo, vault, oauth, audit, bus, deps.discordUserFetcher ?? fetchDiscordUser);
+  const discord = new DiscordService(repo, vault, audit, bus);
   const identities = new IdentityService(repo, vault, network, sessions, linking, audit, bus);
   const bulk = new BulkOperations(repo, mail, network, sessions, discord, audit, auth);
   const updater = new Updater(repo, audit, bus);
-  const microsoft = new MicrosoftAccountService(repo, vault, oauth, mail, auth, audit, bus, deps.xboxHttp, deps.xboxEndpoints);
-  mail.identityAccessToken = (identityId) => microsoft.accessToken(identityId, 'outlook');
-  auth.directSession = (identityId) => microsoft.minecraftSession(identityId);
-  auth.renewDirect = (identityId) => microsoft.renewMinecraft(identityId);
+  const microsoft = new MicrosoftAccountService(repo, auth, audit, bus);
   sessions.renewAuth = (identityId) => auth.renew(identityId);
   const macros = new MacroService(db, runtime, audit, bus);
   sessions.macrosFor = (identityId, serverId) => macros.forSession(identityId, serverId);
@@ -168,15 +140,6 @@ export function createSuite(deps: SuiteDeps) {
       .list()
       .filter((x) => ['ONLINE', 'CONNECTING', 'AUTHENTICATING', 'STARTING'].includes(x.state))
       .map((x) => ({ sessionId: x.id, identityId: x.identityId, serverId: x.serverId }));
-  discord.verificationLink = async (identityId) => {
-    const msgs = mail.listForIdentity(identityId, { category: 'verification-any', limit: 10 }).filter((m) => /discord/i.test(`${m.from ?? ''} ${m.provider ?? ''}`));
-    for (const m of msgs) {
-      const d = await mail.getMessage(identityId, m.id, { markSeen: false });
-      const link = d.links.find((l) => /verify|click\.discord\.com/i.test(l.url) && /(^|\.)discord(app)?\.com$/i.test(new URL(l.url).hostname));
-      if (link) return link.url;
-    }
-    return null;
-  };
   const backend = new BackendLink(repo, vault, audit, bus, runtime instanceof MineflayerRuntime ? runtime : null);
   backend.onAgentAvailable = (agentId) => sessions.agentAvailable(agentId);
   updater.authHeaders = (url) => backend.authHeadersFor(url);
@@ -209,10 +172,6 @@ export function createSuite(deps: SuiteDeps) {
     everyMinutes(a.networkCheckMinutes, 'network check', async () => {
       const ids = repo.listIdentities().filter((i) => i.networkProfileId).map((i) => i.id);
       if (ids.length) await bulk.run('verifyNetwork', ids);
-    });
-    everyMinutes(a.discordVerifyHours * 60, 'discord verify', async () => {
-      const ids = repo.listIdentities().filter((i) => repo.getDiscord(i.id)?.credentialRef).map((i) => i.id);
-      if (ids.length) await bulk.run('verifyDiscord', ids);
     });
     everyMinutes(a.tokenRefreshHours * 60, 'token refresh', async () => {
       // Keeps Microsoft refresh tokens alive (they expire after long inactivity).
@@ -249,7 +208,6 @@ export function createSuite(deps: SuiteDeps) {
     audit,
     vault,
     repo,
-    oauth,
     network,
     proxies,
     microsoft,

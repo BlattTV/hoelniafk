@@ -129,48 +129,21 @@ export function discordSection(ctx) {
   const d = data.discord;
   const linked = d?.linkState === 'LINKED';
   const pending = data.pendingLink;
-  const signup = () =>
-    guard(async () => {
-      openDiscord(id, 'register');
-      modal(
-        'Create Discord Account',
-        h(
-          'div',
-          null,
-          h('p', null, 'The official Discord sign-up page was opened in this identity\'s own Discord window. The suite never creates or automates Discord accounts itself.'),
-          h('ol', null, h('li', null, 'Register on discord.com (use the identity\'s mail address).'), h('li', null, 'Complete Discord\'s e-mail / phone verification (the verification mail appears in this identity\'s inbox).'), h('li', null, 'Return here and click “Connect via OAuth2”.')),
-          ctx.data.mail ? h('p', null, 'Identity mail: ', h('code', null, ctx.data.mail.address), ' ', h('button', { class: 'small', onclick: () => copy(ctx.data.mail.address, 'Address copied') }, 'Copy')) : null,
-          h('button', { class: 'primary', onclick: connect }, 'Connect via OAuth2'),
-        ),
-      );
-    });
-  const connect = () =>
-    guard(async () => {
-      openDiscord(id, 'connect');
-      toast('Authorize the app in the Discord tab – this view updates automatically.', 'info', 8000);
-    });
   return card(
     'discord',
     'Discord',
-    d?.discordUserId
-      ? h('div', { class: 'toolbar', style: { marginBottom: '10px' } }, d.avatar ? h('img', { src: d.avatar, width: 40, height: 40, style: { borderRadius: '50%' }, alt: '' }) : null, h('div', null, h('strong', null, d.displayName ?? d.username), h('div', { class: 'muted' }, `@${d.username} · ${d.discordUserId}`)))
-      : null,
     kv([
-      ['Account', d?.username ? `@${d.username}` : 'not connected'],
+      ['Account', d?.oauthState === 'CONNECTED' ? (d.username ? `@${d.username}` : 'set up') : 'not set up'],
       ['Linked / Not Linked', linked ? h('span', { class: 's-ok' }, 'Linked') : h('span', { class: 's-warn' }, `Not linked (${d?.linkState ?? 'UNKNOWN'})`)],
-      ['OAuth status', badge(d?.oauthState === 'CONNECTED' ? 'ok' : d?.oauthState === 'PENDING' || !d || d.oauthState === 'NONE' ? 'warn' : 'error', d?.oauthState ?? 'NONE')],
-      ['Last verified', fmtTime(d?.lastVerifiedAt)],
     ]),
     pending ? h('div', { class: 'infobox' }, h('strong', null, 'Link code received from the Minecraft server'), h('p', { class: 'muted' }, `${fmtTime(pending.receivedAt)} – use it in the server's Discord linking flow:`), codeBox(pending.code)) : null,
     d?.lastError ? h('div', { class: 'warnbox' }, d.lastError) : null,
     h(
       'div',
       { class: 'form-actions' },
-      !d?.discordUserId ? h('button', { onclick: signup }, 'CREATE DISCORD ACCOUNT') : null,
-      h('button', { class: 'primary', onclick: connect }, d?.discordUserId ? 'Reconnect via OAuth2' : 'Connect via OAuth2'),
-      d?.credentialRef ? h('button', { onclick: () => guard(async () => { await api.post(`/api/identities/${id}/discord/verify`); await ctx.reload(); }, 'Discord verified') }, 'Verify') : null,
+      d?.oauthState !== 'CONNECTED' ? h('button', { onclick: () => openDiscord(id, 'register') }, 'Create Discord account') : null,
       h('button', { onclick: () => openDiscord(id, 'app') }, 'Open Discord'),
-      d?.discordUserId ? h('button', { class: 'danger', onclick: () => confirm('Disconnect Discord from this identity?') && guard(async () => { await api.post(`/api/identities/${id}/discord/disconnect`); await ctx.reload(); }) }, 'Disconnect') : null,
+      d?.oauthState === 'CONNECTED' ? h('button', { class: 'danger', onclick: () => confirm('Reset the Discord setup of this identity? (The login in its Discord window stays.)') && guard(async () => { await api.post(`/api/identities/${id}/discord/disconnect`); await ctx.reload(); }) }, 'Reset') : null,
     ),
     h(
       'div',

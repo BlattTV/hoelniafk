@@ -128,8 +128,8 @@ npm start
    * **Schedules:** Online-Zeitfenster pro Session festlegen, z. B. werktags 18–24 Uhr.
    * **Settings & vault → This PC:** Desktop-Benachrichtigungen und Hell-/Dunkelmodus.
 
-Mehr zu OAuth-Apps (Discord, Microsoft- und Google-Mail) und zu den Netzwerkprofilen:
-[SETUP.md](../SETUP.md) und [NETWORKING.md](../NETWORKING.md).
+Mehr zu den Netzwerkprofilen: [NETWORKING.md](../NETWORKING.md). Entwickler-Apps (Azure, Discord,
+Google) brauchst du **keine**.
 
 ### A5. Ohne echten Account ausprobieren
 
@@ -562,72 +562,43 @@ auf einem Agent läuft: Die Verbindung geht vom Agent-PC über den Proxy zum Min
 
 ## Teil E – Neue Identität in drei Schritten (Microsoft + Discord)
 
+Kostenlos und ohne App-Registrierung: kein Azure, keine Client-ID, keine Discord-Entwickler-App.
+
 In der Suite: **Neue Identität** (links oben).
 
 1. **Name & Server:** Name eingeben, Server anhaken, *Weiter*.
-2. **Mit Microsoft anmelden:** Du meldest dich einmal im Browser mit dem Microsoft-Konto dieser
-   Identität an und stimmst zu. Danach sind **gleichzeitig verbunden**:
-   * das **Outlook-Postfach**: wird automatisch angelegt und der Identität zugewiesen, Verifizierungs-Mails
-     erscheinen direkt in der Suite;
-   * das **Minecraft-Konto**: Name und UUID werden übernommen, Sessions melden sich damit an.
+2. **Mit Microsoft anmelden:** Die E-Mail-Adresse des Microsoft-Kontos dieser Identität eingeben
+   (outlook.com / hotmail / live) und auf *Mit Microsoft anmelden* klicken.
+   * Es öffnet sich das **Microsoft-Fenster dieser Identität** mit Microsofts eigener Minecraft-Bestätigung.
+     Der Code ist schon eingetragen. Du meldest dich dort an und bestätigst.
+   * Danach ist **Minecraft** verbunden (Name und UUID werden übernommen).
+   * **Outlook** öffnet sich im selben Fenster und ist schon angemeldet, weil es derselbe Microsoft-Login ist.
+     Ab dann: *Outlook öffnen* auf der Identitätsseite oder links unter **Outlook**.
+   * Jede Identität hat ihr eigenes Microsoft-Fenster mit eigenem Login. Konten vermischen sich nie.
 3. **Discord:** *Discord-Konto erstellen* oder *Ich habe schon eins – anmelden*. Discord öffnet sich in
-   einem **eigenen Fenster nur für diese Identität** mit eigenem Login, sodass mehrere Konten sich nie
-   vermischen.
-   * Mail-Adresse, Benutzername und ein sicheres Passwort liegen zum Kopieren bereit. Das Passwort
+   einem **eigenen Fenster nur für diese Identität**.
+   * E-Mail-Adresse, Benutzername und ein sicheres Passwort liegen zum Kopieren bereit. Das Passwort
      erzeugt die Suite einmal und legt es im Tresor ab; angezeigt wird es nie.
    * Das Formular füllst du selbst aus. Discord verbietet automatisierte Registrierungen, deshalb
      schickt die Suite nichts selbst ab.
-   * *Bestätigungslink aus der Mail öffnen* öffnet den Link aus Discords Bestätigungs-Mail direkt im
-     Discord-Fenster dieser Identität.
-   * *Mit der Suite verbinden*: im selben Fenster auf „Autorisieren“ klicken. Danach zeigt die Suite
-     das Discord-Konto mit Namen und Bild.
+   * Die Bestätigungs-Mail von Discord kommt in **Outlook** an. Ein Klick auf den Link öffnet ihn
+     automatisch im Discord-Fenster dieser Identität.
+   * Zum Schluss **Fertig – Konto ist eingerichtet** klicken. Den Discord-Namen kannst du dabei für die
+     Übersicht eintragen.
 4. **Fertig → Jetzt online schalten.**
 
-**Discord wechseln:** Die Seite **Discord** zeigt alle Konten. Ein Klick öffnet Discord angemeldet als
-diese Identität, jede in ihrem eigenen Fenster.
+**Wechseln:** Die Seiten **Discord** und **Outlook** zeigen alle Konten. Ein Klick öffnet das Fenster dieser
+Identität.
+
+**Optional – IMAP-Postfächer:** Wer Verifizierungs-Codes automatisch in der Suite sehen will, kann unter
+*Erweitert → Postfächer & Aliase* ein Postfach mit Passwort eintragen (z. B. GMX, web.de, eigener
+Mailserver, Gmail mit App-Passwort). Für Outlook ist das nicht nötig.
+
+Die Microsoft- und Discord-Fenster gibt es im **Desktop-Programm**. Im normalen Browser öffnen sich die
+Seiten in neuen Tabs; dort teilen sich die Identitäten aber einen Login.
 
 Alles Weitere (Netzwerkprofile, Vorlagen, Zeitpläne, Proxy-Pool, Server, Logs …) steht links unter
 **Erweitert**. Auf der Identitätsseite sind die Details unter *Details & Einstellungen* eingeklappt.
-
-### E1. Einmalig: Azure-App für die Microsoft-Anmeldung
-
-Die gemeinsame Anmeldung für Outlook und Minecraft läuft über eine eigene, kostenlose App-Registrierung
-bei Microsoft. Sie ist einmal nötig und gilt für alle Identitäten.
-
-1. <https://portal.azure.com> → **App-Registrierungen** → **Neue Registrierung**
-   * Name: z. B. `Hoelni Client Suite`
-   * Unterstützte Kontotypen: **Nur persönliche Microsoft-Konten** (für outlook.com/hotmail) – oder
-     „Konten in allen Organisationsverzeichnissen und persönliche Microsoft-Konten“
-   * Umleitungs-URI: Plattform **Öffentlicher Client/nativ (mobil und Desktop)**,
-     URI `http://127.0.0.1:7420/oauth/callback`. Die genaue URI zeigt die Suite unter
-     *Einstellungen → OAuth-Weiterleitungs-URI*.
-2. **API-Berechtigungen** → *Berechtigung hinzufügen* → *APIs, die meine Organisation verwendet* →
-   **Office 365 Exchange Online** → *Delegierte Berechtigungen*: `IMAP.AccessAsUser.All` und `SMTP.Send`.
-   Dazu unter Microsoft Graph: `openid`, `email`, `offline_access`.
-3. **Authentifizierung** → *Öffentliche Clientflows zulassen*: **Ja**.
-4. Die **Anwendungs-ID (Client-ID)** kopieren und in der Suite unter *Einstellungen → Microsoft OAuth2
-   (Mail)* eintragen. Als Tenant `consumers` verwenden, bei Arbeits-/Schulkonten `common`.
-   Ein Client-Secret ist nicht nötig.
-
-### E2. Einmalig: Minecraft-Freigabe durch Mojang beantragen
-
-Microsoft lässt eigene Apps erst dann an die Minecraft-Dienste, wenn Mojang sie freigegeben hat.
-Beantragen kannst du das kostenlos unter <https://aka.ms/mce-reviewappid> mit deiner Client-ID aus E1.
-Die Prüfung dauert in der Regel einige Tage.
-
-**Bis zur Freigabe funktioniert trotzdem alles:** Nach der Microsoft-Anmeldung ist Outlook sofort
-verbunden. Für Minecraft zeigt die Suite in der Microsoft-Kachel einmalig einen Code, den du auf
-<https://www.microsoft.com/link> eingibst (Microsofts eigene Minecraft-Anmeldung, dasselbe Konto).
-Nach der Freigabe ist dieser Schritt nicht mehr nötig; bei der nächsten Anmeldung verbindet die Suite
-Minecraft direkt mit.
-
-### E3. Discord-Fenster (Desktop-Programm)
-
-Die getrennten Discord-Fenster pro Identität gehören zum **Desktop-Programm**. Nach diesem Update
-den Installer einmal neu bauen und installieren (`git pull` → `npm ci` → `npm run build` →
-`cd desktop` → `npm install` → `npm run dist`). Updates über das Backend tauschen nur die Suite aus,
-nicht das Desktop-Programm drumherum. Im normalen Browser öffnet sich Discord in einem neuen Tab; dort
-teilen sich die Identitäten aber einen Discord-Login.
 
 ---
 

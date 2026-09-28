@@ -17,7 +17,7 @@ function readiness(data) {
   return [
     ['Mail configured', ok('mailAccess'), 0],
     ['Minecraft authenticated', ok('minecraftAuth'), 1],
-    ['Discord connected', ok('discordOAuth'), 2],
+    ['Discord set up', ok('discordOAuth'), 2],
     ['Exit IP verified', ok('networkProfile') && ok('expectedIp'), 3],
     ['Hoelni Discord link', ok('discordLinked'), 2],
     ['Server assignments', data.assignments.length > 0, 4],

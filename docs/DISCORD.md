@@ -1,3 +1,7 @@
+> **Stand jetzt:** Die Suite braucht keine Discord-Entwickler-App mehr. Jede Identität hat ihr eigenes
+> Discord-Fenster (Desktop-Programm); nach Registrierung/Anmeldung dort markiert man das Konto als
+> eingerichtet (optional mit Benutzernamen). Der OAuth2-Abschnitt unten beschreibt die frühere Lösung.
+
 # Discord-Integration
 
 ## Umgesetzt

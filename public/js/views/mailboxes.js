@@ -10,7 +10,7 @@ export async function mailboxesView(root) {
       return r ? `#${pad2(r.number)} ${identityName(r)}` : `#${id}`;
     };
     mount(root, 
-      h('div', { class: 'page-head' }, h('div', null, h('h1', null, 'Mailboxes & Aliases'), h('div', { class: 'sub' }, 'Real mailboxes (IMAP / OAuth2). Several identities can share one mailbox through aliases – each identity only sees mail addressed to its own address.')),
+      h('div', { class: 'page-head' }, h('div', null, h('h1', null, 'Mailboxes & Aliases'), h('div', { class: 'sub' }, 'Optional: IMAP mailboxes with password (e.g. GMX, web.de, own server) for automatic code recognition. Outlook needs nothing here – it opens in the identity\'s Microsoft window. Several identities can share one mailbox through aliases – each identity only sees mail addressed to its own address.')),
         h('div', { class: 'toolbar' }, h('button', { class: 'primary', onclick: () => addMailbox(providers, dash, render) }, 'Add mailbox'), h('button', { onclick: () => addProvider(render) }, '＋ Alias provider'))),
       boxes.length ? boxes.map((b) => mailboxCard(b, identityLabel, dash, render)) : h('div', { class: 'card empty' }, 'No mailboxes yet.'),
       h('section', { class: 'card' }, h('h2', null, 'Alias providers'),
@@ -56,9 +56,7 @@ function mailboxCard(b, identityLabel, dash, render) {
         h('div', { class: 'muted' }, `${b.username} · ${b.imapHost}:${b.imapPort}${b.smtpHost ? ` · SMTP ${b.smtpHost}:${b.smtpPort}` : ''}`)),
       h('div', { class: 'toolbar' },
         b.hasCredentials ? badge('ok', 'credentials in vault') : badge('error', 'no credentials'),
-        b.kind === 'imap'
-          ? h('button', { class: 'small', onclick: () => { const pw = prompt('IMAP password / app password (stored encrypted in the vault):'); if (pw) guard(async () => { await api.post(`/api/mailboxes/${b.id}/password`, { password: pw }); await render(); }, 'Password stored'); } }, 'Set password')
-          : h('button', { class: 'small primary', onclick: () => guard(async () => { const { url } = await api.post(`/api/mailboxes/${b.id}/oauth`); openExternal(url); toast('Complete the sign-in in the new tab.', 'info', 8000); }) }, `Connect ${b.kind === 'microsoft' ? 'Microsoft' : 'Google'} (OAuth2)`),
+        h('button', { class: 'small', onclick: () => { const pw = prompt('IMAP password / app password (stored encrypted in the vault):'); if (pw) guard(async () => { await api.post(`/api/mailboxes/${b.id}/password`, { password: pw }); await render(); }, 'Password stored'); } }, 'Set password'),
         h('button', { class: 'small', onclick: () => guard(async () => { const r = await api.post(`/api/mailboxes/${b.id}/test`); toast(`Connection OK – ${r.total} messages, ${r.unseen} unread`, 'ok'); }) }, 'Test'),
         h('button', { class: 'small', onclick: () => guard(async () => { const r = await api.post(`/api/mailboxes/${b.id}/sync`); toast(`Synced ${r.fetched} headers`, 'ok'); await loadUnassigned(); }) }, 'Sync'),
         b.webmailUrl ? h('button', { class: 'small', onclick: () => openExternal(b.webmailUrl) }, 'Open webmail') : null,
@@ -71,7 +69,7 @@ function mailboxCard(b, identityLabel, dash, render) {
 
 function addMailbox(providers, dash, render) {
   const f = h('div', { class: 'form-grid' },
-    field('Type', select('kind', [['imap', 'Generic IMAP'], ['microsoft', 'Microsoft (Outlook/Hotmail) – OAuth2'], ['google', 'Google (Gmail) – OAuth2']], 'imap')),
+    field('Type', select('kind', [['imap', 'IMAP'], ['google', 'Gmail (app password)']], 'imap')),
     field('Label', h('input', { name: 'label', placeholder: 'Main mailbox' })),
     field('Username / address', h('input', { name: 'username', placeholder: 'real@example.com', autocomplete: 'off' })),
     field('IMAP host (IMAP only)', h('input', { name: 'imapHost', placeholder: 'imap.example.com' })),
@@ -84,7 +82,7 @@ function addMailbox(providers, dash, render) {
     field('Alias provider', select('aliasProviderId', [['', 'none'], ...providers.map((p) => [p.id, p.label])], '')),
   );
   const m = modal('Add mailbox', h('div', null, f,
-    h('p', { class: 'muted' }, 'Microsoft/Google use OAuth2 (configure the client ID under Settings). Passwords and refresh tokens are stored only in the encrypted vault.'),
+    h('p', { class: 'muted' }, 'Passwords are stored only in the encrypted vault. For Gmail use an app password (Google account → Security → App passwords).'),
     h('button', { class: 'primary', onclick: () => guard(async () => {
       const body = formData(f);
       for (const k of Object.keys(body)) if (body[k] === '' || body[k] === null) delete body[k];

@@ -13,7 +13,6 @@ export const BULK_ACTIONS = [
   'startSessions',
   'stopSessions',
   'reconnect',
-  'verifyDiscord',
   'openDiscord',
   'openMail',
   'refreshMinecraftAuth',
@@ -107,10 +106,6 @@ export class BulkOperations {
             if (!this.auth) return { identityId, ok: false, message: 'Not available' };
             const mc = await this.auth.authenticate(identityId);
             return { identityId, ok: mc.authStatus === 'AUTHENTICATED', message: mc.authStatus === 'AUTHENTICATED' ? 'Token valid' : mc.lastError ?? mc.authStatus };
-          }
-          case 'verifyDiscord': {
-            const d = await this.discord.verify(identityId);
-            return { identityId, ok: d.oauthState === 'CONNECTED', message: d.oauthState };
           }
           case 'openDiscord':
             return { identityId, ok: true, message: 'Open Discord', url: DISCORD_APP_URL };

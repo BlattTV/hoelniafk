@@ -1,232 +1,101 @@
 /**
- * ONE Microsoft sign-in per identity → Outlook mail AND Minecraft.
+ * Microsoft sign-in per identity – no app registration needed (no Azure, no client ID).
  *
- *   "Sign in with Microsoft" (browser, your Azure app, PKCE)
- *     consent: Outlook IMAP/SMTP + XboxLive.signin + offline_access + openid/email
- *       │
- *       ├─ refresh token → identity vault (vault://identity/<id>/microsoft) – never SQLite, never logs
- *       ├─ Outlook: mailbox for the account's own address is created and assigned to the identity;
- *       │           IMAP/SMTP tokens come from the shared grant (scope: outlook.office.com)
- *       └─ Minecraft: Xbox Live → XSTS → Minecraft token from the same grant (scope: XboxLive.signin).
- *                     If Mojang has not approved the Azure app for Minecraft yet (403), the suite
- *                     falls back to the Minecraft sign-in code for this identity automatically.
+ *   1. The user enters the identity's Microsoft e-mail (outlook.com / hotmail / live).
+ *   2. Minecraft: Microsoft's own Minecraft sign-in (device code). The desktop program opens the
+ *      confirmation page with the code already filled in, inside the identity's own Microsoft
+ *      window (persistent browser profile per identity).
+ *   3. Outlook: the same window then shows outlook.live.com – already signed in, because it is the
+ *      same Microsoft login. Mail is read there, like in a browser; the suite stores no mail tokens.
+ *
+ * Minecraft tokens live in the identity's vault scope (prismarine-auth cache), never in SQLite or logs.
  */
 import type { AuditLog } from '../core/audit.js';
 import { ValidationError } from '../core/errors.js';
 import type { EventBus } from '../core/events.js';
-import { createLogger, registerSecret } from '../core/logger.js';
-import { idTokenClaims, type OAuthManager, type TokenSet } from '../core/oauth.js';
-import { nowIso } from '../core/db.js';
-import type { JavaSession } from '../runtime/types.js';
-import type { MailService } from '../mail/mailService.js';
-import type { MinecraftAuthService, JavaTokenResult } from '../minecraft/authService.js';
-import { formatUuid } from '../minecraft/authService.js';
-import { minecraftFromMicrosoft, MinecraftAppNotApprovedError, defaultJsonHttp, XBOX_ENDPOINTS, type JsonHttp, type XboxEndpoints } from '../minecraft/xboxChain.js';
-import { refs } from '../vault/refs.js';
-import type { Vault } from '../vault/vault.js';
+import { createLogger } from '../core/logger.js';
+import type { DeviceCodeInfo, MinecraftAuthService } from '../minecraft/authService.js';
 import type { IdentityRepository } from './repository.js';
 
 const log = createLogger('microsoft');
 
-export const OUTLOOK_SCOPES = ['https://outlook.office.com/IMAP.AccessAsUser.All', 'https://outlook.office.com/SMTP.Send', 'offline_access'];
-export const XBOX_SCOPES = ['XboxLive.signin', 'offline_access'];
-const CONSENT_SCOPES = ['openid', 'email', 'profile', 'offline_access', 'XboxLive.signin', 'https://outlook.office.com/IMAP.AccessAsUser.All', 'https://outlook.office.com/SMTP.Send'];
+export const OUTLOOK_URL = 'https://outlook.live.com/mail/0/';
+export const MICROSOFT_LINK_URL = 'https://www.microsoft.com/link';
 
-interface StoredGrant {
-  refreshToken: string;
-  email: string;
-  /** 'direct' = Minecraft via this grant; 'code' = Mojang has not approved the app → sign-in code flow */
-  minecraft: 'direct' | 'code' | 'none';
-  linkedAt: string;
-}
+export type MicrosoftTarget = 'link' | 'outlook';
 
-interface CachedMc extends JavaTokenResult {
-  expiresAt: number;
+/** Pages the identity's Microsoft window may be opened on. */
+export function isMicrosoftUrl(url: string): boolean {
+  try {
+    const u = new URL(url);
+    return u.protocol === 'https:' && /(^|\.)(microsoft\.com|live\.com|outlook\.com|office\.com)$/i.test(u.hostname);
+  } catch {
+    return false;
+  }
 }
 
 export interface MicrosoftLinkStatus {
   linked: boolean;
   email: string | null;
-  minecraft: 'direct' | 'code' | 'none' | null;
-  mailboxId: number | null;
 }
 
 export class MicrosoftAccountService {
-  private readonly access = new Map<string, { token: string; expiresAt: number }>();
-  private readonly mc = new Map<number, CachedMc>();
-
   constructor(
     private readonly repo: IdentityRepository,
-    private readonly vault: Vault,
-    private readonly oauth: OAuthManager,
-    private readonly mail: MailService,
-    private readonly minecraftAuth: MinecraftAuthService,
+    private readonly auth: MinecraftAuthService,
     private readonly audit: AuditLog,
     private readonly bus: EventBus,
-    private readonly http: JsonHttp = defaultJsonHttp,
-    private readonly endpoints: XboxEndpoints = XBOX_ENDPOINTS,
   ) {}
 
-  private ref(identityId: number): string {
-    return this.vault.forIdentity(identityId).ref('microsoft');
+  status(identityId: number): MicrosoftLinkStatus {
+    const mc = this.repo.getMinecraft(identityId);
+    const linked = mc?.authType === 'microsoft' && !!mc.msaAccount;
+    return { linked, email: linked ? mc!.msaAccount : null };
   }
 
-  private async grant(identityId: number): Promise<StoredGrant | null> {
-    return this.vault.forIdentity(identityId).getJson<StoredGrant>(this.ref(identityId));
-  }
-
-  async status(identityId: number): Promise<MicrosoftLinkStatus> {
-    const g = await this.grant(identityId);
-    const mailbox = g ? this.repo.listMailAccounts().find((m) => m.exclusiveIdentityId === identityId && m.kind === 'microsoft' && m.username.toLowerCase() === g.email.toLowerCase()) : undefined;
-    return { linked: !!g, email: g?.email ?? null, minecraft: g?.minecraft ?? null, mailboxId: mailbox?.id ?? null };
-  }
-
-  /** Step 1: browser sign-in (one consent for Outlook + Xbox Live). */
-  async begin(identityId: number, loginHint?: string): Promise<{ url: string }> {
+  /** Sets the identity's Microsoft account and starts the Minecraft sign-in (the code arrives via SSE too). */
+  async connect(identityId: number, emailInput: string, waitMs = 6000): Promise<{ email: string; deviceCode: DeviceCodeInfo | null; authStatus: string }> {
     this.repo.getIdentity(identityId);
-    const { url } = await this.oauth.begin('microsoft', { type: 'microsoft-account', identityId }, {
-      scopes: CONSENT_SCOPES,
-      // the code is redeemed for one resource (Outlook) – Xbox tokens come from the refresh token
-      tokenScopes: ['openid', 'email', ...OUTLOOK_SCOPES],
-      loginHint,
-      prompt: 'select_account',
-    });
-    return { url };
-  }
-
-  /** Step 2 (OAuth callback): store the grant, set up Outlook, connect Minecraft. */
-  async complete(identityId: number, tokens: TokenSet): Promise<{ email: string; mailboxId: number; minecraft: StoredGrant['minecraft']; username: string | null }> {
-    if (!tokens.refreshToken) throw new ValidationError('Microsoft returned no refresh token (offline_access missing)');
-    const claims = idTokenClaims(tokens.idToken);
-    const email = String(claims.email ?? claims.preferred_username ?? '').trim().toLowerCase();
-    if (!/^[^@\s]+@[^@\s]+$/.test(email)) throw new ValidationError('Microsoft did not return the account e-mail address');
-    registerSecret(tokens.refreshToken);
-    const iv = this.vault.forIdentity(identityId);
-    await iv.setJson(this.ref(identityId), { refreshToken: tokens.refreshToken, email, minecraft: 'none', linkedAt: nowIso() } satisfies StoredGrant);
-    this.access.set(`${identityId}:outlook`, { token: tokens.accessToken, expiresAt: tokens.expiresAt });
-    this.audit.record(identityId, 'Microsoft account connected', { account: email });
-
-    // ---- Outlook: the account's own mailbox, dedicated to this identity
-    let mailbox = this.repo.listMailAccounts().find((m) => m.kind === 'microsoft' && m.username.toLowerCase() === email && m.exclusiveIdentityId === identityId);
-    if (!mailbox) {
-      mailbox = this.repo.createMailAccount({
-        label: `Outlook – ${email}`,
-        kind: 'microsoft',
-        imapHost: 'outlook.office365.com',
-        imapPort: 993,
-        imapSecure: true,
-        username: email,
-        smtpHost: 'smtp-mail.outlook.com',
-        smtpPort: 587,
-        webmailUrl: 'https://outlook.live.com/mail/',
-        exclusiveIdentityId: identityId,
-        aliasProviderId: null,
-      });
-    }
-    await this.mail.linkMailboxToIdentityGrant(mailbox.id, identityId);
-    this.repo.assignMail(identityId, { mailAccountId: mailbox.id, address: email, isAlias: false });
-    void this.mail.syncMailbox(mailbox.id).catch((e) => log.warn(`First mail sync failed: ${(e as Error).message}`));
-
-    // ---- Minecraft: same account
+    const email = String(emailInput ?? '').trim().toLowerCase();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email) || email.length > 254) throw new ValidationError('Enter the e-mail address of the Microsoft account');
     const cur = this.repo.getMinecraft(identityId);
+    const changed = !!cur && (cur.msaAccount !== email || cur.authType !== 'microsoft');
+    if (changed) await this.auth.logout(identityId);
     this.repo.upsertMinecraft(identityId, {
       username: cur?.username || `Pending_${identityId}`.slice(0, 16),
       authType: 'microsoft',
       msaAccount: email,
+      ...(changed ? { uuid: null } : {}),
       authStatus: 'PENDING',
       lastError: null,
     });
-    const mode = await this.connectMinecraft(identityId);
+    this.audit.record(identityId, 'Microsoft account set', { account: email });
     this.bus.emit({ type: 'identity.changed', identityId });
-    return { email, mailboxId: mailbox.id, minecraft: mode, username: this.repo.getMinecraft(identityId)?.username ?? null };
+
+    const run = this.auth.authenticate(identityId).catch((e) => {
+      log.warn(`Sign-in for identity ${identityId} failed: ${(e as Error).message}`);
+      return null;
+    });
+    // Wait briefly: either the code is needed (first sign-in) or the cached login just works.
+    const until = Date.now() + waitMs;
+    let done = false;
+    void run.then(() => (done = true));
+    while (!done && !this.auth.pendingDeviceCode(identityId) && Date.now() < until) await new Promise((r) => setTimeout(r, 100));
+    return { email, deviceCode: this.auth.pendingDeviceCode(identityId), authStatus: this.repo.getMinecraft(identityId)?.authStatus ?? 'NONE' };
   }
 
-  private async connectMinecraft(identityId: number): Promise<StoredGrant['minecraft']> {
-    try {
-      const r = await this.minecraftDirect(identityId, true);
-      await this.setMode(identityId, 'direct');
-      this.repo.upsertMinecraft(identityId, {
-        username: r.profile.name,
-        uuid: formatUuid(r.profile.id),
-        authStatus: 'AUTHENTICATED',
-        credentialRef: this.ref(identityId),
-        lastAuthAt: nowIso(),
-        lastError: null,
-      });
-      this.audit.record(identityId, 'Minecraft connected via Microsoft account', { username: r.profile.name });
-      return 'direct';
-    } catch (e) {
-      if (e instanceof MinecraftAppNotApprovedError) {
-        // Fallback: the Minecraft sign-in code (Microsoft's own Minecraft login) for the same account.
-        await this.setMode(identityId, 'code');
-        log.info(`Identity ${identityId}: Azure app not approved for Minecraft – using the sign-in code`);
-        void this.minecraftAuth.authenticate(identityId).catch(() => undefined);
-        return 'code';
-      }
-      const msg = (e as Error).message;
-      this.repo.upsertMinecraft(identityId, { authStatus: 'ERROR', lastError: msg.slice(0, 300) });
-      this.audit.record(identityId, 'Minecraft via Microsoft account failed');
-      return 'none';
-    }
-  }
-
-  private async setMode(identityId: number, minecraft: StoredGrant['minecraft']): Promise<void> {
-    const g = await this.grant(identityId);
-    if (g) await this.vault.forIdentity(identityId).setJson(this.ref(identityId), { ...g, minecraft });
-  }
-
-  /** Access token for one resource from the shared grant (refresh token rotation is persisted). */
-  async accessToken(identityId: number, resource: 'outlook' | 'xbox'): Promise<string> {
-    const key = `${identityId}:${resource}`;
-    const hit = this.access.get(key);
-    if (hit && hit.expiresAt - 60_000 > Date.now()) return hit.token;
-    const g = await this.grant(identityId);
-    if (!g) throw new ValidationError('This identity is not signed in with Microsoft');
-    const t = await this.oauth.refresh('microsoft', g.refreshToken, resource === 'outlook' ? OUTLOOK_SCOPES : XBOX_SCOPES);
-    if (t.refreshToken && t.refreshToken !== g.refreshToken) {
-      await this.vault.forIdentity(identityId).setJson(this.ref(identityId), { ...g, refreshToken: t.refreshToken });
-    }
-    this.access.set(key, { token: t.accessToken, expiresAt: t.expiresAt });
-    return t.accessToken;
-  }
-
-  /** Minecraft session straight from the Microsoft grant (null when this identity uses the code flow). */
-  async minecraftSession(identityId: number): Promise<JavaSession | null> {
-    const g = await this.grant(identityId);
-    if (!g || g.minecraft !== 'direct') return null;
-    const r = await this.minecraftDirect(identityId, false);
-    return { accessToken: r.accessToken, profile: r.profile, profileKeys: r.profileKeys };
-  }
-
-  private async minecraftDirect(identityId: number, force: boolean): Promise<CachedMc> {
-    const cached = this.mc.get(identityId);
-    if (!force && cached && cached.expiresAt - 5 * 60_000 > Date.now()) return cached;
-    const r = await minecraftFromMicrosoft(await this.accessToken(identityId, 'xbox'), this.http, this.endpoints);
-    registerSecret(r.accessToken);
-    this.mc.set(identityId, r);
-    return r;
-  }
-
-  /** Renew for an expired session: fresh Minecraft token/keys from the grant (false = not a direct identity). */
-  async renewMinecraft(identityId: number): Promise<boolean> {
-    const g = await this.grant(identityId);
-    if (!g || g.minecraft !== 'direct') return false;
-    this.mc.delete(identityId);
-    this.access.delete(`${identityId}:xbox`);
-    await this.minecraftDirect(identityId, true);
-    return true;
+  /** Page for the identity's Microsoft window. */
+  target(identityId: number, to: MicrosoftTarget): string {
+    this.repo.getIdentity(identityId);
+    if (to === 'outlook') return OUTLOOK_URL;
+    const code = this.auth.pendingDeviceCode(identityId);
+    return code ? `${MICROSOFT_LINK_URL}?otc=${encodeURIComponent(code.userCode)}` : MICROSOFT_LINK_URL;
   }
 
   async unlink(identityId: number): Promise<void> {
-    await this.vault.forIdentity(identityId).delete(this.ref(identityId));
-    for (const k of [...this.access.keys()]) if (k.startsWith(`${identityId}:`)) this.access.delete(k);
-    this.mc.delete(identityId);
+    await this.auth.logout(identityId);
+    this.repo.upsertMinecraft(identityId, { msaAccount: null, uuid: null, authStatus: 'NONE', lastError: null });
     this.audit.record(identityId, 'Microsoft account disconnected');
     this.bus.emit({ type: 'identity.changed', identityId });
-  }
-
-  /** Mailbox secret of the "linked" kind points here. */
-  static mailboxSecret(identityId: number) {
-    return { type: 'ms-identity' as const, identityId, ref: refs.identity(identityId, 'microsoft') };
   }
 }

@@ -36,6 +36,7 @@ import { buildServer } from './web/server.js';
 
 const log = createLogger('demo');
 let demoMsCount = 0;
+const demoConfirmed = new Map<string, number>();
 const PORT = Number(process.env.HOELNI_PORT ?? 7421);
 const IDENTITIES = Number(process.env.HOELNI_DEMO_IDENTITIES ?? 15);
 const MC_BASE_PORT = Number(process.env.HOELNI_DEMO_MC_PORT ?? 25601);
@@ -105,7 +106,7 @@ async function main() {
     config: {
       ...DEFAULT_CONFIG,
       port: PORT,
-      automation: { ...DEFAULT_CONFIG.automation, mailCheckMinutes: 0, networkCheckMinutes: 0, discordVerifyHours: 0, tokenRefreshHours: 0, restoreSessions: true },
+      automation: { ...DEFAULT_CONFIG.automation, mailCheckMinutes: 0, networkCheckMinutes: 0, tokenRefreshHours: 0, restoreSessions: true },
       runtime: { ...DEFAULT_CONFIG.runtime, mode: 'process', sessionsPerHost: 10 },
       client: clientConfig,
     },
@@ -119,33 +120,17 @@ async function main() {
       return profile.expectedPublicIp ?? `203.0.113.${profile.id}`;
     },
     mailSourceFactory: (account) => demoSource(account.username),
-    discordUserFetcher: async (token) => {
-      const n = token.replace(/\D/g, '') || '1';
-      return { id: `81000000000000${n}`, username: `hoelni_${n}`, global_name: `Hoelni ${n}`, avatar: null };
-    },
-    oauthPost: async (_url, form) => {
-      const n = (form.code ?? form.refresh_token ?? '1').replace(/\D/g, '') || '1';
-      // SIMULATED Microsoft sign-in: the ID token carries the account address (demo-ms-<n>@outlook.com)
-      const idToken = form.client_id === 'demo-ms' ? `x.${Buffer.from(JSON.stringify({ email: `demo${n}@outlook.com` })).toString('base64url')}.x` : undefined;
-      return { status: 200, json: { access_token: `demo-access-${n}`, refresh_token: `demo-refresh-${n}`, expires_in: 3600, id_token: idToken } };
-    },
-    // SIMULATED Xbox Live + Minecraft services (approved app): Minecraft name from the demo account
-    xboxHttp: async (url) => {
-      if (url.endsWith('/user/authenticate')) return { status: 200, json: { Token: 'xbl', DisplayClaims: { xui: [{ uhs: 'u' }] } } };
-      if (url.endsWith('/xsts/authorize')) return { status: 200, json: { Token: 'xsts' } };
-      if (url.endsWith('/login_with_xbox')) return { status: 200, json: { access_token: 'demo-mc-access', expires_in: 86400 } };
-      if (url.endsWith('/minecraft/profile')) {
-        demoMsCount++;
-        return { status: 200, json: { id: `00000000000000000000000000${String(1000 + demoMsCount).padStart(6, '0')}`, name: `DemoMs${demoMsCount}` } };
+    // SIMULATED Microsoft/Minecraft sign-in: the code is "confirmed" 1.5 s after it is shown
+    tokenFetcher: async ({ msaAccount, onDeviceCode }) => {
+      if (!demoConfirmed.has(msaAccount)) {
+        onDeviceCode({ userCode: 'DEMO1234', verificationUri: 'https://www.microsoft.com/link', expiresIn: 900 });
+        await new Promise((r) => setTimeout(r, 1500));
+        demoConfirmed.set(msaAccount, ++demoMsCount);
       }
-      return { status: 404, json: null };
+      const n = demoConfirmed.get(msaAccount)!;
+      return { profile: { id: `00000000000000000000000000${String(1000 + n).padStart(6, '0')}`, name: `DemoMs${n}` }, accessToken: `demo-mc-${n}`, profileKeys: null };
     },
   });
-  suite.repo.setSetting('oauth.discord.clientId', 'demo-client');
-  // Microsoft sign-in goes to a local consent page (no real Microsoft account needed in the demo)
-  suite.repo.setSetting('oauth.microsoft.clientId', 'demo-ms');
-  suite.repo.setSetting('oauth.microsoft.authorizeUrl', `http://127.0.0.1:${PORT}/demo/microsoft-consent`);
-
   // ---------------------------------------------------------------- local backend + demo agent
   let stopBackend: (() => Promise<void>) | null = null;
   if (process.env.HOELNI_DEMO_BACKEND !== '0') {
@@ -198,9 +183,7 @@ async function main() {
     suite.repo.upsertMinecraft(id, { username: `Player${nn}`, authType: 'offline' });
     await suite.auth.authenticate(id);
     if (n % 5 !== 3 && n !== 9) {
-      const { url } = await suite.discord.beginConnect(id);
-      const r = await suite.oauth.complete(new URL(url).searchParams.get('state')!, `code-${n}`);
-      await suite.discord.completeConnect(id, r.tokens);
+      suite.discord.markReady(id, `hoelni_${n}`);
     }
     suite.repo.createNetworkProfile(id, {
       kind: 'BIND',
@@ -220,10 +203,6 @@ async function main() {
   await suite.mail.syncMailbox(shared.id);
 
   const { app } = await buildServer(suite);
-  app.get('/demo/microsoft-consent', async (req: any, reply: any) => {
-    const n = 100 + Math.floor(Math.random() * 800);
-    return reply.redirect(`/oauth/callback?code=demo${n}&state=${encodeURIComponent(String(req.query.state ?? ''))}`, 302);
-  });
   await app.listen({ host: '127.0.0.1', port: PORT });
   suite.startAutomation();
   log.info(`Demo running on http://127.0.0.1:${PORT}`);

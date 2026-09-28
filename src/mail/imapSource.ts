@@ -3,9 +3,7 @@ import type { MessageHeader, MessageSource, RawMessage } from './provider.js';
 
 export interface ImapAuth {
   user: string;
-  pass?: string;
-  /** OAuth2 access token (XOAUTH2) for Microsoft / Google. */
-  accessToken?: string;
+  pass: string;
 }
 
 export interface ImapSettings {
@@ -47,7 +45,7 @@ export class ImapMessageSource implements MessageSource {
       host: this.settings.host,
       port: this.settings.port,
       secure: this.settings.secure,
-      auth: auth.accessToken ? { user: auth.user, accessToken: auth.accessToken } : { user: auth.user, pass: auth.pass ?? '' },
+      auth: { user: auth.user, pass: auth.pass },
       logger: false,
       emitLogs: false,
       disableAutoIdle: true,

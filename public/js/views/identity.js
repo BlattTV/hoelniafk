@@ -53,7 +53,7 @@ export async function identityView(root, [idStr, section]) {
       ),
       h('div', { class: 'tiles' },
         microsoftTile(id, data, ctx.reload),
-        discordTile(id, data.discord, data.mail?.address ?? null, ctx.reload)),
+        discordTile(id, data.discord, data.mail?.address ?? data.microsoft?.email ?? null, ctx.reload)),
       sessionsSection(ctx),
       h('details', { class: 'more-details', open: detailsOpen || undefined, ontoggle: (e) => { detailsOpen = e.target.open; } },
         h('summary', null, 'Details & settings', h('span', { class: 'muted' }, ' – health, Minecraft, mail, Discord link, network, rewards, settings, audit')),

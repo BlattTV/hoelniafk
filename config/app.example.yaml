@@ -12,17 +12,6 @@ vault:
   #  credman:    master key in Windows Credential Manager (via @napi-rs/keyring)
   keyProvider: auto
 
-oauth:
-  # Register your own OAuth apps. Redirect URI for all providers:
-  #   http://127.0.0.1:7420/oauth/callback
-  microsoft:
-    clientId: ""          # Azure app registration ("Mobile and desktop" / public client)
-    tenant: consumers     # consumers | common | organizations | <tenant id>
-  google:
-    clientId: ""          # Google Cloud "Desktop app" OAuth client
-  discord:
-    clientId: ""          # Discord Developer Portal → OAuth2 (client secret goes into the vault via UI)
-
 network:
   ipEndpoints:
     - https://api.ipify.org
@@ -35,7 +24,6 @@ mail:
 automation:
   mailCheckMinutes: 10     # 0 = disabled
   networkCheckMinutes: 30  # 0 = disabled
-  discordVerifyHours: 24   # 0 = disabled
   tokenRefreshHours: 12    # keeps Microsoft refresh tokens alive; 0 = disabled
   restoreSessions: true    # desired-state reconciler: sessions that SHOULD be online are (re)started
 

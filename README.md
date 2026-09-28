@@ -9,7 +9,7 @@ Identity
 │                      ├─ Session → Server B
 │                      └─ …
 ├── Mail (Mailbox / Alias, Verification Mail)
-├── Discord (OAuth2, Link-Status zum Server)
+├── Discord (eigenes Fenster pro Identität, Link-Status zum Server)
 ├── Network Profile (Bind-IP / Proxy, erwartete Exit-IP, Guard)
 └── Rewards / Stars (pro Server)
 ```
@@ -19,7 +19,7 @@ Identity
 | Datei | Inhalt |
 |---|---|
 | **[docs/INSTALLATION.md](docs/INSTALLATION.md)** | **Schritt für Schritt: Client unter Windows, Update-Server und Backend `afk.hoelni.de` im Proxmox-LXC, Hoelni Agent für andere Haushalte** |
-| [SETUP.md](SETUP.md) | Vom frischen Windows bis zur laufenden Suite, OAuth-Apps, Betrieb, Updates |
+| [SETUP.md](SETUP.md) | Vom frischen Windows bis zur laufenden Suite, Betrieb, Updates |
 | [NETWORKING.md](NETWORKING.md) | Windows-Bind-IPs → OPNsense → VPN → Exit-VPS mit mehreren IPv4, Troubleshooting |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Tatsächlich implementierte Architektur, Session-Lebenszyklus, Sicherheitsmodell |
 | [FINAL_STATUS.md](FINAL_STATUS.md) | Was implementiert / getestet ist, was Zugangsdaten braucht, Grenzen |
@@ -72,9 +72,9 @@ npm run demo              # → http://127.0.0.1:7421
   Account × Server-Matrix, Bulk-Operationen, Global Chat.
 * **Netzwerk:** Bind-IP / SOCKS5 / HTTP-Proxy pro Identity oder Session, Public-IP-Prüfung,
   Netzwerk-Guard (Start blockieren bei Mismatch), Schritt-für-Schritt-Diagnose.
-* **Mail:** IMAP (Passwort / OAuth2 Microsoft & Google), SMTP, Inbox, Global Inbox,
+* **Mail:** Outlook im Microsoft-Fenster jeder Identität; optional IMAP (Passwort), SMTP, Inbox, Global Inbox,
   Verification-Mail-Erkennung per Regeln, Codes kopierbar, Aliase (Plus-Addressing, Cloudflare).
-* **Discord:** OAuth2 (PKCE) für bestehende Accounts, benutzergeführte Registrierung,
+* **Discord:** eigenes Fenster pro Identität (ohne Entwickler-App), benutzergeführte Registrierung,
   Link-Status/Codes aus dem Server-Chat.
 * **Rewards/Stars:** pro Identity und Server (Stars, eligible, received, waiting, Discord linked,
   Historie) – alles über `config/rules.yaml`.
@@ -89,7 +89,7 @@ npm run demo              # → http://127.0.0.1:7421
 npm run typecheck
 npm run test:unit          # MOCK
 npm run test:integration   # LOCAL INTEGRATION: mineflayer↔flying-squid, Runtime-Prozesse,
-                           # Bind-IP/Proxys, IMAP/SMTP, OAuth2+PKCE, Launcher, Open game/Takeover
+                           # Bind-IP/Proxys, IMAP/SMTP, Launcher, Open game/Takeover
 npm test                   # beides
 npm run test:e2e           # Browser (Playwright) gegen die Demo; einmalig: npx playwright install chromium
 npm run bench              # Performance 1–100 Sessions → docs/PERFORMANCE.md

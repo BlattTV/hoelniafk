@@ -6,28 +6,29 @@
   <meta name="hoelni-token" content="__HOELNI_TOKEN__">
   <title>Hoelni Client Suite</title>
   <link rel="stylesheet" href="/static/styles.css">
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 3 3%22%3E%3Crect width=%223%22 height=%221%22 fill=%22%235f8f3e%22/%3E%3Crect y=%221%22 width=%223%22 height=%222%22 fill=%22%237a5536%22/%3E%3C/svg%3E">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 3 3%22%3E%3Crect width=%223%22 height=%221%22 fill=%22%2360a5fa%22/%3E%3Crect y=%221%22 width=%223%22 height=%222%22 fill=%22%232563eb%22/%3E%3C/svg%3E">
   <script src="/static/js/theme.js"></script>
   <script type="module" src="/static/js/app.js"></script>
 </head>
 <body>
   <div class="shell">
     <nav class="sidebar">
-      <div class="brand"><span class="brand-mark" aria-hidden="true"></span><div><strong>Hoelni</strong><small>client suite</small></div></div>
-      <a href="#/" data-nav="dashboard" title="All identities with status, filters and bulk actions">Identities</a>
-      <a href="#/new" data-nav="new" class="nav-primary" title="Name, Microsoft sign-in, Discord – three steps">New identity</a>
-      <a href="#/discord" data-nav="discord" title="All Discord accounts – click one to switch to it">Discord</a>
-      <a href="#/sessions" data-nav="sessions">Sessions</a>
-      <a href="#/chat" data-nav="chat">Chat</a>
-      <a href="#/macros" data-nav="macros" title="Scratch-style macros for your sessions">Macros</a>
-      <a href="#/inbox" data-nav="inbox">Mail</a>
-      <a href="#/settings" data-nav="settings">Settings &amp; vault</a>
-      <a href="#/accounts" data-nav="accounts" id="nav-accounts" hidden title="Backend account administration (admins only)">Accounts</a>
+      <div class="brand"><span class="brand-mark" aria-hidden="true"></span><div><strong>Hoelni</strong><small>Client Suite</small></div></div>
+      <a href="#/" data-nav="dashboard" title="All identities with status, filters and bulk actions"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>Identities</a>
+      <a href="#/new" data-nav="new" class="nav-primary" title="Name, Microsoft sign-in, Discord – three steps"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>New identity</a>
+      <a href="#/discord" data-nav="discord" title="All Discord accounts – click one to switch to it"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/></svg>Discord</a>
+      <a href="#/sessions" data-nav="sessions"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="3" width="20" height="8" rx="2"/><rect x="2" y="13" width="20" height="8" rx="2"/><path d="M6 7h.01M6 17h.01"/></svg>Sessions</a>
+      <a href="#/chat" data-nav="chat"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>Chat</a>
+      <a href="#/macros" data-nav="macros" title="Scratch-style macros for your sessions"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6v4a2 2 0 1 0 4 0h2v6h-2a2 2 0 1 0 0 4h2v4H3V3h6"/></svg>Macros</a>
+      <a href="#/mail" data-nav="mail" title="Outlook of every identity in its own window"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 6L2 7"/></svg>Outlook</a>
+      <a href="#/settings" data-nav="settings"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>Settings &amp; vault</a>
+      <a href="#/accounts" data-nav="accounts" id="nav-accounts" hidden title="Backend account administration (admins only)"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>Accounts</a>
       <details class="nav-more" id="nav-more">
         <summary>Advanced</summary>
         <a href="#/matrix" data-nav="matrix" title="Account × Server: desired vs. actual session state">Accounts × servers</a>
         <a href="#/schedules" data-nav="schedules">Schedules</a>
         <a href="#/agents" data-nav="agents" title="PCs in other households signed in with your account (Hoelni Agent)">Agents</a>
+        <a href="#/inbox" data-nav="inbox" title="Optional IMAP mailboxes">IMAP mail</a>
         <a href="#/verification" data-nav="verification">Verification mail</a>
         <a href="#/mailboxes" data-nav="mailboxes">Mailboxes &amp; aliases</a>
         <a href="#/servers" data-nav="servers">Servers</a>
@@ -40,7 +41,7 @@
         <a href="#/audit" data-nav="audit">Audit log</a>
       </details>
       <a href="#/settings" id="nav-update" class="nav-update" hidden>Update ready</a>
-      <div class="sidebar-foot"><span id="conn-state">connecting…</span><button class="theme-toggle" id="theme-toggle" title="Light / dark">Theme</button></div>
+      <div class="sidebar-foot"><span id="conn-state">connecting…</span><button class="theme-toggle" id="theme-toggle" title="Light / dark"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>Theme</button></div>
       <div class="sidebar-foot" style="margin-top:4px"><span><kbd>Ctrl</kbd> <kbd>K</kbd> quick actions</span></div>
     </nav>
     <main id="view" class="view"></main>

@@ -11,6 +11,7 @@ import { describeSchedule, normalizeSchedule } from '../core/schedule.js';
 import { createLogger, onLogEntry, recentLogs, type Level } from '../core/logger.js';
 import type { LinkState, MailAccountKind } from '../core/types.js';
 import { DISCORD_APP_URL, isDiscordUrl, type DiscordTarget } from '../discord/discordService.js';
+import { isMicrosoftUrl, type MicrosoftTarget } from '../identity/microsoftAccount.js';
 import type { BulkAction } from '../ops/bulk.js';
 import { refs } from '../vault/refs.js';
 
@@ -56,6 +57,8 @@ export async function buildServer(suite: Suite, opts: ServerOptions = {}): Promi
   const allowedHosts = new Set([`127.0.0.1:${port}`, `localhost:${port}`, `[::1]:${port}`]);
   const allowedOrigins = new Set([...allowedHosts].map((h) => `http://${h}`));
   const app = Fastify({ logger: false, bodyLimit: 1024 * 1024 });
+  /** The identity's e-mail: its mailbox address (IMAP, optional) or its Microsoft account. */
+  const identityEmail = (id: number): string | null => suite.repo.getMailIdentity(id)?.address ?? suite.microsoft.status(id).email;
 
   const tokenOk = (value: string | undefined) => {
     if (!value) return false;
@@ -113,36 +116,6 @@ export async function buildServer(suite: Suite, opts: ServerOptions = {}): Promi
   app.get('/', async (_req, reply) => reply.type('text/html').send(indexHtml()));
   await app.register(fastifyStatic, { root: PUBLIC_DIR, prefix: '/static/', index: false });
 
-  // ------------------------------------------------------------------ OAuth callback (state-validated, no token)
-  app.get('/oauth/callback', async (req: Req, reply) => {
-    const { code, state, error } = req.query;
-    const page = (title: string, msg: string, ok: boolean) =>
-      reply
-        .type('text/html')
-        .send(
-          `<!doctype html><meta charset="utf-8"><title>${title}</title><link rel="stylesheet" href="/static/styles.css">` +
-            `<div class="oauth-result ${ok ? 'ok' : 'err'}"><h1>${title}</h1><p>${msg.replace(/</g, '&lt;')}</p><p>You can close this tab and return to the Hoelni Client Suite.</p></div>`,
-        );
-    if (error) return page('Authorization cancelled', String(error), false);
-    if (!code || !state) return page('Invalid callback', 'Missing code or state', false);
-    try {
-      const result = await suite.oauth.complete(state, code);
-      if (result.purpose.type === 'discord') {
-        const d = await suite.discord.completeConnect(result.purpose.identityId, result.tokens);
-        return page('Discord connected', `Connected @${d.username} to identity ${result.purpose.identityId}.`, true);
-      }
-      if (result.purpose.type === 'microsoft-account') {
-        const r = await suite.microsoft.complete(result.purpose.identityId, result.tokens);
-        const mc = r.minecraft === 'direct' ? `Minecraft: ${r.username}` : r.minecraft === 'code' ? 'Minecraft: confirm the sign-in code shown in the suite' : 'Minecraft: see the identity page';
-        return page('Microsoft account connected', `${r.email} – Outlook mail connected. ${mc}.`, true);
-      }
-      await suite.mail.storeMailboxOAuth(result.purpose.mailboxId, result.provider, result.tokens);
-      return page('Mailbox connected', `OAuth access for mailbox ${result.purpose.mailboxId} stored in the vault.`, true);
-    } catch (e) {
-      return page('Connection failed', (e as Error).message, false);
-    }
-  });
-
   // Warnings/errors are pushed live to the UI.
   const offLog = onLogEntry((e) => {
     if (e.level === 'warn' || e.level === 'error') suite.bus.emit({ type: 'log', identityId: e.identityId ?? null, data: e });
@@ -169,9 +142,6 @@ export async function buildServer(suite: Suite, opts: ServerOptions = {}): Promi
 
   // ------------------------------------------------------------------ status & settings
   app.get('/api/status', async () => {
-    const providers = ['microsoft', 'google', 'discord'] as const;
-    const oauth: Record<string, boolean> = {};
-    for (const p of providers) oauth[p] = await suite.oauth.isConfigured(p);
     const rules = suite.getRules();
     return {
       name: 'Hoelni Client Suite',
@@ -179,7 +149,6 @@ export async function buildServer(suite: Suite, opts: ServerOptions = {}): Promi
       build: suite.updater.status().current.build,
       vaultBackend: suite.vault.backend,
       identities: suite.repo.listIdentities().length,
-      oauth,
       rules: { mail: rules.mailRules.length, chat: rules.chatRules.length },
       discordAppUrl: DISCORD_APP_URL,
     };
@@ -283,17 +252,7 @@ export async function buildServer(suite: Suite, opts: ServerOptions = {}): Promi
   app.post('/api/updates/install', async () => suite.updater.install());
   app.post('/api/updates/rollback', async () => suite.updater.rollback());
 
-  app.get('/api/settings', async () => {
-    const out: Record<string, unknown> = {};
-    for (const p of ['microsoft', 'google', 'discord'] as const) {
-      out[p] = {
-        clientId: suite.repo.getSetting(`oauth.${p}.clientId`) || (suite.config.oauth as any)[p]?.clientId || '',
-        hasClientSecret: (await suite.vault.store.get(refs.app(`oauth-${p}`))) !== null,
-        ...(p === 'microsoft' ? { tenant: suite.repo.getSetting('oauth.microsoft.tenant') || suite.config.oauth.microsoft.tenant } : {}),
-      };
-    }
-    return { oauth: out, redirectUri: `http://127.0.0.1:${port}/oauth/callback`, automation: suite.config.automation };
-  });
+  app.get('/api/settings', async () => ({ automation: suite.config.automation }));
 
   // UI language (the desktop tray menu follows it too)
   app.get('/api/settings/ui', async () => ({ language: suite.repo.getSetting('ui.language') === 'de' ? 'de' : 'en' }));
@@ -302,18 +261,6 @@ export async function buildServer(suite: Suite, opts: ServerOptions = {}): Promi
     if (language !== 'en' && language !== 'de') throw new ValidationError('language must be en or de');
     suite.repo.setSetting('ui.language', language);
     return { language };
-  });
-
-  app.put('/api/settings/oauth/:provider', async (req: Req) => {
-    const p = req.params.provider;
-    if (!['microsoft', 'google', 'discord'].includes(p)) throw new ValidationError('Unknown provider');
-    const { clientId, clientSecret, tenant } = bodyOf(req);
-    if (clientId !== undefined) suite.repo.setSetting(`oauth.${p}.clientId`, String(clientId).trim());
-    if (tenant !== undefined && p === 'microsoft') suite.repo.setSetting('oauth.microsoft.tenant', String(tenant).trim());
-    if (clientSecret) await suite.vault.store.set(refs.app(`oauth-${p}`), String(clientSecret));
-    if (clientSecret === null) await suite.vault.store.delete(refs.app(`oauth-${p}`));
-    suite.audit.record(null, 'OAuth client settings changed', { provider: p });
-    return { ok: true };
   });
 
   app.get('/api/rules', async () => suite.getRules());
@@ -350,7 +297,7 @@ export async function buildServer(suite: Suite, opts: ServerOptions = {}): Promi
       identity,
       minecraft: suite.repo.getMinecraft(id),
       deviceCode: suite.auth.pendingDeviceCode(id),
-      microsoft: await suite.microsoft.status(id),
+      microsoft: suite.microsoft.status(id),
       mail,
       mailbox: mail ? publicMailbox(suite, mail.mailAccountId) : null,
       discord: suite.repo.getDiscord(id),
@@ -469,11 +416,6 @@ export async function buildServer(suite: Suite, opts: ServerOptions = {}): Promi
     await suite.mail.setMailboxPassword(num(req.params.id), String(bodyOf(req).password ?? ''));
     return { ok: true };
   });
-  app.post('/api/mailboxes/:id/oauth', async (req: Req) => {
-    const account = suite.repo.getMailAccount(num(req.params.id));
-    if (account.kind === 'imap') throw new ValidationError('Generic IMAP mailboxes use a password');
-    return suite.oauth.begin(account.kind, { type: 'mailbox', mailboxId: account.id }, { loginHint: account.username });
-  });
   app.post('/api/mailboxes/:id/test', async (req: Req) => suite.mail.providerFor(num(req.params.id)).test());
   app.post('/api/mailboxes/:id/sync', async (req: Req) => suite.mail.syncMailbox(num(req.params.id)));
   app.get('/api/mailboxes/:id/unassigned', async (req: Req) => suite.mail.unassigned(num(req.params.id), { q: req.query.q }));
@@ -564,14 +506,14 @@ export async function buildServer(suite: Suite, opts: ServerOptions = {}): Promi
    */
   app.get('/api/identities/:id/discord/open', async (req: Req, reply: FastifyReply) => {
     const to = String(req.query.to ?? 'app') as DiscordTarget;
-    if (!['register', 'login', 'app', 'connect', 'verify'].includes(to)) throw new ValidationError('Unknown Discord page');
-    const url = await suite.discord.target(num(req.params.id), to);
-    if (to !== 'connect' && !isDiscordUrl(url)) throw new ValidationError('Refusing to open a non-Discord page');
+    if (!['register', 'login', 'app'].includes(to)) throw new ValidationError('Unknown Discord page');
+    const url = suite.discord.target(num(req.params.id), to);
+    if (!isDiscordUrl(url)) throw new ValidationError('Refusing to open a non-Discord page');
     return reply.header('Referrer-Policy', 'no-referrer').redirect(url, 302);
   });
   app.get('/api/identities/:id/discord/signup-kit', async (req: Req) => {
     const id = num(req.params.id);
-    return suite.discord.signupKit(id, suite.repo.getMailIdentity(id)?.address ?? null, suite.repo.getMinecraft(id)?.username ?? null);
+    return suite.discord.signupKit(id, identityEmail(id), suite.repo.getMinecraft(id)?.username ?? null);
   });
   /** Copy-to-clipboard only (the UI never displays it); every copy is audited without the value. */
   app.post('/api/identities/:id/discord/password', async (req: Req) => {
@@ -585,19 +527,33 @@ export async function buildServer(suite: Suite, opts: ServerOptions = {}): Promi
       identityId: i.id,
       label: i.label,
       minecraft: suite.repo.getMinecraft(i.id)?.username ?? null,
-      email: suite.repo.getMailIdentity(i.id)?.address ?? null,
+      email: identityEmail(i.id),
+      microsoft: suite.microsoft.status(i.id),
+      minecraftStatus: suite.repo.getMinecraft(i.id)?.authStatus ?? 'NONE',
       discord: suite.repo.getDiscord(i.id),
     })),
   );
-  // One Microsoft sign-in: Outlook + Minecraft
+  app.post('/api/identities/:id/discord/ready', async (req: Req) => suite.discord.markReady(num(req.params.id), bodyOf(req).username ? String(bodyOf(req).username) : null));
+
+  // ------------------------------------------------------------------ Microsoft: Minecraft sign-in + Outlook, no app registration
   app.get('/api/identities/:id/microsoft', async (req: Req) => suite.microsoft.status(num(req.params.id)));
-  app.post('/api/identities/:id/microsoft/connect', async (req: Req) => suite.microsoft.begin(num(req.params.id), bodyOf(req).loginHint ? String(bodyOf(req).loginHint) : undefined));
+  app.post('/api/identities/:id/microsoft/connect', async (req: Req) => suite.microsoft.connect(num(req.params.id), String(bodyOf(req).email ?? '')));
+  /**
+   * Opens a page in the identity's own Microsoft window (desktop program: persistent browser profile
+   * per identity – the Minecraft confirmation page with the code filled in, or Outlook). A normal
+   * browser just follows the redirect.
+   */
+  app.get('/api/identities/:id/microsoft/open', async (req: Req, reply: FastifyReply) => {
+    const to = String(req.query.to ?? 'outlook') as MicrosoftTarget;
+    if (!['link', 'outlook'].includes(to)) throw new ValidationError('Unknown Microsoft page');
+    const url = suite.microsoft.target(num(req.params.id), to);
+    if (!isMicrosoftUrl(url)) throw new ValidationError('Refusing to open a non-Microsoft page');
+    return reply.header('Referrer-Policy', 'no-referrer').redirect(url, 302);
+  });
   app.delete('/api/identities/:id/microsoft', async (req: Req) => {
     await suite.microsoft.unlink(num(req.params.id));
     return { ok: true };
   });
-  app.post('/api/identities/:id/discord/connect', async (req: Req) => suite.discord.beginConnect(num(req.params.id)));
-  app.post('/api/identities/:id/discord/verify', async (req: Req) => suite.discord.verify(num(req.params.id)));
   app.post('/api/identities/:id/discord/disconnect', async (req: Req) => {
     await suite.discord.disconnect(num(req.params.id));
     return { ok: true };
@@ -867,16 +823,6 @@ export async function buildServer(suite: Suite, opts: ServerOptions = {}): Promi
     });
     const rules = suite.getRules();
     checks.push({ key: 'rules', label: 'Recognition rules', status: rules.chatRules.length && rules.mailRules.length ? 'ok' : 'warn', detail: `${rules.mailRules.length} mail rules, ${rules.chatRules.length} chat rule-sets, ${rules.reconnect.rules.length} reconnect rules` });
-    for (const p of ['discord', 'microsoft', 'google'] as const) {
-      const ok = await suite.oauth.isConfigured(p);
-      checks.push({
-        key: `oauth-${p}`,
-        label: `${p[0].toUpperCase()}${p.slice(1)} OAuth client`,
-        status: ok ? 'ok' : p === 'discord' ? 'warn' : 'warn',
-        detail: ok ? 'Client ID configured' : p === 'discord' ? 'Required to connect Discord accounts' : p === 'microsoft' ? 'Needed for “Sign in with Microsoft” (Outlook + Minecraft in one step)' : 'Only needed for Gmail mailboxes via OAuth2',
-        action: '#/settings',
-      });
-    }
     const servers = suite.repo.listServers();
     checks.push({ key: 'servers', label: 'Minecraft servers', status: servers.length ? 'ok' : 'error', detail: servers.length ? servers.map((x) => `${x.name} (${x.host}:${x.port})`).join(', ') : 'No server configured', action: '#/servers' });
     const ids = suite.repo.listIdentities();
@@ -884,7 +830,7 @@ export async function buildServer(suite: Suite, opts: ServerOptions = {}): Promi
     const withMc = ids.filter((i) => suite.repo.getMinecraft(i.id)).length;
     checks.push({ key: 'minecraft', label: 'Minecraft accounts', status: withMc === ids.length && ids.length ? 'ok' : 'warn', detail: `${withMc}/${ids.length} identities have a Minecraft account` });
     const mb = suite.repo.listMailAccounts();
-    checks.push({ key: 'mail', label: 'Mailboxes', status: mb.length ? (mb.every((m) => m.credentialRef) ? 'ok' : 'warn') : 'warn', detail: mb.length ? `${mb.filter((m) => m.credentialRef).length}/${mb.length} with credentials` : 'No mailbox configured', action: '#/mailboxes' });
+    if (mb.length) checks.push({ key: 'mail', label: 'IMAP mailboxes (optional)', status: mb.every((m) => m.credentialRef) ? 'ok' : 'warn', detail: `${mb.filter((m) => m.credentialRef).length}/${mb.length} with credentials`, action: '#/mailboxes' });
     const noNet = ids.filter((i) => i.settings.networkMode !== 'DIRECT' && !i.networkProfileId).length;
     checks.push({ key: 'network', label: 'Network profiles', status: noNet ? 'warn' : 'ok', detail: noNet ? `${noNet} identities without a network profile` : 'All identities have a network profile' });
     const g = suite.game;

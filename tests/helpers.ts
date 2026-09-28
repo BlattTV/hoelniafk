@@ -157,7 +157,6 @@ export async function createTestSuite(overrides: Partial<SuiteDeps> = {}) {
   const mailServer = new FakeMailServer();
   const ipCalls: Array<{ profile: NetworkProfile | null; password: string | null }> = [];
   const ipByProfile = new Map<number, string>();
-  const oauthPosts: Array<{ url: string; form: Record<string, string> }> = [];
   const suite = createSuite({
     config: { port: 7420 },
     sessionOptions: { reconcileIntervalMs: 60_000 },
@@ -186,21 +185,9 @@ export async function createTestSuite(overrides: Partial<SuiteDeps> = {}) {
       };
     },
     mailSourceFactory: mailServer.factory,
-    discordUserFetcher: async (accessToken) => {
-      const n = accessToken.replace(/\D/g, '');
-      return { id: `90000000000000${n}`, username: `discorduser${n}`, global_name: `Discord User ${n}`, avatar: null };
-    },
-    oauthPost: async (url, form) => {
-      oauthPosts.push({ url, form });
-      const seed = form.code ?? form.refresh_token ?? '0';
-      const n = seed.replace(/\D/g, '') || '0';
-      return { status: 200, json: { access_token: `access-${n}`, refresh_token: `refresh-${n}`, expires_in: 3600 } };
-    },
     ...overrides,
   });
-  suite.repo.setSetting('oauth.discord.clientId', 'test-discord-client');
-  suite.repo.setSetting('oauth.microsoft.clientId', 'test-ms-client');
-  return { suite, store, bots, mailServer, ipCalls, ipByProfile, oauthPosts };
+  return { suite, store, bots, mailServer, ipCalls, ipByProfile };
 }
 
 export const tick = () => new Promise((r) => setImmediate(r));

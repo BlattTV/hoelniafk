@@ -62,19 +62,13 @@ describe('web API security', () => {
     expect(res.json().type).toBe('IsolationError');
   });
 
-  it('completes the Discord OAuth callback for the identity that started it', async () => {
-    const { call, app, suite } = await setup();
+  it('marks Discord as set up without any OAuth app (username optional, validated)', async () => {
+    const { call, suite } = await setup();
     const id = (await call('POST', '/api/identities', {})).json().identity.id;
-    const { url } = (await call('POST', `/api/identities/${id}/discord/connect`)).json();
-    const u = new URL(url);
-    expect(u.origin).toBe('https://discord.com');
-    expect(u.searchParams.get('redirect_uri')).toBe('http://127.0.0.1:7420/oauth/callback');
-    expect(u.searchParams.get('code_challenge_method')).toBe('S256');
-    const cb = await app.inject({ method: 'GET', url: `/oauth/callback?code=code-5&state=${u.searchParams.get('state')}`, headers: { host: '127.0.0.1:7420' } });
-    expect(cb.body).toContain('Discord connected');
-    expect(suite.repo.getDiscord(id)).toMatchObject({ oauthState: 'CONNECTED', username: 'discorduser5' });
-    const bad = await app.inject({ method: 'GET', url: '/oauth/callback?code=x&state=forged', headers: { host: '127.0.0.1:7420' } });
-    expect(bad.body).toContain('Connection failed');
+    expect((await call('POST', `/api/identities/${id}/discord/ready`, { username: 'bad name!' })).statusCode).toBe(400);
+    expect((await call('POST', `/api/identities/${id}/discord/ready`, { username: '@hoelni_5' })).json()).toMatchObject({ oauthState: 'CONNECTED', username: 'hoelni_5' });
+    expect(suite.identities.health(id).checks.find((c) => c.key === 'discordOAuth')).toMatchObject({ status: 'ok', detail: '@hoelni_5' });
+    expect((await call('GET', '/oauth/callback?code=x&state=y')).statusCode).toBe(404);
   });
 
   it('the Create-Discord-Account workflow only opens the official sign-up page', async () => {

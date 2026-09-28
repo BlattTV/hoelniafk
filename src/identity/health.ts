@@ -67,7 +67,7 @@ export function computeHealth(
   // Discord
   const d = repo.getDiscord(id);
   if (s.discordLinking === 'disabled') {
-    checks.push({ key: 'discordOAuth', label: 'Discord OAuth', status: 'skipped', detail: 'Discord disabled', target: 'discord' });
+    checks.push({ key: 'discordOAuth', label: 'Discord', status: 'skipped', detail: 'Discord disabled', target: 'discord' });
     checks.push({ key: 'discordLinked', label: 'Discord linked', status: 'skipped', detail: 'Discord disabled', target: 'discord' });
   } else {
     const required = s.discordLinking === 'required';
@@ -75,9 +75,9 @@ export function computeHealth(
     const oauthStatus: CheckStatus = oauth === 'CONNECTED' ? 'ok' : oauth === 'PENDING' ? 'warn' : oauth === 'NONE' ? (required ? 'error' : 'warn') : 'error';
     checks.push({
       key: 'discordOAuth',
-      label: 'Discord OAuth',
+      label: 'Discord',
       status: oauthStatus,
-      detail: oauth === 'CONNECTED' ? `@${d?.username}` : d?.lastError ?? (oauth === 'NONE' ? 'Not connected' : oauth),
+      detail: oauth === 'CONNECTED' ? (d?.username ? `@${d.username}` : 'Set up') : d?.lastError ?? 'Not set up yet',
       target: 'discord',
     });
     const link = d?.linkState ?? 'UNKNOWN';

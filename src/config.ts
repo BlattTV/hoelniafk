@@ -9,17 +9,11 @@ export interface AppConfig {
   dataDir: string;
   rulesFile: string;
   vault: { keyProvider: KeyProviderName };
-  oauth: {
-    microsoft: { clientId: string; tenant: string };
-    google: { clientId: string };
-    discord: { clientId: string };
-  };
   network: { ipEndpoints: string[] };
   mail: { syncLimit: number };
   automation: {
     mailCheckMinutes: number;
     networkCheckMinutes: number;
-    discordVerifyHours: number;
     tokenRefreshHours: number;
     /** Start the desired-state reconciler on launch (restores sessions that should be online). */
     restoreSessions: boolean;
@@ -60,14 +54,9 @@ export const DEFAULT_CONFIG: AppConfig = {
   dataDir: 'data',
   rulesFile: 'config/rules.yaml',
   vault: { keyProvider: 'auto' },
-  oauth: {
-    microsoft: { clientId: '', tenant: 'consumers' },
-    google: { clientId: '' },
-    discord: { clientId: '' },
-  },
   network: { ipEndpoints: ['https://api.ipify.org', 'https://ifconfig.me/ip', 'https://icanhazip.com'] },
   mail: { syncLimit: 100 },
-  automation: { mailCheckMinutes: 10, networkCheckMinutes: 30, discordVerifyHours: 24, tokenRefreshHours: 12, restoreSessions: true },
+  automation: { mailCheckMinutes: 10, networkCheckMinutes: 30, tokenRefreshHours: 12, restoreSessions: true },
   runtime: { mode: 'process', sessionsPerHost: 10, grouping: 'pooled', heartbeatMs: 5000, heartbeatTimeoutMs: 30000, idleHostTtlMs: 60000 },
   sessions: { reconcileIntervalMs: 3000, maxConcurrentStarts: 4 },
   client: { enabled: true, rootDir: '', instancesDir: '', javaPath: '', mirrors: {}, onlineAfterMs: 5000, joinTimeoutMs: 300000 },
@@ -108,7 +97,7 @@ export function validateConfig(cfg: AppConfig, raw: unknown = {}): { errors: str
   if (cfg.client?.mirrors && Object.values(cfg.client.mirrors).some((u) => !/^https?:\/\//.test(String(u)))) errors.push('client.mirrors values must be http(s) URLs');
   oneOf(cfg.logging?.level, ['debug', 'info', 'warn', 'error'], 'logging.level');
   intRange(cfg.mail?.syncLimit, 1, 5000, 'mail.syncLimit');
-  for (const k of ['mailCheckMinutes', 'networkCheckMinutes', 'discordVerifyHours', 'tokenRefreshHours'] as const) {
+  for (const k of ['mailCheckMinutes', 'networkCheckMinutes', 'tokenRefreshHours'] as const) {
     const v = cfg.automation?.[k];
     if (typeof v !== 'number' || v < 0) errors.push(`automation.${k} must be a number >= 0`);
   }
@@ -116,7 +105,7 @@ export function validateConfig(cfg: AppConfig, raw: unknown = {}): { errors: str
     errors.push('network.ipEndpoints must be a list of http(s) URLs');
   }
   if (cfg.runtime?.mode === 'inline') warnings.push('runtime.mode "inline": a crashing session can take the whole suite down – use "process" in production');
-  const known = new Set(Object.keys(DEFAULT_CONFIG));
+  const known = new Set([...Object.keys(DEFAULT_CONFIG), 'oauth']); // 'oauth': old setting, no longer needed
   if (raw && typeof raw === 'object') for (const k of Object.keys(raw)) if (!known.has(k)) warnings.push(`Unknown configuration key "${k}" (ignored)`);
   return { errors, warnings };
 }

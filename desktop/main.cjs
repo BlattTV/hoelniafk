@@ -275,11 +275,17 @@ function createWindow() {
     suiteShown = false;
     retryTimer = setTimeout(loadSuite, 1000);
   });
-  // Everything outside the suite (Discord verification links, webmail, OAuth) opens in the default browser.
+  // Everything outside the suite opens in the default browser – except the per-identity
+  // Discord and Microsoft (Minecraft sign-in + Outlook) windows.
   win.webContents.setWindowOpenHandler(({ url }) => {
     const discord = /\/api\/identities\/(\d+)\/discord\/open\?/.exec(url);
     if (discord && url.startsWith(BASE)) {
       void openDiscordProfile(Number(discord[1]), url);
+      return { action: 'deny' };
+    }
+    const microsoft = /\/api\/identities\/(\d+)\/microsoft\/open\?/.exec(url);
+    if (microsoft && url.startsWith(BASE)) {
+      void openMicrosoftProfile(Number(microsoft[1]), url);
       return { action: 'deny' };
     }
     if (/^https?:\/\//.test(url)) shell.openExternal(url);
@@ -423,6 +429,76 @@ async function openDiscordProfile(identityId, url) {
     w.on('closed', () => discordWindows.delete(identityId));
   }
   // The suite URL answers with a redirect to the Discord page (or the OAuth consent page).
+  await w.loadURL(url).catch(() => undefined);
+  w.show();
+  w.focus();
+}
+
+// ------------------------------------------------------------------ Microsoft: one browser profile per identity
+// The Minecraft sign-in (Microsoft's own confirmation page, code already filled in) and Outlook run in
+// the same persistent profile – one Microsoft login per identity, no app registration. Links in mails:
+// Discord links open in the identity's Discord window, Microsoft pages stay here, everything else goes
+// to the normal browser. The suite never reads these pages or fills in forms.
+const microsoftWindows = new Map();
+const MS_HOSTS = /(^|\.)(microsoft\.com|live\.com|outlook\.com|office\.com|office\.net|office365\.com|microsoftonline\.com|msauth\.net|msftauth\.net|live\.net|xboxlive\.com|xbox\.com|minecraft\.net|bing\.com|msn\.com|hcaptcha\.com)$/i;
+
+/** Outlook wraps links as safelinks – unwrap them before deciding where they open. */
+function unwrapLink(url) {
+  try {
+    const u = new URL(url);
+    if (/safelinks\.protection\.outlook\.com$/i.test(u.hostname) && u.searchParams.get('url')) return u.searchParams.get('url');
+  } catch {}
+  return url;
+}
+
+async function openMicrosoftProfile(identityId, url) {
+  let w = microsoftWindows.get(identityId);
+  if (!w || w.isDestroyed()) {
+    let label = `Identity ${identityId}`;
+    try {
+      const list = await api('GET', '/api/discord');
+      const row = list.find((r) => r.identityId === identityId);
+      if (row) label = row.email ? `${row.label} · ${row.email}` : row.label;
+    } catch {}
+    const partition = `persist:hoelni-ms-${identityId}`;
+    w = new BrowserWindow({
+      width: 1280,
+      height: 860,
+      title: `Microsoft – ${label}`,
+      icon: icon('icon.png'),
+      autoHideMenuBar: true,
+      webPreferences: { partition, contextIsolation: true, sandbox: true, nodeIntegration: false },
+    });
+    w.removeMenu();
+    const title = `Microsoft – ${label}`;
+    w.on('page-title-updated', (e) => {
+      e.preventDefault();
+      w.setTitle(title);
+    });
+    const route = (next) => {
+      const target = unwrapLink(next);
+      try {
+        const host = new URL(target).hostname;
+        if (/(^|\.)(discord\.com|discordapp\.com|discord\.gg)$/i.test(host)) {
+          void openDiscordProfile(identityId, target);
+          return 'handled';
+        }
+        if (MS_HOSTS.test(host)) return 'stay';
+      } catch {}
+      if (/^https?:\/\//.test(target)) shell.openExternal(target);
+      return 'handled';
+    };
+    w.webContents.setWindowOpenHandler(({ url: next }) => {
+      if (route(next) === 'stay') return { action: 'allow', overrideBrowserWindowOptions: { autoHideMenuBar: true, webPreferences: { partition, contextIsolation: true, sandbox: true } } };
+      return { action: 'deny' };
+    });
+    w.webContents.on('will-navigate', (e, next) => {
+      if (route(next) !== 'stay') e.preventDefault();
+    });
+    microsoftWindows.set(identityId, w);
+    w.on('closed', () => microsoftWindows.delete(identityId));
+  }
+  // The suite URL answers with a redirect to the Microsoft page.
   await w.loadURL(url).catch(() => undefined);
   w.show();
   w.focus();

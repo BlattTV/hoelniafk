@@ -46,10 +46,10 @@ Discord / Cloudflare / public IP endpoints), **REAL ACCOUNT** (real Minecraft ac
 - Network profiles per identity (bind IP, SOCKS5 with auth, HTTP CONNECT with auth, direct), per-session override, public exit-IP detection through the profile, expected-IP verification with audit, conflict detection between identities, network guard (off / warn / block session start on mismatch), step-by-step diagnosis (bind IP present, proxy reachable, DNS, Minecraft TCP with reported local source address, public IP, isolation).
 
 **Mail**
-- IMAP (password) and OAuth2 (Microsoft, Google; XOAUTH2) mailboxes, SMTP sending, per-identity mailbox or alias on a shared mailbox, header index + bodies on demand, search/sender/subject/unread/category filters, HTML (sandboxed, remote images blocked) / text, links, attachments, manual assignment, global inbox, verification/account mail view with rule-based detection and copyable codes, alias providers (plus addressing, Cloudflare Email Routing API), single-flight sync per mailbox.
+- Outlook of every identity in its own Microsoft window (same login as Minecraft, no stored mail tokens). Optional IMAP (password / app password) mailboxes, SMTP sending, per-identity mailbox or alias on a shared mailbox, header index + bodies on demand, search/sender/subject/unread/category filters, HTML (sandboxed, remote images blocked) / text, links, attachments, manual assignment, global inbox, verification/account mail view with rule-based detection and copyable codes, alias providers (plus addressing, Cloudflare Email Routing API), single-flight sync per mailbox.
 
 **Discord**
-- OAuth2 authorization code + PKCE (scope `identify`), connect / verify (refresh) / disconnect, uniqueness per identity, user-guided "Create Discord account" (official sign-up page only), Minecraft↔Discord link workflow (UNKNOWN/WAITING/LINKED/ERROR) driven by chat rules, link codes shown in dashboard. Provisional accounts evaluated and not used (docs/DISCORD.md).
+- No Discord developer app: own Discord window per identity (desktop program), marked as set up by the user (optional username), user-guided "Create Discord account" (official sign-up page only), Minecraft↔Discord link workflow (UNKNOWN/WAITING/LINKED/ERROR) driven by chat rules, link codes shown in dashboard. Provisional accounts evaluated and not used (docs/DISCORD.md).
 
 **Rewards / Stars**
 - Per identity and per server: stars, eligible, received, waiting, Discord linked, last change + last message, history; aggregate per identity; manual correction; all texts in `config/rules.yaml`.
@@ -94,11 +94,11 @@ Discord / Cloudflare / public IP endpoints), **REAL ACCOUNT** (real Minecraft ac
   - Changes reach running sessions live.
   - Drag-and-drop UI.
 - **Simple setup:**
-  - *New identity* in three steps: name/servers → **one Microsoft sign-in** → Discord.
-  - The Microsoft sign-in (Azure app with PKCE) consents to Outlook and Xbox Live in one go. The Outlook mailbox is created and assigned automatically, and Minecraft is connected via Xbox Live → XSTS → Minecraft services from the same grant.
-  - If Mojang has not approved the app yet, Minecraft falls back to the Minecraft sign-in code for the same account automatically.
+  - *New identity* in three steps: name/servers → **Microsoft** → Discord. No app registrations (no Azure, Discord or Google developer apps).
+  - Microsoft: the user enters the account's e-mail; Microsoft's own Minecraft sign-in (device code) opens in the identity's own Microsoft window with the code filled in (`microsoft.com/link?otc=`). Outlook then opens in the same window, already signed in.
+  - Links in Outlook: Discord links open in the identity's Discord window, Microsoft pages stay, everything else goes to the default browser (safelinks unwrapped).
   - Discord runs in its own persistent browser profile per identity (desktop program). "Switch" means opening that identity's window.
-  - Sign-up helper: e-mail, username, and a vault password that is copied, never shown. The confirmation link is opened from the identity's mail, and OAuth connect happens in the same profile.
+  - Sign-up helper: e-mail, username, and a vault password that is copied, never shown. The confirmation mail arrives in Outlook; its link opens in the Discord window.
   - The suite never submits Discord forms.
   - Simplified navigation (advanced pages collapsed) and an identity page with Microsoft/Discord tiles.
 - **Language:**
@@ -123,7 +123,7 @@ Discord / Cloudflare / public IP endpoints), **REAL ACCOUNT** (real Minecraft ac
 
 ## TESTED
 
-`npm test` – 29 test files / 186 tests green, `npm run test:e2e` – 14 Playwright tests green; typecheck clean, production build OK:
+`npm test` – 28 test files / 179 tests green, `npm run test:e2e` – 14 Playwright tests green; typecheck clean, production build OK:
 
 | Area | Level | Tests |
 |---|---|---|
@@ -131,7 +131,7 @@ Discord / Cloudflare / public IP endpoints), **REAL ACCOUNT** (real Minecraft ac
 | Vault encryption, AAD binding, scopes, SQLite contains no secrets, backups, recovery kit | MOCK + real files | `tests/vault.test.ts` |
 | Rules (mail, chat, rewards, reconnect policy), audit, logging/redaction, config validation, migrations, aliases, supervisor | MOCK / real processes | `tests/*.test.ts` |
 | Identity lifecycle, Phase-F milestone, templates/clone, desired state, block rules, runtime crash, restore after restart | MOCK (inline runtime) | `tests/identity.test.ts` |
-| API security (token, DNS rebinding, origin, CSP, no secrets in responses, OAuth callback) | MOCK | `tests/api.test.ts` |
+| API security (token, DNS rebinding, origin, CSP, no secrets in responses) | MOCK | `tests/api.test.ts` |
 | Real mineflayer sessions in runtime host processes vs. local servers: bind IP 127.0.0.2 seen by the server, link codes, rewards, multi-server, kick → reconnect, host crash recovery, ban → BLOCKED, desired offline | LOCAL INTEGRATION | `tests/integration/runtime.int.test.ts` |
 | Launcher against a local mirror with format-correct Mojang/Fabric metadata: rules, natives per OS, assets, SHA-1 rejection, Fabric merge, Java runtime (executable, links), launch arguments (quick play, `--server` fallback, placeholders, classpath separator) | LOCAL INTEGRATION | `tests/launcher.test.ts` |
 | Forwarder: handshake parse/rebuild (FML suffix), bind IP as source, handshake host rewrite, `beforeLogin` ordering, status pings | LOCAL INTEGRATION | `tests/launcher.test.ts` |
@@ -141,7 +141,7 @@ Discord / Cloudflare / public IP endpoints), **REAL ACCOUNT** (real Minecraft ac
 | Update end to end with the real code: `hoelni-updates init` + `build` of this repository (npm ci + build, 19 s) → `serve`; an installed suite (built `dist/`, supervisor) connected via API, checked, installed → restarted as build #1 in ~1 s | LOCAL INTEGRATION (manual run) | documented here |
 | Live takeover across protocol generations: 1.20.1, 1.20.2 (configuration phase), 1.21.1 (per-registry data, known packs, chunk batches) | LOCAL INTEGRATION | `tests/integration/takeover-versions.int.test.ts` |
 | Source-IP binding, SOCKS5 (RFC 1929 auth) and HTTP CONNECT proxies, exit-IP detection & mismatch, network guard, diagnosis | LOCAL INTEGRATION (Linux) | `tests/integration/network.int.test.ts` |
-| IMAP (imapflow ↔ local IMAP server) incl. XOAUTH2, SMTP (PLAIN, XOAUTH2), OAuth2 code exchange with PKCE verification + refresh, Discord API over HTTP | LOCAL INTEGRATION | `tests/integration/mail.int.test.ts` |
+| IMAP (imapflow ↔ local IMAP server), SMTP (PLAIN) | LOCAL INTEGRATION | `tests/integration/mail.int.test.ts` |
 | UI: all pages without console errors, dashboard filter/context menu, matrix toggle → ONLINE, **Open game → 🎮 game (live) → Back to AFK**, global chat command | LOCAL INTEGRATION (Playwright) | `tests/e2e/ui.spec.ts` (`npm run test:e2e`) |
 | Backend ↔ manager ↔ agent over the real relay:
   - default address; an address change only with admin credentials;
@@ -213,11 +213,8 @@ All integrations are implemented end-to-end; only the following values/accounts 
 
 | What | Where to enter | Needed for |
 |---|---|---|
-| Discord OAuth app (client ID, client secret) | Settings & Vault | connecting Discord accounts |
-| Microsoft Azure app registration (client ID, tenant) | Settings & Vault | Outlook/Hotmail mailboxes via OAuth2 |
-| Google OAuth client (desktop) | Settings & Vault | Gmail via OAuth2 |
-| IMAP passwords / app passwords | Mailboxes & Aliases | generic IMAP mailboxes |
-| Microsoft accounts owning Minecraft Java | Identity → Minecraft (device code sign-in) | online-mode servers |
+| IMAP passwords / app passwords (optional) | Mailboxes & Aliases | automatic code recognition |
+| Microsoft accounts owning Minecraft Java | New identity → Microsoft (sign-in window) | online-mode servers, Outlook |
 | Cloudflare API token + zone (optional) | Mailboxes & Aliases → alias provider | alias creation |
 | Your server address/version and the exact chat texts | Server Profiles, `config/rules.yaml` | link codes, rewards, reconnect rules |
 | Internet access to Mojang/Fabric download hosts (or a mirror) | `client.mirrors` | first "Open game" |
@@ -225,7 +222,7 @@ All integrations are implemented end-to-end; only the following values/accounts 
 
 Pending real tests once these exist: Microsoft device-code login → join your online-mode server
 (REAL ACCOUNT); **Open game with the real client: takeover on your server's version and plugins
-(REAL SERVICE + REAL ACCOUNT)**; Discord OAuth connect; Outlook/Gmail OAuth IMAP; Cloudflare alias creation;
+(REAL SERVICE + REAL ACCOUNT)**; Microsoft window: code prefill + Outlook with the same login (REAL ACCOUNT); Cloudflare alias creation;
 public-IP verification through the real VPN exits; the rules against your server's real messages.
 
 ## KNOWN LIMITATIONS

@@ -58,7 +58,8 @@ Windows user session (VM)
 | Linking / rewards | `src/minecraft/linking.ts`, `rewards.ts`, `config/rules.yaml` | purely rule-driven (no hard-coded server texts) |
 | Networking | `src/network/*` | connector (bind/SOCKS5/HTTP), public-IP detection, verification, diagnosis, conflicts |
 | Mail | `src/mail/*` | imapflow (password / XOAUTH2), mailparser, nodemailer SMTP, alias adapters, identity isolation |
-| Discord | `src/discord/discordService.ts`, `src/core/oauth.ts` | OAuth2 code + PKCE, verify/refresh, user-guided sign-up |
+| Discord | `src/discord/discordService.ts` | own window per identity (desktop), user-guided sign-up, marked as set up – no OAuth app |
+| Microsoft | `src/identity/microsoftAccount.ts` | Minecraft device code confirmed in the identity's Microsoft window; Outlook in the same window – no app registration |
 | Operations | `src/ops/bulk.ts`, `src/core/metrics.ts`, `src/core/logger.ts`, `src/core/audit.ts`, `src/supervisor.ts` | |
 | UI | `public/js/*` | dependency-free ES modules, DOM built from text nodes only |
 | Test servers | `src/testserver/*` | flying-squid based local servers with Hoelni-like messages |
@@ -181,7 +182,7 @@ the server (default: detected via a status ping through the network profile).
   registered secrets and token-like patterns; audit refuses secret-looking keys and stores
   codes masked (`AB****`).
 * Isolation checks on every cross-resource access (vault scope, network profile ownership,
-  mailbox/alias ownership, unique Discord/Minecraft accounts, OAuth state bound to identity).
+  mailbox/alias ownership, unique Discord/Minecraft accounts).
 * Mail HTML is rendered in a sandboxed iframe; remote images are blocked.
 
 ## 7. Observability
@@ -197,7 +198,7 @@ the server (default: detected via a status ping through the network profile).
 
 | Label | Meaning | Where |
 |---|---|---|
-| MOCK | fakes for external systems (bots, mailboxes, OAuth, IP) | `tests/*.test.ts` |
-| LOCAL INTEGRATION | real protocols against local servers: mineflayer ↔ flying-squid, runtime host processes, socket binding, SOCKS5/HTTP proxies, IMAP (hoodiecrow), SMTP (smtp-server), OAuth2 over HTTP with PKCE, launcher against a local Mojang/Fabric mirror, Open game / live takeover with a protocol-level game emulator started through the real launch command line (`tests/fixtures/`), browser E2E | `tests/launcher.test.ts`, `tests/integration/*`, `tests/e2e/*` |
-| REAL SERVICE | real Microsoft/Google/Discord/Cloudflare endpoints, public IP services | pending – needs your OAuth apps (see FINAL_STATUS.md) |
+| MOCK | fakes for external systems (bots, mailboxes, Minecraft sign-in, IP) | `tests/*.test.ts` |
+| LOCAL INTEGRATION | real protocols against local servers: mineflayer ↔ flying-squid, runtime host processes, socket binding, SOCKS5/HTTP proxies, IMAP (hoodiecrow), SMTP (smtp-server), launcher against a local Mojang/Fabric mirror, Open game / live takeover with a protocol-level game emulator started through the real launch command line (`tests/fixtures/`), browser E2E | `tests/launcher.test.ts`, `tests/integration/*`, `tests/e2e/*` |
+| REAL SERVICE | real Microsoft/Google/Discord/Cloudflare endpoints, public IP services | pending – needs real accounts (see FINAL_STATUS.md) |
 | REAL ACCOUNT | real Minecraft account on your server | pending – needs your account |

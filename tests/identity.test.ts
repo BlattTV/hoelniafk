@@ -19,9 +19,7 @@ async function fullIdentity() {
   suite.repo.upsertMinecraft(id, { username: 'Player07', authType: 'microsoft', msaAccount: 'acc07@example.com' });
   await suite.auth.authenticate(id);
   // Phase D – discord
-  const { url } = await suite.discord.beginConnect(id);
-  const r = await suite.oauth.complete(new URL(url).searchParams.get('state')!, 'code-7');
-  await suite.discord.completeConnect(id, r.tokens);
+  suite.discord.markReady(id, 'discorduser7');
   // Phase E – network
   suite.repo.createNetworkProfile(id, { kind: 'BIND', localBindIp: '10.0.0.7', expectedPublicIp: '203.0.113.7' });
   await suite.network.verify(id);

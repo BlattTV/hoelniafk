@@ -99,41 +99,16 @@ describe('mail isolation', () => {
 });
 
 describe('discord isolation', () => {
-  it('one Discord account cannot be connected to two identities', async () => {
+  it('setting up Discord for A never touches B, and each identity has its own sign-up password', async () => {
     const { suite, a, b } = await twoIdentities();
-    const { url } = await suite.discord.beginConnect(a.id);
-    const state = new URL(url).searchParams.get('state')!;
-    const res = await suite.oauth.complete(state, 'code-7');
-    expect(res.purpose).toEqual({ type: 'discord', identityId: a.id });
-    await suite.discord.completeConnect(a.id, res.tokens);
-
-    const second = await suite.discord.beginConnect(b.id);
-    const res2 = await suite.oauth.complete(new URL(second.url).searchParams.get('state')!, 'code-7');
-    await expect(suite.discord.completeConnect(b.id, res2.tokens)).rejects.toBeInstanceOf(ConflictError);
-    expect(suite.repo.getDiscord(b.id)!.discordUserId).toBeNull();
-    expect(suite.repo.getDiscord(a.id)!.discordUserId).toBe('900000000000007');
-  });
-
-  it('OAuth state is single-use and bound to the identity that started it', async () => {
-    const { suite, a } = await twoIdentities();
-    const { url } = await suite.discord.beginConnect(a.id);
-    const state = new URL(url).searchParams.get('state')!;
-    await suite.oauth.complete(state, 'code-1');
-    await expect(suite.oauth.complete(state, 'code-1')).rejects.toThrow(/Unknown or expired/);
-  });
-
-  it('verification of identity A only ever uses A\'s refresh token', async () => {
-    const { suite, a, b, oauthPosts } = await twoIdentities();
-    for (const [id, code] of [[a.id, 'code-11'], [b.id, 'code-22']] as const) {
-      const { url } = await suite.discord.beginConnect(id);
-      const r = await suite.oauth.complete(new URL(url).searchParams.get('state')!, code);
-      await suite.discord.completeConnect(id, r.tokens);
-    }
-    oauthPosts.length = 0;
-    await suite.discord.verify(a.id);
-    expect(oauthPosts).toHaveLength(1);
-    expect(oauthPosts[0].form.refresh_token).toBe('refresh-11');
-    expect(suite.repo.getDiscord(a.id)!.credentialRef).toBe(refs.identity(a.id, 'discord'));
+    suite.discord.markReady(a.id, 'player_a');
+    expect(suite.repo.getDiscord(a.id)).toMatchObject({ oauthState: 'CONNECTED', username: 'player_a' });
+    expect(suite.repo.getDiscord(b.id)?.oauthState ?? 'NONE').toBe('NONE');
+    const pa = await suite.discord.password(a.id);
+    const pb = await suite.discord.password(b.id);
+    expect(pa).not.toBe(pb);
+    expect(await suite.discord.password(a.id)).toBe(pa);
+    expect(await suite.vault.forIdentity(a.id).get(refs.identity(a.id, 'discord-password'))).toBe(pa);
   });
 });
 

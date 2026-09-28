@@ -8,7 +8,7 @@
  *   ├── listMessages()
  *   └── getMessage()
  *
- * A provider is composed of a MessageSource (IMAP, optionally via OAuth2) and an
+ * A provider is composed of a MessageSource (IMAP) and an
  * optional AliasManager. Alias managers only use officially supported provider APIs.
  */
 import { NotSupportedError } from '../core/errors.js';

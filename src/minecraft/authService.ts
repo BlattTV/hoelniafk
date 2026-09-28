@@ -133,18 +133,6 @@ export class MinecraftAuthService {
     if (mc.authType === 'offline') {
       return this.repo.upsertMinecraft(identityId, { authStatus: 'AUTHENTICATED', lastAuthAt: nowIso(), lastError: null });
     }
-    try {
-      const direct = await this.directSession?.(identityId);
-      if (direct) {
-        const updated = this.repo.upsertMinecraft(identityId, { username: direct.profile.name, uuid: formatUuid(direct.profile.id), authStatus: 'AUTHENTICATED', lastAuthAt: nowIso(), lastError: null });
-        this.bus.emit({ type: 'identity.changed', identityId });
-        return updated;
-      }
-    } catch (e) {
-      const updated = this.repo.upsertMinecraft(identityId, { authStatus: 'ERROR', lastError: (e as Error).message.slice(0, 300) });
-      this.bus.emit({ type: 'identity.changed', identityId });
-      return updated;
-    }
     if (!mc.msaAccount) throw new ValidationError('Microsoft account e-mail is required for Microsoft authentication');
     const iv = this.vault.forIdentity(identityId);
     const hadToken = (await iv.get(iv.ref('minecraft'))) !== null;
@@ -176,20 +164,12 @@ export class MinecraftAuthService {
   }
 
   /**
-   * Java session for a runtime host (called when a Microsoft session connects).
-   * prismarine-auth serves cached tokens and refreshes them transparently.
-   */
-  /** Called for "renew" (direct Microsoft sign-in): drops cached Minecraft tokens. */
-  renewDirect: ((identityId: number) => Promise<boolean>) | null = null;
-
-  /**
    * Renews an expired Minecraft session in the background: new Minecraft token and chat signing
-   * keys from the stored Microsoft grant – no launcher restart, no new sign-in.
+   * keys from the stored Microsoft login – no launcher restart, no new sign-in.
    */
   async renew(identityId: number): Promise<void> {
     const mc = this.repo.getMinecraft(identityId);
     if (!mc || mc.authType !== 'microsoft') return; // offline accounts have nothing to renew
-    if (await this.renewDirect?.(identityId)) return;
     if (!mc.msaAccount) throw new ValidationError('No Microsoft account configured');
     const result = await this.fetch(identityId, mc, true);
     this.checkProfile(identityId, mc, result);
@@ -198,12 +178,11 @@ export class MinecraftAuthService {
     this.bus.emit({ type: 'identity.changed', identityId });
   }
 
-  /** Session straight from the identity's Microsoft sign-in (MicrosoftAccountService), if it covers Minecraft. */
-  directSession: ((identityId: number) => Promise<JavaSession | null>) | null = null;
-
+  /**
+   * Java session for a runtime host (called when a Microsoft session connects).
+   * prismarine-auth serves cached tokens and refreshes them transparently.
+   */
   async getJavaSession(identityId: number): Promise<JavaSession> {
-    const direct = await this.directSession?.(identityId);
-    if (direct) return direct;
     const mc = this.repo.getMinecraft(identityId);
     if (!mc || mc.authType !== 'microsoft' || !mc.msaAccount) throw new Error('Identity has no Microsoft account configured');
     try {

@@ -1,5 +1,6 @@
 import { api } from '../api.js';
-import { badge, clear, contextMenu, guard, h, identityName, mount, openExternal, openGame, pad2, select, toast } from '../ui.js';
+import { badge, clear, contextMenu, guard, h, identityName, mount, openGame, pad2, select, toast } from '../ui.js';
+import { openDiscord, openMicrosoft } from './accounts.js';
 
 const BULK = [
   ['startSessions', 'Set online', 'Desired state ONLINE for the selected identities (all or the chosen server)'],
@@ -8,9 +9,8 @@ const BULK = [
   ['checkMail', 'Check Mail', 'Sync the mailboxes of the selection'],
   ['verifyNetwork', 'Verify Network', 'Check the public exit IP of each identity'],
   ['refreshMinecraftAuth', 'Refresh MC auth', 'Refresh Microsoft/Minecraft tokens'],
-  ['verifyDiscord', 'Verify Discord', 'Validate the Discord OAuth grants'],
-  ['openDiscord', 'Open Discord', 'Open Discord in the browser'],
-  ['openMail', 'Open Mail', 'Open the webmail of each identity'],
+  ['openDiscord', 'Open Discord', 'Open the Discord window of each identity'],
+  ['openMail', 'Open Outlook', 'Open the Outlook window of each identity'],
 ];
 
 const STATE_DOT = { ONLINE: 'ok', STARTING: 'info', CONNECTING: 'info', AUTHENTICATING: 'info', RECONNECTING: 'warn', BLOCKED: 'error' };
@@ -95,6 +95,10 @@ export async function dashboardView(root) {
 
   const runBulk = async (action, ids = [...selected]) => {
     if (!ids.length) return toast('Select identities first', 'error');
+    if (action === 'openDiscord' || action === 'openMail') {
+      for (const id of ids) action === 'openDiscord' ? openDiscord(id, 'app') : openMicrosoft(id, 'outlook');
+      return;
+    }
     const serverIds = state.server ? [Number(state.server)] : undefined;
     const res = await guard(() => api.post('/api/bulk', { action, identityIds: ids, serverIds }));
     if (!res) return;
@@ -102,7 +106,6 @@ export async function dashboardView(root) {
     for (const r of res.results) {
       const row = rows.find((x) => x.id === r.identityId);
       results.appendChild(h('div', { class: r.ok ? 's-ok' : 's-error' }, `${row ? identityName(row) : r.identityId}: ${r.message}`));
-      if (r.url) openExternal(r.url);
     }
     load();
   };

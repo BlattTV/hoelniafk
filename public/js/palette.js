@@ -7,7 +7,7 @@ import { closeGame, guard, h, identityName, openGame, toast } from './ui.js';
  */
 const PAGES = [
   ['Identities', '#/'], ['Accounts × servers', '#/matrix'], ['New identity', '#/new'], ['Discord', '#/discord'], ['Macros', '#/macros'], ['Sessions', '#/sessions'],
-  ['Chat', '#/chat'], ['Schedules', '#/schedules'], ['All mail', '#/inbox'], ['Verification mail', '#/verification'],
+  ['Chat', '#/chat'], ['Schedules', '#/schedules'], ['Outlook', '#/mail'], ['IMAP mail', '#/inbox'], ['Verification mail', '#/verification'],
   ['Mailboxes & aliases', '#/mailboxes'], ['Servers', '#/servers'], ['Templates', '#/templates'], ['Setup check', '#/setup'],
   ['Settings & vault', '#/settings'], ['Monitoring', '#/monitoring'], ['Logs', '#/logs'], ['Audit log', '#/audit'],
 ];
@@ -35,7 +35,7 @@ async function collect() {
 
 export function toggleTheme() {
   const root = document.documentElement;
-  const dark = root.dataset.theme ? root.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+  const dark = root.dataset.theme !== 'light'; // dark is the default
   root.dataset.theme = dark ? 'light' : 'dark';
   try {
     localStorage.setItem('hoelni-theme', root.dataset.theme);
