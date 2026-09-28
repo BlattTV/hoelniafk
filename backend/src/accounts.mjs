@@ -161,6 +161,12 @@ export class Accounts {
     this.db.prepare('UPDATE devices SET last_seen_at = ?, last_ip = COALESCE(?, last_ip), info_json = COALESCE(?, info_json) WHERE id = ?').run(nowIso(), ip ?? null, info ? JSON.stringify(info) : null, id);
   }
 
+  /** Still allowed to stay connected (not revoked, account not disabled/deleted)? */
+  isDeviceActive(id) {
+    const r = this.db.prepare('SELECT d.revoked, u.disabled FROM devices d JOIN users u ON u.id = d.user_id WHERE d.id = ?').get(Number(id));
+    return !!r && !r.revoked && !r.disabled;
+  }
+
   revokeDevice(id) {
     this.getDevice(id);
     this.db.prepare('UPDATE devices SET revoked = 1 WHERE id = ?').run(Number(id));

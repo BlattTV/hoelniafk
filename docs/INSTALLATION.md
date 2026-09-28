@@ -121,7 +121,9 @@ npm start
    Minecraft in der Server-Version heruntergeladen. Danach übernimmt das echte Spiel die laufende
    Session – ohne neuen Login. **Back to AFK** oder das Spiel zu schließen gibt die Session an den
    AFK-Client zurück.
-7. Optional:
+7. **Backend:** Hast du Teil C erledigt, meldest du die Suite unter *Settings & vault → Backend & account*
+   an (Details in C5).
+8. Optional:
    * **Schedules:** Online-Zeitfenster pro Session festlegen, z. B. werktags 18–24 Uhr.
    * **Settings & vault → This PC:** Desktop-Benachrichtigungen und Hell-/Dunkelmodus.
 
@@ -395,7 +397,8 @@ Hinweise:
 * Pro Konto ist **ein Manager** gleichzeitig aktiv. Meldet sich ein zweiter an, übernimmt er.
 * Ohne verbundenen Manager führen die Agents nichts aus. Sessions laufen nur, solange die Suite läuft.
 * **Proxy zum Backend:** Muss der Manager selbst über einen Proxy ins Internet, trägst du ihn in derselben
-  Karte ein (`socks5://…` oder `http://…`).
+  Karte ein (`socks5://…` oder `http://…`). Er wird im Tresor gespeichert und nur maskiert angezeigt.
+* **Übernommen von einem anderen Manager?** In der Karte auf *Reconnect* klicken, um wieder zu übernehmen.
 
 ### C6. Betrieb und Wartung
 
@@ -431,6 +434,16 @@ Minecraft-Spielfenster öffnen. **Was er nicht darf:** Befehle ausführen, Datei
 übertragen. Der Haushalt sieht im Fenster und im Tray, was läuft, und kann jederzeit **pausieren**.
 Alles läuft dann über die Internetleitung dieses Haushalts, außer die Identität hat einen Proxy
 (siehe D4).
+
+**Schutz des Haushalts:** Der Agent prüft jeden Befehl selbst. Er verbindet sich nur zu **öffentlichen**
+Servern und Proxys. Adressen im Heimnetz (z. B. `192.168.x.x`, Router, NAS) oder auf dem PC selbst
+lehnt er ab. Einstellungen wie Version und Speicher prüft er auf erlaubte Werte.
+Bind-IP-Netzwerkprofile funktionieren nur auf deinem eigenen PC. Eine Identität, die auf einem Agent
+laufen soll, bekommt keinen oder einen Proxy.
+
+**Microsoft-Konten:** Läuft eine Identität mit Microsoft-Anmeldung auf einem Agent, bekommt dieser PC
+für die Dauer der Session das Minecraft-Zugangstoken im Arbeitsspeicher. Anders kann der Agent sich
+nicht am Server anmelden. Weise solche Identitäten deshalb nur Haushalten zu, denen du vertraust.
 
 ### D1. Installer bauen (einmal, auf deinem Windows-PC)
 
@@ -495,4 +508,6 @@ auf einem Agent läuft: Die Verbindung geht vom Agent-PC über den Proxy zum Min
 | Agent „verbunden“, aber „Verwaltung gerade offline“ | Deine Suite läuft nicht oder ist nicht am Backend angemeldet |
 | Suite: „Agent … is offline“ bei einer Session | PC aus, Agent beendet oder keine Internetverbindung dort |
 | Suite: „Agent … is paused by the household“ | Im Agent-Fenster wurde *Pausieren* gedrückt |
+| Suite: „Agent refused: … local/private address“ | Server oder Proxy der Identität liegt in einem privaten Netz. Agents verbinden nur zu öffentlichen Adressen. |
+| Suite: „Agent refused: Bind-IP network profiles …“ | Der Identität statt der Bind-IP einen Proxy oder kein Netzwerkprofil geben |
 | Session auf dem Agent: Proxy-Fehler | *Proxy pool → Test* für diesen Proxy; ggf. *Release* und neu zuweisen |

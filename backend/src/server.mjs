@@ -45,7 +45,9 @@ function readBody(req, limit = 64 * 1024) {
 }
 
 export function createBackendServer({ accounts, relay, config, version = '1.0.0', log = console }) {
-  const clientIp = (req) => (config.trustProxy ? String(req.headers['x-forwarded-for'] ?? '').split(',')[0].trim() : '') || req.socket.remoteAddress || '';
+  // Behind a reverse proxy the LAST X-Forwarded-For entry is the one the proxy added (earlier
+  // entries come from the client and can be forged – they must not bypass the sign-in lockout).
+  const clientIp = (req) => (config.trustProxy ? String(req.headers['x-forwarded-for'] ?? '').split(',').pop().trim() : '') || req.socket.remoteAddress || '';
   const bearer = (req) => /^Bearer\s+(.+)$/.exec(String(req.headers.authorization ?? ''))?.[1];
 
   const send = (res, status, body, headers = {}) => {
@@ -118,6 +120,7 @@ export function createBackendServer({ accounts, relay, config, version = '1.0.0'
           if (req.method === 'PATCH') {
             const u = accounts.updateUser(m[1], { password: b.password, role: b.role, disabled: b.disabled });
             if (b.disabled) relay.kickUser(u.id, 'Account disabled');
+            else if (b.password) relay.kickUser(u.id, 'Password changed – signed out, sign in again');
             accounts.audit(actor, 'User changed', `${u.username}${b.password ? ' password' : ''}${b.role ? ` role=${b.role}` : ''}${b.disabled !== undefined ? ` disabled=${b.disabled}` : ''}`, ip);
             return send(res, 200, u);
           }

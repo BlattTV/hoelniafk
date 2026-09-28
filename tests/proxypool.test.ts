@@ -102,3 +102,26 @@ describe('proxy pool', () => {
     await suite.shutdown();
   });
 });
+
+describe('backend connection proxy', () => {
+  it('is kept in the vault, shown only masked, and migrated out of SQLite', async () => {
+    const { suite } = await createTestSuite();
+    await suite.backend.setProxy('socks5://me:top-secret-pw@proxy.example:1080');
+    expect(suite.backend.status().proxy).toBe('socks5://me:•••@proxy.example:1080');
+    expect(JSON.stringify(suite.db.prepare('SELECT * FROM app_settings').all())).not.toMatch(/top-secret-pw/);
+    await suite.backend.setProxy('');
+    expect(suite.backend.status().proxy).toBe('');
+    await suite.shutdown();
+
+    // An older version stored the URL in SQLite: moved into the vault on start.
+    const t2 = await createTestSuite();
+    t2.suite.repo.setSetting('backend.proxy', 'http://u:legacy-pw@p.example:3128');
+    const { BackendLink } = await import('../src/relay/backendLink.js');
+    const link = new BackendLink(t2.suite.repo, t2.suite.vault, t2.suite.audit, t2.suite.bus, null);
+    await link.agentList();
+    expect(link.status().proxy).toBe('http://u:•••@p.example:3128');
+    expect(t2.suite.repo.getSetting('backend.proxy')).toBe('');
+    link.shutdown();
+    await t2.suite.shutdown();
+  });
+});

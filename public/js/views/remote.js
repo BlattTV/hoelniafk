@@ -63,7 +63,8 @@ function changeAddressDialog(st, rerender) {
 export function backendCard(st, rerender) {
   const user = h('input', { value: st.username ?? '', autocomplete: 'username', style: { width: '100%' } });
   const pw = h('input', { type: 'password', autocomplete: 'current-password', style: { width: '100%' } });
-  const proxy = h('input', { value: st.proxy, placeholder: 'socks5://user:pass@host:1080 or http://host:3128 (empty = direct)', style: { width: '100%' } });
+  // The stored proxy is only shown masked (user:•••@host) – the field is for entering a new one.
+  const proxy = h('input', { type: 'password', autocomplete: 'off', placeholder: st.proxy ? `current: ${st.proxy} – enter a new one to replace it` : 'socks5://user:pass@host:1080 or http://host:3128', style: { width: '100%' } });
   const signedIn = st.state !== 'signed-out';
   const login = () => guard(async () => {
     const trustCert = st.pinnedCert ? null : await confirmCertificate();
@@ -78,19 +79,22 @@ export function backendCard(st, rerender) {
       h('div', null, 'Address'), h('div', { class: 'mono' }, st.url, st.isDefault ? h('span', { class: 'muted' }, ' (default)') : null),
       h('div', null, 'Connection'), h('div', null, backendStateBadge(st), st.lastError && st.state !== 'online' ? h('span', { class: 'muted' }, ` ${st.lastError}`) : null),
       h('div', null, 'Account'), h('div', null, signedIn && st.username ? `${st.username}${st.role === 'admin' ? ' · admin' : ''}` : '–'),
-      h('div', null, 'Certificate'), h('div', null, st.pinnedCert ? 'own certificate (pinned)' : 'public CA'),
+      h('div', null, 'Certificate'), h('div', null, st.url.startsWith('http:') ? h('span', { class: 's-warn' }, 'none – plain HTTP (only for tests/LAN)') : st.pinnedCert ? 'own certificate (pinned)' : 'public CA'),
+      h('div', null, 'Proxy'), h('div', { class: 'mono' }, st.proxy || 'direct'),
       h('div', null, 'Agents online'), h('div', null, String(st.agents.filter((a) => a.online).length))),
     signedIn
       ? h('div', { class: 'form-actions' },
+          st.state === 'replaced' || st.state === 'offline' ? h('button', { class: 'primary', title: st.state === 'replaced' ? 'Take over again from the other manager of this account' : 'Retry now', onclick: () => guard(async () => { await api.post('/api/backend/reconnect'); await rerender(); }) }, 'Reconnect') : null,
           h('button', { onclick: () => guard(async () => { await api.post('/api/backend/logout'); await rerender(); }, 'Signed out') }, 'Sign out'),
           h('a', { class: 'btn-link', href: '#/agents' }, 'Show agents'))
       : h('div', null,
           h('div', { class: 'form-grid' }, field('Username', user), field('Password', pw)),
           h('div', { class: 'form-actions' }, h('button', { class: 'primary', onclick: login }, 'Sign in'))),
     h('h3', null, 'Connection to the backend'),
-    h('div', { class: 'form-grid' }, field('Proxy (optional)', proxy)),
+    h('div', { style: { maxWidth: '640px' } }, field('Proxy for the backend connection (optional)', proxy)),
     h('div', { class: 'form-actions' },
-      h('button', { onclick: () => guard(async () => { await api.put('/api/backend/proxy', { proxy: proxy.value }); await rerender(); }, 'Saved') }, 'Save proxy'),
+      h('button', { onclick: () => guard(async () => { if (!proxy.value.trim()) throw new Error('Enter a proxy address first'); await api.put('/api/backend/proxy', { proxy: proxy.value }); proxy.value = ''; await rerender(); }, 'Proxy saved (in the vault)') }, 'Save proxy'),
+      st.proxy ? h('button', { onclick: () => guard(async () => { await api.put('/api/backend/proxy', { proxy: '' }); await rerender(); }, 'Proxy removed') }, 'Remove proxy') : null,
       h('button', { title: 'Needs an admin account of the current backend', onclick: () => changeAddressDialog(st, rerender) }, 'Change address…')),
     h('p', { class: 'muted' }, 'Accounts live on the backend. Sign in here and in the Hoelni Agent on other PCs with the same account – those PCs then appear under Agents and can run sessions of your identities ("Run on" in the identity settings). Passwords are never stored; the manager keeps only a device token in the vault.'));
 }

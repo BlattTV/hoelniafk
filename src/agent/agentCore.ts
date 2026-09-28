@@ -17,6 +17,7 @@ import { mineflayerBotFactory } from '../minecraft/mineflayerBot.js';
 import { RuntimeHostCore, type HostBotFactory } from '../runtime/host/hostCore.js';
 import type { HostChannel, HostToMain, MainToHost } from '../runtime/protocol.js';
 import type { RuntimeEvent } from '../runtime/types.js';
+import { refuseReason } from './guard.js';
 import { openWebSocket, type TransportOptions } from './transport.js';
 
 export interface AgentConfig {
@@ -27,6 +28,8 @@ export interface AgentConfig {
   transport: TransportOptions;
   dataDir: string;
   version?: string;
+  /** Allow servers/proxies on private addresses (only for local tests – never in households). */
+  allowPrivateTargets?: boolean;
 }
 
 export type AgentState = 'connecting' | 'online' | 'offline' | 'paused' | 'revoked';
@@ -54,6 +57,8 @@ export class AgentCore {
   private readonly sessions = new Map<string, { server: string; username: string; phase: string }>();
   private gameInfo: AgentStatus['game'] = null;
   private readonly takeoverWaiters = new Set<(msg: HostToMain) => void>();
+  /** Manager commands run strictly in order (each is checked asynchronously first). */
+  private queue: Promise<void> = Promise.resolve();
   status: AgentStatus;
 
   constructor(
@@ -156,6 +161,19 @@ export class AgentCore {
     }
     if (f?.t !== 'host' || !f.m || typeof f.m.cmd !== 'string') return;
     const m = f.m as MainToHost;
+    this.queue = this.queue.then(() => this.handle(m)).catch(() => undefined);
+  }
+
+  private async handle(m: MainToHost): Promise<void> {
+    if (m.cmd === 'start' || m.cmd === 'game.open') {
+      const reason = this.status.state === 'paused' ? 'paused by the household' : await refuseReason(m, !!this.cfg.allowPrivateTargets);
+      if (reason) {
+        const sessionId = m.cmd === 'start' ? m.spec?.sessionId : m.sessionId;
+        if (m.cmd === 'start') this.emitRuntime({ type: 'ended', sessionId: String(sessionId), reason: 'refused', kicked: false, error: `Agent refused: ${reason}` });
+        else this.emitRuntime({ type: 'takeover', sessionId: String(sessionId), status: 'error', message: `Agent refused: ${reason}` });
+        return;
+      }
+    } else if (await refuseReason(m, true)) return;
     if (m.cmd === 'start') this.sessions.set(m.spec.sessionId, { server: m.spec.server.name, username: m.spec.username, phase: 'starting' });
     if (m.cmd === 'game.open') return void this.openGame(m);
     if (m.cmd === 'game.close') return void this.closeGame(m.sessionId);

@@ -84,6 +84,15 @@ Discord / Cloudflare / public IP endpoints), **REAL ACCOUNT** (real Minecraft ac
   - the household can pause it; there is a tray icon and autostart;
   - the device token is protected with DPAPI (keyring or passphrase outside Windows);
   - passwords are never passed on the command line.
+- **Review hardening:**
+  - Agents check every manager command themselves: only public servers/proxies (DNS-resolved, no LAN/loopback/link-local/CGNAT), validated session ids, usernames and game settings (no path traversal via the version), no bind-IP profiles, nothing while paused; commands run in order.
+  - The relay forwards only runtime commands manager → agent.
+  - The sign-in lockout uses the proxy-added X-Forwarded-For entry (client-forged entries cannot bypass it).
+  - A password change disconnects live devices; CLI revocations are enforced on the next 20 s keep-alive.
+  - The manager's role is refreshed on every connection.
+  - Backend/agent connection proxies live in the vault, including migration out of SQLite, and are shown only masked.
+  - *Reconnect* after a takeover by another manager.
+  - Proxy tests run 16 at a time and fail fast.
 - **Proxy pool:**
   - import lists (socks5/http URLs, `host:port[:user:pass]`), with passwords stored only in the vault;
   - test each proxy for exit IP and latency, and flag proxies that share an exit;
@@ -92,7 +101,7 @@ Discord / Cloudflare / public IP endpoints), **REAL ACCOUNT** (real Minecraft ac
 
 ## TESTED
 
-`npm test` – 23 test files / 157 tests green, `npm run test:e2e` – 11 Playwright tests green; typecheck clean, production build OK:
+`npm test` – 24 test files / 164 tests green, `npm run test:e2e` – 11 Playwright tests green; typecheck clean, production build OK:
 
 | Area | Level | Tests |
 |---|---|---|
@@ -120,6 +129,7 @@ Discord / Cloudflare / public IP endpoints), **REAL ACCOUNT** (real Minecraft ac
   - admin API only for admin managers (not for users or agents), with no hashes in responses;
   - accounts cannot reach each other's agents;
   - revoking disconnects the agent for good | LOCAL INTEGRATION | `tests/integration/backend-relay.int.test.ts` |
+| Agent guard (private/public addresses, LAN servers/proxies refused, path-traversal and bad settings refused); relay drops non-runtime frames; forged X-Forwarded-For cannot bypass the lockout; CLI password change disconnects a live agent; backend proxy never in SQLite or API output (incl. migration) | MOCK + LOCAL INTEGRATION | `tests/agent-guard.test.ts`, `tests/proxypool.test.ts` |
 | Proxy pool:
   - parser formats;
   - import without passwords in SQLite, API or audit;

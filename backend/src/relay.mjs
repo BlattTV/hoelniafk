@@ -41,14 +41,20 @@ export class Relay {
     if (ws?.readyState === 1) ws.send(JSON.stringify(frame));
   }
 
-  keepAlive(ws) {
+  keepAlive(ws, device) {
     let alive = true;
     ws.on('pong', () => (alive = true));
     const t = setInterval(() => {
       if (!alive) return ws.terminate();
+      // Revocations from the CLI (another process) or password changes end the connection here.
+      if (!this.accounts.isDeviceActive(device.id)) {
+        this.send(ws, { t: 'bye', reason: 'Access revoked – signed out' });
+        setTimeout(() => ws.terminate(), 200);
+        return;
+      }
       alive = false;
       ws.ping();
-    }, 20_000);
+    }, Number(process.env.HOELNI_RELAY_PING_MS) || 20_000);
     ws.on('close', () => clearInterval(t));
   }
 
@@ -66,7 +72,7 @@ export class Relay {
     const conn = { ws, device, ip };
     this.managers.set(device.userId, conn);
     this.accounts.touchDevice(device.id, ip);
-    this.keepAlive(ws);
+    this.keepAlive(ws, device);
     this.log.info?.(`manager "${device.name}" of ${device.username} connected from ${ip}`);
     for (const a of this.agentsOf(device.userId)) {
       this.send(ws, { t: 'agent.online', agent: this.agentView(a) });
@@ -80,10 +86,10 @@ export class Relay {
       } catch {
         return;
       }
-      if (f?.t !== 'to') return;
+      if (f?.t !== 'to' || f.frame?.t !== 'host') return; // managers can only send runtime commands
       const a = this.agents.get(Number(f.agentId));
       if (!a || a.device.userId !== device.userId) return; // never across accounts
-      this.send(a.ws, f.frame);
+      this.send(a.ws, { t: 'host', m: f.frame.m });
     });
     ws.on('close', () => {
       if (this.managers.get(device.userId) !== conn) return;
@@ -113,7 +119,7 @@ export class Relay {
     const conn = { ws, device, ip, info: device.info ?? {}, paused: false, connectedAt: new Date().toISOString() };
     this.agents.set(device.id, conn);
     this.accounts.touchDevice(device.id, ip);
-    this.keepAlive(ws);
+    this.keepAlive(ws, device);
     this.log.info?.(`agent "${device.name}" of ${device.username} connected from ${ip}`);
     const manager = () => this.managers.get(device.userId);
     this.send(ws, { t: 'manager', online: !!manager() });

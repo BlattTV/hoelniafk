@@ -196,8 +196,12 @@ export async function buildServer(suite: Suite, opts: ServerOptions = {}): Promi
     const b = bodyOf(req);
     return suite.backend.changeBackend(String(b.url ?? ''), String(b.adminUser ?? ''), String(b.adminPassword ?? ''), b.proxy !== undefined ? { proxy: String(b.proxy) } : {});
   });
+  app.post('/api/backend/reconnect', async () => {
+    suite.backend.reconnect();
+    return suite.backend.status();
+  });
   app.put('/api/backend/proxy', async (req: Req) => {
-    suite.backend.setProxy(String(bodyOf(req).proxy ?? '').trim());
+    await suite.backend.setProxy(String(bodyOf(req).proxy ?? '').trim());
     return suite.backend.status();
   });
   app.get('/api/backend/admin/overview', async () => suite.backend.admin('GET', 'overview'));

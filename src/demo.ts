@@ -146,7 +146,7 @@ async function main() {
     const backendUrl = `http://127.0.0.1:${PORT + 1}`;
     suite.repo.setSetting('backend.url', backendUrl);
     const a = await requestJson<{ token: string; deviceId: number }>(`${backendUrl}/api/login`, 'POST', { username: 'demo', password: 'demo-password', client: 'agent', name: 'Demo agent' });
-    const agent = new AgentCore({ backendUrl, token: a.token, agentId: a.deviceId, name: 'Demo agent', transport: {}, dataDir: tmp });
+    const agent = new AgentCore({ backendUrl, token: a.token, agentId: a.deviceId, name: 'Demo agent', transport: {}, dataDir: tmp, allowPrivateTargets: true });
     agent.start();
     stopBackend = async () => {
       await agent.stop();

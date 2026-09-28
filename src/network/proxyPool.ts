@@ -208,7 +208,7 @@ export class ProxyPool {
     const r = this.row(id);
     const started = Date.now();
     try {
-      const ip = await this.detector(this.asProfile(r), await this.secretOf(id), this.endpoints());
+      const ip = await this.detector(this.asProfile(r), await this.secretOf(id), this.endpoints().slice(0, 2)); // a dead proxy fails fast
       this.db
         .prepare("UPDATE proxies SET status = 'OK', exit_ip = ?, latency_ms = ?, last_error = NULL, last_checked_at = ? WHERE id = ?")
         .run(ip, Date.now() - started, new Date().toISOString(), id);
@@ -228,7 +228,7 @@ export class ProxyPool {
     return this.list().find((p) => p.id === id)!;
   }
 
-  async testAll(ids?: number[], concurrency = 6): Promise<{ ok: number; error: number }> {
+  async testAll(ids?: number[], concurrency = 16): Promise<{ ok: number; error: number }> {
     const queue = [...(ids ?? this.list().map((p) => p.id))];
     let ok = 0;
     let error = 0;

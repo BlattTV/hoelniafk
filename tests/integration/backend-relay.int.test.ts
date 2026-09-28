@@ -110,7 +110,7 @@ describe('backend relay: manager and agent of the same account', () => {
 
     const r = await requestJson<{ token: string; deviceId: number }>(`${backendUrl}/api/login`, 'POST', { username: 'niklas', password: ADMIN_PW, client: 'agent', name: 'Living room PC' });
     agentId = r.deviceId;
-    agent = new AgentCore({ backendUrl, token: r.token, agentId, name: 'Living room PC', transport: {}, dataDir: tmp });
+    agent = new AgentCore({ backendUrl, token: r.token, agentId, name: 'Living room PC', transport: {}, dataDir: tmp, allowPrivateTargets: true });
     agent.start();
     await waitFor(() => agent.status.state === 'online' && agent.status.managerOnline, 10_000, 'agent online');
     await waitFor(() => suite.backend.status().agents.some((a) => a.id === agentId && a.online), 10_000, 'agent visible in manager');

@@ -363,6 +363,9 @@ export function sessionsSection(ctx) {
     'sessions',
     'Minecraft Server Assignments & Sessions',
     h('p', { class: 'muted' }, 'Desired state is maintained automatically: a session that should be online is reconnected according to the reconnect policy (rules.yaml).'),
+    data.identity.settings.agentId
+      ? h('p', null, h('span', { class: 'tag' }, 'agent'), 'Sessions of this identity run on agent #', String(data.identity.settings.agentId), ' (another household\'s PC). ', h('a', { href: '#/agents' }, 'Agents'), ' · change under Identity Settings → Run on.')
+      : null,
     meta.servers.length
       ? h('table', null,
           h('thead', null, h('tr', null, ['Server', 'Assigned', 'Should be', 'Network', 'State', 'Details', ''].map((t) => h('th', null, t)))),

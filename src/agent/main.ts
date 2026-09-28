@@ -31,7 +31,9 @@ interface Stored {
   username?: string;
   name?: string;
   pinnedCert?: string | null;
+  /** Only without OS key protection; otherwise the proxy URL (may contain a password) is in the vault. */
   proxy?: string | null;
+  proxyInVault?: boolean;
 }
 
 const dataDir = process.env.HOELNI_AGENT_DIR ?? (process.platform === 'win32' ? path.join(process.env.APPDATA ?? os.homedir(), 'Hoelni Agent') : path.join(os.homedir(), '.hoelni-agent'));
@@ -60,6 +62,7 @@ function save(s: Stored): void {
 
 // ------------------------------------------------------------------ device token (never in plain text on Windows)
 const TOKEN_REF = refs.app('agent-token');
+const PROXY_REF = refs.app('agent-proxy');
 
 async function vault(): Promise<SecretStore | null> {
   try {
@@ -90,7 +93,14 @@ async function forgetToken(s: Stored): Promise<void> {
 
 const signedIn = (s: Stored) => !!(s.tokenInVault || s.token) && !!s.deviceId;
 
-const transport = (s: Stored): TransportOptions => ({ pinnedCert: s.pinnedCert ?? null, proxy: s.proxy ?? null });
+async function readProxy(s: Stored): Promise<string | null> {
+  if (!s.proxyInVault) return s.proxy ?? null;
+  return (await (await vault())?.get(PROXY_REF)) ?? null;
+}
+
+const proxyFields = (s: Stored) => ({ proxy: s.proxy ?? null, proxyInVault: !!s.proxyInVault });
+
+const transport = async (s: Stored): Promise<TransportOptions> => ({ pinnedCert: s.pinnedCert ?? null, proxy: await readProxy(s) });
 
 function out(result: unknown, text: string): void {
   console.log(json ? JSON.stringify(result) : text);
@@ -118,7 +128,7 @@ async function login(): Promise<void> {
   if (!user || !password) fail('usage: login --user NAME --password PW [--name NAME] [--trust-cert FINGERPRINT]');
   // Self-signed backend certificate: the user confirms its fingerprint once (--trust-cert <fingerprint>).
   if (!s.pinnedCert) {
-    const cert = await probeCertificate(s.backendUrl, { proxy: s.proxy }).catch((e) => fail(`Backend not reachable: ${(e as Error).message}`));
+    const cert = await probeCertificate(s.backendUrl, { proxy: await readProxy(s) }).catch((e) => fail(`Backend not reachable: ${(e as Error).message}`));
     if (cert && !cert.trusted) {
       const confirmed = flag('trust-cert');
       if (!confirmed) fail('The backend uses a certificate that is not publicly trusted – compare the fingerprint and confirm', { needsTrust: true, fingerprint: cert.fingerprint256, subject: cert.subject }, 4);
@@ -131,7 +141,7 @@ async function login(): Promise<void> {
     `${s.backendUrl}/api/login`,
     'POST',
     { username: user, password, client: 'agent', name, info: { hostname: os.hostname(), os: `${os.platform()} ${os.release()}`, version: version() } },
-    transport(s),
+    await transport(s),
   ).catch((e) => fail((e as Error).message));
   await forgetToken(s);
   save(await storeToken({ ...s, deviceId: r.deviceId, username: r.user.username, name }, r.token));
@@ -144,23 +154,23 @@ async function changeBackend(): Promise<void> {
   const adminUser = flag('admin-user');
   const adminPassword = flag('admin-password') ?? process.env.HOELNI_ADMIN_PASSWORD;
   if (!target || !adminUser || !adminPassword) fail('usage: change-backend --backend URL --admin-user NAME --admin-password PW');
-  await requestJson(`${s.backendUrl}/api/verify-admin`, 'POST', { username: adminUser, password: adminPassword }, transport(s)).catch((e) =>
+  await requestJson(`${s.backendUrl}/api/verify-admin`, 'POST', { username: adminUser, password: adminPassword }, await transport(s)).catch((e) =>
     fail(`The current backend (${s.backendUrl}) did not confirm the admin account: ${(e as Error).message}`),
   );
   const url = normalizeBackendUrl(target!);
   const token = await readToken(s);
-  if (token) await requestJson(`${s.backendUrl}/api/logout`, 'POST', {}, transport(s), { Authorization: `Bearer ${token}` }).catch(() => undefined);
+  if (token) await requestJson(`${s.backendUrl}/api/logout`, 'POST', {}, await transport(s), { Authorization: `Bearer ${token}` }).catch(() => undefined);
   await forgetToken(s);
-  save({ backendUrl: url, proxy: s.proxy ?? null, pinnedCert: null });
+  save({ backendUrl: url, ...proxyFields(s), pinnedCert: null });
   out({ ok: true, backendUrl: url }, `Backend changed to ${url} – sign in again`);
 }
 
 async function logout(): Promise<void> {
   const s = load();
   const token = await readToken(s);
-  if (token) await requestJson(`${s.backendUrl}/api/logout`, 'POST', {}, transport(s), { Authorization: `Bearer ${token}` }).catch(() => undefined);
+  if (token) await requestJson(`${s.backendUrl}/api/logout`, 'POST', {}, await transport(s), { Authorization: `Bearer ${token}` }).catch(() => undefined);
   await forgetToken(s);
-  save({ backendUrl: s.backendUrl, proxy: s.proxy ?? null, pinnedCert: s.pinnedCert ?? null });
+  save({ backendUrl: s.backendUrl, ...proxyFields(s), pinnedCert: s.pinnedCert ?? null });
   out({ ok: true }, 'Signed out');
 }
 
@@ -173,7 +183,7 @@ async function run(): Promise<void> {
     else if (!json) console.log(`${new Date().toISOString()} ${st.state}${st.managerOnline ? '' : ' (manager offline)'} – ${st.sessions.length} session(s)${st.lastError ? ` – ${st.lastError}` : ''}`);
   };
   const agent = new AgentCore(
-    { backendUrl: s.backendUrl, token: token!, agentId: s.deviceId!, name: s.name ?? os.hostname(), transport: transport(s), dataDir, version: version() },
+    { backendUrl: s.backendUrl, token: token!, agentId: s.deviceId!, name: s.name ?? os.hostname(), transport: await transport(s), dataDir, version: version(), allowPrivateTargets: process.env.HOELNI_AGENT_ALLOW_LAN === '1' },
     report,
   );
   agent.start();
@@ -199,8 +209,14 @@ switch (argv[0]) {
   case 'set-proxy': {
     const proxy = argv[1] ?? '';
     if (proxy && !/^(https?|socks5h?):\/\//i.test(proxy)) fail('proxy must look like http://host:port or socks5://user:pass@host:port');
-    save({ ...load(), proxy: proxy || null });
-    out({ ok: true, proxy }, proxy ? `Proxy set: ${proxy.replace(/\/\/[^@]*@/, '//***@')}` : 'Proxy removed');
+    const v = await vault();
+    if (v) {
+      if (proxy) await v.set(PROXY_REF, proxy);
+      else await v.delete(PROXY_REF);
+      save({ ...load(), proxy: null, proxyInVault: !!proxy });
+    } else save({ ...load(), proxy: proxy || null, proxyInVault: false });
+    const masked = proxy.replace(/\/\/([^:@/]*):[^@/]*@/, '//$1:•••@');
+    out({ ok: true, proxy: masked }, proxy ? `Proxy set: ${masked}` : 'Proxy removed');
     break;
   }
   case 'logout':
@@ -208,7 +224,7 @@ switch (argv[0]) {
     break;
   case 'status': {
     const s = load();
-    out({ ok: true, backendUrl: s.backendUrl, signedIn: signedIn(s), username: s.username ?? null, name: s.name ?? null, proxy: !!s.proxy, tokenProtected: !!s.tokenInVault }, `${s.backendUrl} – ${signedIn(s) ? `signed in as ${s.username}` : 'not signed in'}`);
+    out({ ok: true, backendUrl: s.backendUrl, signedIn: signedIn(s), username: s.username ?? null, name: s.name ?? null, proxy: !!(s.proxy || s.proxyInVault), tokenProtected: !!s.tokenInVault }, `${s.backendUrl} – ${signedIn(s) ? `signed in as ${s.username}` : 'not signed in'}`);
     break;
   }
   case 'run':

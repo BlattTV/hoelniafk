@@ -31,6 +31,13 @@ function userError(e: unknown, prefix = ''): SuiteError {
   return new SuiteError(status && status < 500 ? msg : `Backend not reachable or failed: ${msg}`, status && status < 500 ? 400 : 502);
 }
 const TOKEN_REF = refs.app('backend-token');
+const PROXY_REF = refs.app('backend-proxy');
+
+/** socks5://user:secret@host:port → socks5://user:•••@host:port (never show proxy passwords). */
+export function maskProxy(url: string | null): string {
+  if (!url) return '';
+  return url.replace(/\/\/([^:@/]*):[^@/]*@/, '//$1:•••@');
+}
 
 export interface AgentInfo {
   id: number;
@@ -52,6 +59,9 @@ export class BackendLink {
   private readonly agents = new Map<number, AgentInfo>();
   private readonly hosts = new Map<number, { deliver: (m: HostToMain) => void; detach: (why: string) => void }>();
   private closed = false;
+  /** Proxy for the backend connection – kept in the vault (may contain a password), cached here. */
+  private proxy: string | null = null;
+  private readonly ready: Promise<void>;
   /** Called when an agent becomes usable (online and not paused) – wired to the session manager. */
   onAgentAvailable: (agentId: number) => void = () => undefined;
   state: LinkState = 'signed-out';
@@ -63,7 +73,19 @@ export class BackendLink {
     private readonly audit: AuditLog,
     private readonly bus: EventBus,
     private readonly runtime: MineflayerRuntime | null,
-  ) {}
+  ) {
+    this.ready = this.loadProxy();
+  }
+
+  private async loadProxy(): Promise<void> {
+    // Older versions stored the proxy URL in SQLite – move it into the vault.
+    const legacy = this.repo.getSetting('backend.proxy');
+    if (legacy) {
+      await this.vault.store.set(PROXY_REF, legacy);
+      this.repo.setSetting('backend.proxy', '');
+    }
+    this.proxy = (await this.vault.store.get(PROXY_REF)) || null;
+  }
 
   // ------------------------------------------------------------------ settings
 
@@ -72,7 +94,7 @@ export class BackendLink {
   }
 
   private transport(): TransportOptions {
-    return { pinnedCert: this.repo.getSetting('backend.cert') || null, proxy: this.repo.getSetting('backend.proxy') || null };
+    return { pinnedCert: this.repo.getSetting('backend.cert') || null, proxy: this.proxy };
   }
 
   private async token(): Promise<string | null> {
@@ -88,7 +110,7 @@ export class BackendLink {
       username: this.repo.getSetting('backend.username') || null,
       role: (this.repo.getSetting('backend.role') || null) as 'admin' | 'user' | null,
       pinnedCert: !!this.repo.getSetting('backend.cert'),
-      proxy: this.repo.getSetting('backend.proxy') || '',
+      proxy: maskProxy(this.proxy),
       agents: [...this.agents.values()].map((a) => ({ ...a, sessions: this.runtime?.agentSessions(a.id) ?? [] })),
     };
   }
@@ -102,12 +124,14 @@ export class BackendLink {
 
   /** Certificate check before the first sign-in: a self-signed certificate must be confirmed by fingerprint. */
   async checkCertificate(): Promise<ServerCertificate | null> {
+    await this.ready;
     return probeCertificate(this.url, { proxy: this.transport().proxy }).catch((e) => {
       throw userError(e);
     });
   }
 
   async login(username: string, password: string, trustCertPem?: string | null): Promise<ReturnType<BackendLink['status']>> {
+    await this.ready;
     if (trustCertPem) this.repo.setSetting('backend.cert', trustCertPem);
     const r = await requestJson<{ token: string; deviceId: number; user: { username: string; role: 'admin' | 'user' } }>(
       `${this.url}/api/login`,
@@ -126,6 +150,7 @@ export class BackendLink {
   }
 
   async logout(): Promise<void> {
+    await this.ready;
     const token = await this.token();
     if (token) await requestJson(`${this.url}/api/logout`, 'POST', {}, this.transport(), { Authorization: `Bearer ${token}` }).catch(() => undefined);
     await this.vault.store.delete(TOKEN_REF);
@@ -136,6 +161,7 @@ export class BackendLink {
 
   /** Changing the backend address needs valid admin credentials of the CURRENT backend. */
   async changeBackend(newUrl: string, adminUser: string, adminPassword: string, opts: { proxy?: string } = {}): Promise<ReturnType<BackendLink['status']>> {
+    await this.ready;
     let target: string;
     try {
       target = normalizeBackendUrl(newUrl);
@@ -148,24 +174,39 @@ export class BackendLink {
     await this.logout().catch(() => undefined);
     this.repo.setSetting('backend.url', target === DEFAULT_BACKEND ? '' : target);
     this.repo.setSetting('backend.cert', '');
-    if (opts.proxy !== undefined) this.repo.setSetting('backend.proxy', opts.proxy);
+    if (opts.proxy !== undefined) await this.storeProxy(opts.proxy);
     this.audit.record(null, 'Backend address changed', { to: target, confirmedBy: adminUser });
     this.changed();
     return this.status();
   }
 
-  setProxy(proxy: string): void {
+  /** Manual reconnect (after "another manager took over" or a long outage). */
+  reconnect(): void {
+    this.disconnect(this.state === 'signed-out' ? 'signed-out' : 'offline');
+    this.retry = 1000;
+    void this.start();
+  }
+
+  private async storeProxy(proxy: string): Promise<void> {
+    await this.ready;
+    if (proxy) await this.vault.store.set(PROXY_REF, proxy);
+    else await this.vault.store.delete(PROXY_REF);
+    this.proxy = proxy || null;
+  }
+
+  async setProxy(proxy: string): Promise<void> {
     if (proxy && !/^(https?|socks5h?):\/\//i.test(proxy)) throw new SuiteError('Proxy must look like http://host:port or socks5://user:pass@host:port');
-    this.repo.setSetting('backend.proxy', proxy);
+    await this.storeProxy(proxy);
     this.disconnect(this.state === 'signed-out' ? 'signed-out' : 'offline');
     void this.start();
   }
 
   /** All agents of this account (also offline ones) with live state – for "Run on" and the Agents page. */
   async agentList(): Promise<Array<AgentInfo & { sessions: string[]; lastSeenAt: string | null }>> {
+    await this.ready;
     const token = await this.token();
     const known = token
-      ? await requestJson<Array<{ id: number; name: string; info: Record<string, string>; lastSeenAt: string | null; lastIp: string | null }>>(`${this.url}/api/agents`, 'GET', undefined, this.transport(), { Authorization: `Bearer ${token}` }).catch(() => [])
+      ? await requestJson<Array<{ id: number; name: string; info: Record<string, string>; lastSeenAt: string | null; lastIp: string | null }>>(`${this.url}/api/agents`, 'GET', undefined, { ...this.transport(), timeoutMs: 5000 }, { Authorization: `Bearer ${token}` }).catch(() => [])
       : [];
     const out = new Map<number, AgentInfo & { sessions: string[]; lastSeenAt: string | null }>();
     for (const d of known) out.set(d.id, { id: d.id, name: d.name, info: d.info ?? {}, paused: false, ip: d.lastIp, connectedAt: null, online: false, sessions: [], lastSeenAt: d.lastSeenAt });
@@ -175,6 +216,7 @@ export class BackendLink {
 
   /** Account administration (admins only) – proxied to the backend's admin API. */
   async admin(method: string, path: string, body?: unknown): Promise<unknown> {
+    await this.ready;
     const token = await this.token();
     if (!token) throw new SuiteError('Not signed in to the backend');
     if (this.repo.getSetting('backend.role') !== 'admin') throw new SuiteError('Only admins can manage accounts', 403);
@@ -186,6 +228,7 @@ export class BackendLink {
   // ------------------------------------------------------------------ relay connection
 
   async start(): Promise<void> {
+    await this.ready;
     if (this.closed) return;
     this.stopped = false;
     if (this.ws) return;
@@ -211,6 +254,15 @@ export class BackendLink {
       this.lastError = null;
       log.info(`Connected to the backend ${this.url}`);
       this.changed();
+      // Role may have changed on the backend (e.g. admin revoked) – the admin pages follow it.
+      void requestJson<{ user: { username: string; role: 'admin' | 'user' } }>(`${this.url}/api/me`, 'GET', undefined, this.transport(), { Authorization: `Bearer ${token}` })
+        .then((me) => {
+          if (this.closed) return;
+          this.repo.setSetting('backend.username', me.user.username);
+          this.repo.setSetting('backend.role', me.user.role);
+          this.changed();
+        })
+        .catch(() => undefined);
     });
     ws.on('unexpected-response', (_req, res) => {
       if (res.statusCode === 401) {
