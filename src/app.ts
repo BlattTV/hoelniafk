@@ -25,6 +25,7 @@ import { NetworkService, type IpDetector } from './network/networkService.js';
 import { detectPublicIp } from './network/publicIp.js';
 import { BulkOperations } from './ops/bulk.js';
 import { MetricsCollector } from './core/metrics.js';
+import { Updater } from './ops/updater.js';
 import { GameClientRuntime, type GameClientOptions } from './client/gameClientRuntime.js';
 import { createWindowController } from './client/window.js';
 
@@ -145,6 +146,8 @@ export function createSuite(deps: SuiteDeps) {
   const discord = new DiscordService(repo, vault, oauth, audit, bus, deps.discordUserFetcher ?? fetchDiscordUser);
   const identities = new IdentityService(repo, vault, network, sessions, linking, audit, bus);
   const bulk = new BulkOperations(repo, mail, network, sessions, discord, audit, auth);
+  const updater = new Updater(repo, audit, bus);
+  updater.autoInstallAllowed = () => !sessions.list().some((s) => s.runtime === 'game' || s.takeover !== 'none');
   const metrics = new MetricsCollector(sessions, runtime, 180, () => game?.stats().hosts ?? []);
 
   // ----------------------------------------------------------- automation / monitoring
@@ -189,6 +192,7 @@ export function createSuite(deps: SuiteDeps) {
     // Desired-state reconciler: restores every session that should be online.
     if (a.restoreSessions) sessions.startReconciler();
     metrics.start();
+    updater.start(config.updates?.checkHours ?? 6);
   }
 
   let closed = false;
@@ -197,6 +201,7 @@ export function createSuite(deps: SuiteDeps) {
     closed = true;
     for (const t of timers) clearInterval(t);
     metrics.stop();
+    updater.stop();
     await sessions.shutdown();
     db.close();
   }
@@ -215,6 +220,7 @@ export function createSuite(deps: SuiteDeps) {
     rewards,
     runtime,
     game,
+    updater,
     sessions,
     mail,
     discord,

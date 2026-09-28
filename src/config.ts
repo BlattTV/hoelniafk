@@ -50,6 +50,8 @@ export interface AppConfig {
     joinTimeoutMs: number;
   };
   logging: { level: 'debug' | 'info' | 'warn' | 'error'; file: boolean; maxFileMb: number; keepFiles: number };
+  /** Self-hosted update server (URL, channel and key are set in the UI). */
+  updates: { checkHours: number };
 }
 
 export const DEFAULT_CONFIG: AppConfig = {
@@ -70,6 +72,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   sessions: { reconcileIntervalMs: 3000, maxConcurrentStarts: 4 },
   client: { enabled: true, rootDir: '', instancesDir: '', javaPath: '', mirrors: {}, onlineAfterMs: 5000, joinTimeoutMs: 300000 },
   logging: { level: 'info', file: true, maxFileMb: 10, keepFiles: 5 },
+  updates: { checkHours: 6 },
 };
 
 function deepMerge<T>(base: T, patch: any): T {

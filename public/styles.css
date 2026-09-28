@@ -163,3 +163,6 @@ th.sorted.asc::after { content: ' ▴'; }
 .dots i.warn { background: var(--warn); }
 .dots i.error { background: var(--err); }
 .steps li { display: grid; grid-template-columns: 26px 200px 1fr 70px; gap: 6px; padding: 4px 0; font-family: var(--mono); font-size: 12px; }
+
+.btn-link { display: inline-block; padding: 6px 12px; border: 1px solid var(--line); border-radius: 6px; color: inherit; text-decoration: none; }
+.nav-update { margin: 8px 10px 0; padding: 6px 10px; border-radius: 6px; background: #12324a; color: #8cc8ff !important; font-size: 12px; }

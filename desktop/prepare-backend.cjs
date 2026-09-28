@@ -31,4 +31,8 @@ console.log(`› bundling Node ${process.version}`);
 const nodeDir = path.join(out, 'node');
 fs.mkdirSync(path.join(nodeDir, 'bin'), { recursive: true });
 fs.copyFileSync(process.execPath, process.platform === 'win32' ? path.join(nodeDir, 'node.exe') : path.join(nodeDir, 'bin', 'node'));
+// npm next to it: the in-app updater reinstalls dependencies when package-lock.json changes
+const npmSrc = [path.join(path.dirname(process.execPath), 'node_modules', 'npm'), path.join(path.dirname(process.execPath), '..', 'lib', 'node_modules', 'npm')].find((p) => fs.existsSync(p));
+if (npmSrc) fs.cpSync(npmSrc, path.join(nodeDir, 'node_modules', 'npm'), { recursive: true });
+else console.warn('! npm not found next to node – dependency updates will need a new installer');
 console.log('✓ desktop/backend ready');

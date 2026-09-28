@@ -1,0 +1,12 @@
+{
+  "name": "hoelni-update-server",
+  "version": "1.0.0",
+  "description": "Update server for the Hoelni Client Suite: builds signed release bundles from git and serves them to the suites",
+  "type": "module",
+  "private": true,
+  "license": "UNLICENSED",
+  "bin": { "hoelni-updates": "src/cli.mjs" },
+  "engines": { "node": ">=20" },
+  "scripts": { "start": "node src/cli.mjs serve" },
+  "dependencies": { "fflate": "^0.8.3" }
+}

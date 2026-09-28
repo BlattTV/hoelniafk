@@ -1,6 +1,6 @@
 {
   "name": "hoelni-client-suite",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Hoelni Client Suite – Minecraft / Discord / Mail identity management for your own Minecraft server",
   "private": true,
   "type": "module",

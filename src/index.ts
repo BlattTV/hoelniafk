@@ -6,6 +6,7 @@ import { createLogger, setLogLevel, setupFileLogging } from './core/logger.js';
 import { createKeyProvider } from './vault/keyProviders.js';
 import { EncryptedFileVault } from './vault/vault.js';
 import { buildServer } from './web/server.js';
+import { RESTART_FOR_UPDATE } from './ops/updateApply.js';
 
 const log = createLogger('main');
 
@@ -29,19 +30,20 @@ async function main(): Promise<void> {
   log.info(`Hoelni Client Suite running on http://127.0.0.1:${config.port} (vault: ${suite.vault.backend})`);
 
   let stopping = false;
-  const stop = async () => {
+  const stop = async (exitCode = 0) => {
     if (stopping) return;
     stopping = true;
-    log.info('Shutting down…');
+    log.info(exitCode === RESTART_FOR_UPDATE ? 'Restarting to install the update…' : 'Shutting down…');
     const force = setTimeout(() => process.exit(1), 15_000);
     force.unref();
     await app.close().catch(() => undefined);
     await suite.shutdown().catch((e) => log.error('Shutdown error:', e));
     log.info('Shutdown complete');
-    process.exit(0);
+    process.exit(exitCode);
   };
-  process.on('SIGINT', stop);
-  process.on('SIGTERM', stop);
+  suite.updater.restart = () => stop(RESTART_FOR_UPDATE);
+  process.on('SIGINT', () => void stop());
+  process.on('SIGTERM', () => void stop());
   process.on('message', (m: any) => {
     if (m?.cmd === 'shutdown') void stop();
   });

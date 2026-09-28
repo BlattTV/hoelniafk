@@ -1,9 +1,10 @@
 import { api } from '../api.js';
 import { clear, copy, field, guard, h, mount } from '../ui.js';
+import { updatesCard } from './updates.js';
 
 export async function settingsView(root) {
   const render = async () => {
-    const [settings, status, vault, rules] = await Promise.all([api.get('/api/settings'), api.get('/api/status'), api.get('/api/vault'), api.get('/api/rules')]);
+    const [settings, status, vault, rules, updates] = await Promise.all([api.get('/api/settings'), api.get('/api/status'), api.get('/api/vault'), api.get('/api/rules'), api.get('/api/updates')]);
     const oauthCard = (p, title, hint) => {
       const s = settings.oauth[p];
       const id = h('input', { value: s.clientId, placeholder: 'client id', style: { width: '100%' } });
@@ -17,6 +18,7 @@ export async function settingsView(root) {
     };
     mount(root, 
       h('div', { class: 'page-head' }, h('h1', null, 'Settings & Credential Vault')),
+      updatesCard(updates, render),
       h('div', { class: 'grid-2' },
         h('div', null,
           h('section', { class: 'card' }, h('h2', null, 'Credential Vault'),

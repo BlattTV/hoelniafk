@@ -169,7 +169,8 @@ export async function buildServer(suite: Suite, opts: ServerOptions = {}): Promi
     const rules = suite.getRules();
     return {
       name: 'Hoelni Client Suite',
-      version: '0.1.0',
+      version: suite.updater.status().current.version,
+      build: suite.updater.status().current.build,
       vaultBackend: suite.vault.backend,
       identities: suite.repo.listIdentities().length,
       oauth,
@@ -177,6 +178,25 @@ export async function buildServer(suite: Suite, opts: ServerOptions = {}): Promi
       discordAppUrl: DISCORD_APP_URL,
     };
   });
+
+  // ------------------------------------------------------------------ updates (self-hosted update server)
+  app.get('/api/updates', async () => suite.updater.status());
+  app.post('/api/updates/probe', async (req: Req) => suite.updater.probe(String(bodyOf(req).url ?? '')));
+  app.put('/api/updates/settings', async (req: Req) => {
+    const b = bodyOf(req);
+    suite.updater.configure({
+      url: b.url !== undefined ? String(b.url) : undefined,
+      channel: b.channel !== undefined ? String(b.channel) : undefined,
+      publicKey: b.publicKey !== undefined ? (b.publicKey ? String(b.publicKey) : null) : undefined,
+      autoCheck: b.autoCheck !== undefined ? !!b.autoCheck : undefined,
+      autoInstall: b.autoInstall !== undefined ? !!b.autoInstall : undefined,
+    });
+    return suite.updater.status();
+  });
+  app.post('/api/updates/check', async () => suite.updater.check());
+  app.post('/api/updates/download', async () => suite.updater.download());
+  app.post('/api/updates/install', async () => suite.updater.install());
+  app.post('/api/updates/rollback', async () => suite.updater.rollback());
 
   app.get('/api/settings', async () => {
     const out: Record<string, unknown> = {};

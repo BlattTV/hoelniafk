@@ -1,4 +1,4 @@
-import { subscribe } from './api.js';
+import { api, subscribe } from './api.js';
 import { clear, h, toast } from './ui.js';
 import { dashboardView } from './views/dashboard.js';
 import { identityView } from './views/identity.js';
@@ -65,11 +65,20 @@ async function render() {
 window.addEventListener('hashchange', render);
 render();
 
+const showUpdate = (st) => {
+  const el = document.getElementById('nav-update');
+  if (!el || !st) return;
+  el.hidden = !st.available;
+  if (st.latest) el.textContent = `⬆ Update ${st.latest.version} available`;
+};
+api.get('/api/updates').then(showUpdate).catch(() => undefined);
+
 subscribe(
   (ev) => {
     if (ev.type === 'auth.devicecode') {
       toast(`Microsoft login for identity ${ev.identityId}: code ${ev.data.userCode} at ${ev.data.verificationUri}`, 'info', 20000);
     }
+    if (ev.type === 'updates.status') showUpdate(ev.data);
     if (current && current.onEvent) current.onEvent(ev);
   },
   (live) => {

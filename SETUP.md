@@ -139,6 +139,19 @@ prismarine-auth; the wizard shows the code to enter at microsoft.com/link.
 
 ## 8. Updating
 
+**Recommended: own update server in a LXC** (builds every new commit, signs it, the suites install
+it with one click and roll back automatically). In the container, as root:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/BlattTV/hoelniafk/claude/practical-hopper-o4bpyw/update-server/install.sh | bash
+```
+
+Then in the suite: *Settings & Vault → Updates* → URL shown by the installer → *Connect* → compare
+the key fingerprint → *Install update* whenever "⬆ Update available" appears. Details, private
+repositories and commands: [update-server/README.md](update-server/README.md).
+
+Manually from the repository:
+
 ```powershell
 git pull
 npm ci
