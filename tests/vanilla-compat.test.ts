@@ -30,6 +30,7 @@ describe('vanilla client behaviour behind a proxy', () => {
     server.on('playerJoin', (c: any) => {
       serverClient = c;
       c.on('packet', (data: any, meta: any) => received.push({ state: meta.state, name: meta.name, data }));
+      c.write('login', { ...require('minecraft-data')(version).loginPacket, entityId: 1 }); // first join
       c.write('store_cookie', { key: 'hoelni:network', value: Buffer.from('secret-key') });
     });
 
@@ -66,6 +67,25 @@ describe('vanilla client behaviour behind a proxy', () => {
     serverClient.write('cookie_request', { cookie: 'other:unknown' });
     await until(() => received.filter((p) => p.name === 'cookie_response').length === 2, 5000, 'second cookie answer');
     expect(received.filter((p) => p.name === 'cookie_response')[1].data.value).toBeUndefined();
+
+    // joining the next server: the vanilla client announces a NEW chat session (key sent again,
+    // numbering from 0, acknowledgements reset) – simulate chat keys on this offline connection
+    const crypto = await import('node:crypto');
+    const { publicKey, privateKey } = crypto.generateKeyPairSync('rsa', { modulusLength: 1024 });
+    client.profileKeys = { public: publicKey, private: privateKey, signatureV2: Buffer.alloc(8, 7), expiresOn: new Date(Date.now() + 3600_000) };
+    client._session = { index: 12, uuid: 'old-session' };
+    client._lastSeenMessages.pending = 3;
+    const md = require('minecraft-data')(version);
+    serverClient.write('login', { ...md.loginPacket, entityId: 99 });
+    await until(() => received.some((p) => p.name === 'chat_session_update'), 5000, 'new chat session');
+    const upd = received.find((p) => p.name === 'chat_session_update')!;
+    expect(upd.state).toBe('play');
+    expect(upd.data.sessionUUID).toBe(client._session.uuid);
+    expect(client._session.uuid).not.toBe('old-session');
+    expect(client._session.index).toBe(0);
+    expect(client._lastSeenMessages.pending).toBe(0);
+    // (the test server then rejects the fake key and disconnects – expected)
+    expect(Buffer.from(upd.data.publicKey).equals(publicKey.export({ type: 'spki', format: 'der' }) as Buffer)).toBe(true);
 
     client.end();
     server.close();
