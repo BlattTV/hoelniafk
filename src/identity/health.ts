@@ -51,7 +51,10 @@ export function computeHealth(
   if (!s.mailEnabled) checks.push({ key: 'mailAccess', label: 'Mail access', status: 'skipped', detail: 'Mail disabled for this identity', target: 'mail' });
   else {
     const mail = repo.getMailIdentity(id);
-    if (!mail) checks.push({ key: 'mailAccess', label: 'Mail access', status: 'error', detail: 'No mailbox assigned', target: 'mail' });
+    if (!mail && mc?.authType === 'microsoft' && mc.msaAccount) {
+      // Outlook runs in the identity's Microsoft window (same login) – no mailbox to configure
+      checks.push({ key: 'mailAccess', label: 'Mail access', status: 'ok', detail: `Outlook: ${mc.msaAccount}`, target: 'mail' });
+    } else if (!mail) checks.push({ key: 'mailAccess', label: 'Mail access', status: mc?.authType === 'offline' ? 'skipped' : 'warn', detail: 'Sign in with Microsoft to use Outlook', target: 'mail' });
     else {
       const st: CheckStatus = mail.accessStatus === 'OK' ? 'ok' : mail.accessStatus === 'ERROR' ? 'error' : 'warn';
       checks.push({
@@ -96,7 +99,8 @@ export function computeHealth(
   if (s.networkMode === 'DIRECT') {
     checks.push({ key: 'networkProfile', label: 'Network profile', status: 'ok', detail: 'Direct connection (no dedicated exit)', target: 'network' });
   } else if (!profile) {
-    checks.push({ key: 'networkProfile', label: 'Network profile', status: 'error', detail: 'No network profile configured', target: 'network' });
+    // no own exit configured: the identity connects directly from this PC (or its agent)
+    checks.push({ key: 'networkProfile', label: 'Network profile', status: 'ok', detail: 'Direct connection (no network profile)', target: 'network' });
   } else {
     const shared = conflicts.filter((c) => c.field !== 'expectedPublicIp' || s.networkMode === 'PER_ACCOUNT');
     checks.push({
@@ -109,10 +113,8 @@ export function computeHealth(
       target: 'network',
     });
   }
-  if (s.networkMode === 'DIRECT' && !profile) {
-    checks.push({ key: 'expectedIp', label: 'Expected public IP', status: 'skipped', detail: 'Direct mode', target: 'network' });
-  } else if (!profile) {
-    checks.push({ key: 'expectedIp', label: 'Expected public IP', status: 'error', detail: 'No network profile', target: 'network' });
+  if (!profile) {
+    checks.push({ key: 'expectedIp', label: 'Expected public IP', status: 'skipped', detail: 'Direct connection', target: 'network' });
   } else if (!profile.expectedPublicIp) {
     checks.push({
       key: 'expectedIp',

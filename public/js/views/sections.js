@@ -5,7 +5,6 @@
 import { api, qs } from '../api.js';
 import { badge, clear, codeBox, copy, field, fmtBytes, fmtTime, formData, guard, h, modal, mount, openExternal, openGame, closeGame, gameBadge, scheduleNote, relTime, select, stateBadge, statusIcon, toast } from '../ui.js';
 import { openMessage } from './mailviewer.js';
-import { openDiscord } from './accounts.js';
 import { t } from '../i18n.js';
 
 export async function loadMeta() {
@@ -46,14 +45,6 @@ export function healthSection(ctx) {
   );
 }
 
-export function milestoneStrip(health) {
-  return h(
-    'div',
-    { class: 'milestone' },
-    health.milestone.map((m) => h('div', { class: `step ${m.ok ? 'ok' : 'bad'}`, onclick: () => focusSection(m.target) }, h('span', { class: `mark ${m.ok ? 'ok' : 'error'}` }), m.label)),
-  );
-}
-
 export function focusSection(target) {
   const el = document.getElementById(`sec-${target}`);
   if (el) {
@@ -77,26 +68,16 @@ export function minecraftSection(ctx) {
   const form = h(
     'div',
     { class: 'form-grid' },
-    field('Auth type', select('authType', [['microsoft', 'Microsoft account'], ['offline', 'Offline (own test server)']], mc?.authType ?? 'microsoft')),
-    field('Microsoft account e-mail', h('input', { name: 'msaAccount', value: mc?.msaAccount ?? '', placeholder: 'account@outlook.com', autocomplete: 'off' })),
-    field('Username', h('input', { name: 'username', value: mc?.username ?? '', placeholder: 'Player07 (updated after login)' })),
+    h('input', { type: 'hidden', name: 'authType', value: 'offline' }),
+    field('Username', h('input', { name: 'username', value: mc?.username ?? '', placeholder: 'Player07' })),
   );
   const save = () =>
     guard(async () => {
       const f = formData(form);
-      if (!f.username && f.msaAccount) f.username = 'Pending_' + id;
       await api.put(`/api/identities/${id}/minecraft`, f);
       await ctx.reload();
     }, 'Minecraft account saved');
-  const device = data.deviceCode
-    ? h(
-        'div',
-        { class: 'infobox' },
-        h('strong', null, 'Microsoft sign-in required'),
-        h('p', null, 'Open ', h('a', { href: data.deviceCode.verificationUri, target: '_blank', rel: 'noopener noreferrer' }, data.deviceCode.verificationUri), ' and enter:'),
-        codeBox(data.deviceCode.userCode),
-      )
-    : null;
+  const offline = !mc || mc.authType === 'offline';
   return card(
     'minecraft',
     'Minecraft',
@@ -109,13 +90,13 @@ export function minecraftSection(ctx) {
         ])
       : h('p', { class: 'muted' }, 'No Minecraft account configured.'),
     mc?.lastError ? h('div', { class: 'warnbox' }, mc.lastError) : null,
-    device,
-    form,
+    offline
+      ? h('details', null, h('summary', { class: 'muted' }, 'Offline account (own test server without Microsoft login)'), form, h('div', { class: 'form-actions' }, h('button', { onclick: save }, 'Save')))
+      : h('p', { class: 'muted' }, 'The Microsoft sign-in is done in the Microsoft tile at the top.'),
     h(
       'div',
       { class: 'form-actions' },
-      h('button', { onclick: save }, 'Save'),
-      mc ? h('button', { class: 'primary', onclick: () => guard(async () => { const r = await api.post(`/api/identities/${id}/minecraft/auth`); if (r.deviceCode) toast('Complete the Microsoft sign-in (code shown above)', 'info', 8000); await ctx.reload(); }) }, mc.authStatus === 'AUTHENTICATED' ? 'Refresh token' : 'Authenticate') : null,
+      mc && !offline ? h('button', { class: 'primary', onclick: () => guard(async () => { const r = await api.post(`/api/identities/${id}/minecraft/auth`); if (r.deviceCode) toast('Complete the Microsoft sign-in (code shown above)', 'info', 8000); await ctx.reload(); }) }, mc.authStatus === 'AUTHENTICATED' ? 'Refresh token' : 'Authenticate') : null,
       mc?.credentialRef ? h('button', { class: 'danger', onclick: () => confirm('Remove stored Minecraft tokens?') && guard(async () => { await api.post(`/api/identities/${id}/minecraft/logout`); await ctx.reload(); }, 'Tokens removed') }, 'Remove tokens') : null,
     ),
     mc?.credentialRef ? h('p', { class: 'muted' }, 'Tokens stored at ', h('code', null, mc.credentialRef)) : null,
@@ -141,8 +122,6 @@ export function discordSection(ctx) {
     h(
       'div',
       { class: 'form-actions' },
-      d?.oauthState !== 'CONNECTED' ? h('button', { onclick: () => openDiscord(id, 'register') }, 'Create Discord account') : null,
-      h('button', { onclick: () => openDiscord(id, 'app') }, 'Open Discord'),
       d?.oauthState === 'CONNECTED' ? h('button', { class: 'danger', onclick: () => confirm('Reset the Discord setup of this identity? (The login in its Discord window stays.)') && guard(async () => { await api.post(`/api/identities/${id}/discord/disconnect`); await ctx.reload(); }) }, 'Reset') : null,
     ),
     h(
@@ -480,20 +459,17 @@ function runOnSelect(current) {
 export function settingsSection(ctx) {
   const { id, data, meta } = ctx;
   const s = data.identity.settings;
-  const parsers = meta.rules.chatRules.map((r) => r.id);
   const form = h(
     'div',
     null,
     h('div', { class: 'form-grid' },
       field('Label', h('input', { name: 'label', value: data.identity.label })),
-      field('Network mode', select('networkMode', ['PER_ACCOUNT', 'SHARED', 'DIRECT'], s.networkMode)),
-      field('Network guard', select('networkGuard', [['off', 'off'], ['warn', 'warn on IP mismatch'], ['block', 'block session start on IP mismatch']], s.networkGuard)),
+      data.networkProfiles.length ? field('Network guard', select('networkGuard', [['off', 'off'], ['warn', 'warn on IP mismatch'], ['block', 'block session start on IP mismatch']], s.networkGuard)) : null,
       field('View distance', select('viewDistance', ['tiny', 'short', 'normal', 'far'], s.viewDistance)),
       field('Discord linking', select('discordLinking', ['required', 'optional', 'disabled'], s.discordLinking)),
       field('Reconnect delay (s)', h('input', { type: 'number', name: 'reconnectDelaySec', value: s.reconnectDelaySec, min: 5 })),
       field('AFK action', select('afkAction', ['none', 'look', 'swing', 'jump'], s.afk.action)),
       field('AFK interval (s)', h('input', { type: 'number', name: 'afkIntervalSec', value: s.afk.intervalSec, min: 10 })),
-      field('UI color', h('input', { type: 'color', name: 'color', value: s.ui.color || '#5fb3ff' })),
       field('Tags (comma separated)', h('input', { name: 'tags', value: s.ui.tags.join(', ') })),
     ),
     h('h3', null, 'Where it runs'),
@@ -501,18 +477,13 @@ export function settingsSection(ctx) {
     h('h3', null, 'Game client (“Open game”)'),
     h('div', { class: 'form-grid' },
       field('Mode', select('gcMode', [['takeover', 'Takeover – the game takes over the running session (no re-login)'], ['handover', 'Handover – quick re-login into the game'], ['background', 'Background – the game holds the session minimized, Open game = restore window']], s.gameClient?.mode ?? 'takeover')),
-      field('Minecraft version', h('input', { name: 'gcVersion', value: s.gameClient?.version ?? 'auto', title: '"auto" = server profile version or detected via server ping; or e.g. 1.21.4' })),
-      field('Loader', select('gcLoader', [['vanilla', 'Vanilla'], ['fabric', 'Fabric']], s.gameClient?.loader ?? 'vanilla')),
       field('Memory (MB)', h('input', { type: 'number', name: 'gcMemoryMb', value: s.gameClient?.memoryMb ?? 2048, min: 1024, max: 32768, step: 256 })),
     ),
     h('div', { class: 'toolbar' },
       h('label', { class: 'check' }, h('input', { type: 'checkbox', name: 'autoReconnect', checked: s.autoReconnect }), 'Auto reconnect'),
       h('label', { class: 'check' }, h('input', { type: 'checkbox', name: 'afkEnabled', checked: s.afk.enabled }), 'Anti-AFK'),
-      h('label', { class: 'check' }, h('input', { type: 'checkbox', name: 'mailEnabled', checked: s.mailEnabled }), 'Mail enabled'),
       h('label', { class: 'check', title: 'Physics off in the AFK client (saves CPU); the AFK action "jump" keeps physics on' }, h('input', { type: 'checkbox', name: 'lightweight', checked: s.lightweight }), 'Lightweight AFK mode'),
     ),
-    h('h3', null, 'Chat parsers (rules.yaml)'),
-    h('div', { class: 'toolbar' }, parsers.map((p) => h('label', { class: 'check' }, h('input', { type: 'checkbox', dataset: { parser: p }, checked: s.parsers.includes(p) }), p))),
     field('Notes', h('textarea', { name: 'notes' }, s.ui.notes ?? '')),
   );
   return card(
@@ -521,23 +492,19 @@ export function settingsSection(ctx) {
     form,
     h('div', { class: 'form-actions' }, h('button', { class: 'primary', onclick: () => guard(async () => {
       const f = formData(form);
-      const parsersSel = [...form.querySelectorAll('[data-parser]')].filter((x) => x.checked).map((x) => x.dataset.parser);
       await api.patch(`/api/identities/${id}`, {
         label: f.label,
         settings: {
-          networkMode: f.networkMode,
-          networkGuard: f.networkGuard,
+          networkGuard: f.networkGuard ?? s.networkGuard,
           viewDistance: f.viewDistance,
           lightweight: f.lightweight,
           agentId: f.agentId ? Number(f.agentId) : null,
-          gameClient: { mode: f.gcMode, version: f.gcVersion.trim() || 'auto', loader: f.gcLoader, memoryMb: Number(f.gcMemoryMb) },
+          gameClient: { ...s.gameClient, mode: f.gcMode, memoryMb: Number(f.gcMemoryMb) },
           discordLinking: f.discordLinking,
           reconnectDelaySec: f.reconnectDelaySec,
           autoReconnect: f.autoReconnect,
-          mailEnabled: f.mailEnabled,
           afk: { enabled: f.afkEnabled, action: f.afkAction, intervalSec: f.afkIntervalSec },
-          parsers: parsersSel,
-          ui: { color: f.color, tags: f.tags.split(',').map((t) => t.trim()).filter(Boolean), notes: f.notes },
+          ui: { ...s.ui, tags: f.tags.split(',').map((t) => t.trim()).filter(Boolean), notes: f.notes },
         },
       });
       await ctx.reload();
