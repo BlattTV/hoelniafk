@@ -78,6 +78,8 @@ export class SessionRecord {
   handoverPending = false;
   /** Live takeover: the game plays on this session's own connection. */
   takeover: 'none' | 'launching' | 'attached' = 'none';
+  /** When the game joined the live session (a game that leaves right away is left open to show why). */
+  attachedAt = 0;
   uuid: string | null = null;
   /** "Start" outside the schedule: keep it online until this time (next schedule change). */
   scheduleOverrideUntil: number | null = null;
@@ -670,6 +672,7 @@ export class SessionManager {
   private onTakeoverEvent(r: SessionRecord, e: Extract<RuntimeEvent, { type: 'takeover' }>): void {
     if (e.status === 'attached') {
       r.takeover = 'attached';
+      r.attachedAt = Date.now();
       this.game?.notifyJoined(r.id);
       this.repo.addSessionEvent(r.identityId, r.serverId, r.id, 'game-attached', 'live takeover');
       this.setState(r, r.state);
@@ -690,13 +693,26 @@ export class SessionManager {
       this.setState(r, r.state);
     } else if (e.status === 'detached') {
       if (r.takeover === 'none') return; // closed by us ("Back to AFK")
-      // The game left the session (quit to title, closed, kicked): close it, the AFK client carries on.
+      // The game left the session (quit to title, closed, kicked, error): the AFK client carries on.
+      const early = Date.now() - r.attachedAt < 30_000;
       r.takeover = 'none';
       r.wantGame = false;
-      this.repo.addSessionEvent(r.identityId, r.serverId, r.id, 'game-detached', e.message ?? '');
-      if (this.game?.has(r.id)) void this.game.stopSession(r.id, 'Back to AFK');
       void this.runtime.closeTakeover(r.id, 'Back to AFK').catch(() => undefined);
-      this.setState(r, r.state);
+      // The game writes its reason to latest.log a moment later.
+      setTimeout(() => {
+        const why = this.game?.diagnosis(r.id) ?? null;
+        this.repo.addSessionEvent(r.identityId, r.serverId, r.id, 'game-detached', [e.message, why].filter(Boolean).join(' – ').slice(0, 500));
+        const normalQuit = !why || /quitting|^closed$|^disconnected$/i.test(why);
+        if (early && !normalQuit && this.game?.has(r.id)) {
+          // Left right after joining WITH an error/disconnect message (not a normal quit): keep the
+          // window open so Minecraft's own message stays readable.
+          r.lastError = `The game left the session right after joining${why ? `: ${why}` : ''} – the game window stays open with Minecraft's message`.slice(0, 500);
+          this.setState(r, r.state, r.lastError);
+          return;
+        }
+        if (this.game?.has(r.id)) void this.game.stopSession(r.id, 'Back to AFK');
+        this.setState(r, r.state);
+      }, 1200);
     }
   }
 
@@ -838,6 +854,10 @@ export class SessionManager {
     if (this.repo.getIdentity(r.identityId).settings.agentId != null) return this.openGameOnAgent(r, a.desiredState);
     if (!this.game) throw new ValidationError('The game client is not available');
     r.wantGame = true;
+    if (this.game.has(r.id) && r.takeover === 'none' && r.runtime === 'lightweight') {
+      // a game window left open after it lost the session (shows Minecraft's error) – start fresh
+      await this.game.stopSession(r.id, 'Reopening');
+    }
     if (this.game.has(r.id)) {
       await this.game.show(r.id);
       return this.info(r);

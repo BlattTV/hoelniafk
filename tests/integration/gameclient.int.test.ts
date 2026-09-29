@@ -184,6 +184,26 @@ describe('real game client: live takeover (default) – same connection, no re-l
     expect(state().state).toBe('ONLINE');
     expect(joinsOf('Gamer01')).toHaveLength(1);
   }, 90_000);
+
+  it('a game that drops right after joining with an error stays open and the reason is logged', async () => {
+    process.env.EMULATOR_ACTIONS = 'fail';
+    await suite.sessions.openGame(sid());
+    delete process.env.EMULATOR_ACTIONS;
+    await waitFor(() => state().takeover === 'attached', 60_000, 'attached');
+    await waitFor(() => /Network Protocol Error/.test(state().lastError ?? ''), 20_000, 'reason shown');
+    expect(state().takeover).toBe('none');
+    expect(state().game?.pid).toBeTruthy(); // window kept open with Minecraft's message
+    expect(state().state).toBe('ONLINE'); // the AFK client carries on
+    const ev = suite.repo.sessionEvents({ sessionId: sid() }).find((x) => x.kind === 'game-detached' && /Network Protocol Error/.test(x.detail ?? ''));
+    expect(ev).toBeTruthy();
+    // opening the game again replaces the old window
+    const oldPid = state().game!.pid;
+    process.env.EMULATOR_ACTIONS = 'quit';
+    await suite.sessions.openGame(sid());
+    delete process.env.EMULATOR_ACTIONS;
+    await waitFor(() => state().takeover === 'attached' && state().game?.pid !== oldPid, 60_000, 'new game attached');
+    await waitFor(() => state().takeover === 'none' && !state().game?.pid, 20_000, 'game quit → AFK');
+  }, 150_000);
 });
 
 describe('real game client: handover mode (re-login fallback)', () => {

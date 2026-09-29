@@ -74,6 +74,8 @@ interface Entry {
   timers: NodeJS.Timeout[];
   output: string[];
   disconnectReason: string | null;
+  /** Last ERROR/FATAL line of latest.log (why the game left or crashed). */
+  lastErrorLine: string | null;
   loginSeen: boolean;
   online: boolean;
   ended: boolean;
@@ -128,6 +130,14 @@ export class GameClientRuntime {
     return this.entries.has(sessionId);
   }
 
+  /** Why the game left the server, from its own log (disconnect reason or last error line). */
+  diagnosis(sessionId: string): string | null {
+    const en = this.entries.get(sessionId);
+    if (!en) return null;
+    en.tail?.poll();
+    return en.disconnectReason ?? en.lastErrorLine ?? null;
+  }
+
   info(sessionId: string): GameInfo | null {
     const en = this.entries.get(sessionId);
     return en ? { ...en.info } : null;
@@ -150,6 +160,7 @@ export class GameClientRuntime {
       timers: [],
       output: [],
       disconnectReason: null,
+      lastErrorLine: null,
       loginSeen: false,
       online: false,
       ended: false,
@@ -314,7 +325,11 @@ export class GameClientRuntime {
     if (!p) return;
     const sid = en.launch.spec.sessionId;
     if (p.type === 'chat') this.emit({ type: 'chat', sessionId: sid, text: p.text, ts: new Date().toISOString() });
-    else if (p.type === 'disconnect') en.disconnectReason = p.reason.slice(0, 300);
+    else if (p.type === 'disconnect') {
+      // keep the real reason – a following "Connection lost: quitting/closed" line adds nothing
+      if (!en.disconnectReason || !/quitting|closed/i.test(p.reason)) en.disconnectReason = p.reason.slice(0, 300);
+    }
+    else if (p.type === 'error') en.lastErrorLine = (en.secret ? p.text.split(en.secret).join('***') : p.text).slice(0, 300);
   }
 
   /** Waits for the game window and applies the wanted visibility once it exists. */

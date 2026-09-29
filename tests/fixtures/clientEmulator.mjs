@@ -114,6 +114,11 @@ if (!host) {
           setTimeout(() => bot.setControlState('forward', false), Number(arg));
         }
         if (kind === 'quit') bot.quit();
+        if (kind === 'fail') {
+          // like the real client when a packet cannot be read: error screen, connection dropped
+          log('Render thread', 'INFO', 'Client disconnected with reason: Network Protocol Error');
+          bot.quit();
+        }
       }, delay);
       delay += kind === 'walk' ? Number(arg) + 500 : 700;
     }
