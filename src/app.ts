@@ -8,6 +8,7 @@ import { EventBus } from './core/events.js';
 import { createLogger } from './core/logger.js';
 import { loadRules, parseRules, type RulesConfig } from './core/rules.js';
 import { DiscordService } from './discord/discordService.js';
+import { detectServerVersion, PROXY_FALLBACK_VERSION } from './client/instance.js';
 import { IdentityRepository } from './identity/repository.js';
 import { IdentityService } from './identity/identityService.js';
 import { MailService, type SourceFactory } from './mail/mailService.js';
@@ -133,6 +134,9 @@ export function createSuite(deps: SuiteDeps) {
   const updater = new Updater(repo, audit, bus);
   const microsoft = new MicrosoftAccountService(repo, auth, audit, bus);
   sessions.renewAuth = (identityId) => auth.renew(identityId);
+  // Real servers only (tests with fake bots have no server to ping): see SessionManager.autoVersion
+  if (!deps.botFactory && !deps.runtime) sessions.detectVersion = (host, port, network) => detectServerVersion(host, port, network);
+  sessions.proxyFallbackVersion = PROXY_FALLBACK_VERSION;
   const macros = new MacroService(db, runtime, audit, bus);
   sessions.macrosFor = (identityId, serverId) => macros.forSession(identityId, serverId);
   macros.runningSessions = () =>

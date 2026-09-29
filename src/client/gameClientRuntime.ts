@@ -19,7 +19,7 @@ import { createLogger, registerSecret } from '../core/logger.js';
 import type { GameClientSettings } from '../core/types.js';
 import type { GameInfo, JavaSession, RuntimeEvent, RuntimeSessionSpec, RuntimeStats, HostStats } from '../runtime/types.js';
 import { startForwarder, type Forwarder } from './forwarder.js';
-import { LogTail, offlineUuid, parseLogLine, pingServer, versionForProtocol, writeOptions } from './instance.js';
+import { detectServerVersion, LogTail, offlineUuid, parseLogLine, PROXY_FALLBACK_VERSION, writeOptions } from './instance.js';
 import { buildLaunchArgs, type LaunchAuth } from './launcher/args.js';
 import { Downloader, type MirrorMap } from './launcher/download.js';
 import { ENDPOINTS, Installer, type InstalledVersion } from './launcher/installer.js';
@@ -177,9 +177,9 @@ export class GameClientRuntime {
     if (settings.version && settings.version !== 'auto') return settings.version;
     if (spec.server.version) return spec.server.version;
     try {
-      const st = await pingServer(spec.server.host, spec.server.port, spec.network);
-      const v = versionForProtocol(st.protocol, st.versionName);
-      if (v) return v;
+      const d = await detectServerVersion(spec.server.host, spec.server.port, spec.network);
+      if (d.version) return d.version;
+      if (d.proxy) return PROXY_FALLBACK_VERSION;
     } catch (e) {
       log.warn(`Version detection for ${spec.server.name} failed: ${(e as Error).message}`);
     }

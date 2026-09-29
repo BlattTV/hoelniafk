@@ -138,7 +138,7 @@ export interface ServerStatus {
 }
 
 /** Server list ping through the identity's network profile (never directly). */
-export async function pingServer(host: string, port: number, network: { profile: NetworkProfile | null; secret: ProxySecret | null }, timeoutMs = 8000): Promise<ServerStatus> {
+export async function pingServer(host: string, port: number, network: { profile: NetworkProfile | null; secret: ProxySecret | null }, timeoutMs = 8000, protocol = 0x7fffffff): Promise<ServerStatus> {
   const target = await resolveMinecraftTarget(host, port);
   const socket = await openSocket(network.profile, network.secret, target, timeoutMs);
   return new Promise<ServerStatus>((resolve, reject) => {
@@ -170,9 +170,52 @@ export async function pingServer(host: string, port: number, network: { profile:
       reject(e);
     });
     // handshake (protocol -1 = "unknown", next state 1 = status) + status request
-    const hs = buildHandshake({ protocol: 0x7fffffff, host, port, nextState: 1 });
+    const hs = buildHandshake({ protocol, host, port, nextState: 1 });
     socket.write(Buffer.concat([hs, writeVarInt(1), writeVarInt(0)]));
   });
+}
+
+/** Version used behind a proxy when the backend version cannot be seen (widely supported; corrected from kicks). */
+export const PROXY_FALLBACK_VERSION = '1.21.1';
+
+export interface DetectedVersion {
+  version: string | null;
+  /** The address answers with whatever version it is asked with (Velocity / BungeeCord without ping passthrough). */
+  proxy: boolean;
+  name: string;
+}
+
+const protocolOf = (v: string): number => {
+  try {
+    return Number(require('minecraft-data')(v)?.version?.version ?? -1);
+  } catch {
+    return -1;
+  }
+};
+
+/**
+ * Server version for new connections. A plain server reports its own version. A proxy like Velocity
+ * mirrors the protocol it is asked with – then the backend version is unknown: a version from the
+ * status name is used if there is one (e.g. "Paper 1.21.4"), otherwise none (caller falls back).
+ */
+export async function detectServerVersion(host: string, port: number, network: { profile: NetworkProfile | null; secret: ProxySecret | null }, timeoutMs = 8000): Promise<DetectedVersion> {
+  const pa = protocolOf('1.20.4');
+  const pb = protocolOf('1.21.4');
+  const a = await pingServer(host, port, network, timeoutMs, pa);
+  const b = await pingServer(host, port, network, timeoutMs, pb);
+  if (pa > 0 && pb > 0 && a.protocol === pa && b.protocol === pb) {
+    const m = /\b(1\.\d+(?:\.\d+)?)\b/.exec(b.versionName);
+    return { version: m ? m[1] : null, proxy: true, name: b.versionName };
+  }
+  return { version: versionForProtocol(b.protocol, b.versionName), proxy: false, name: b.versionName };
+}
+
+/** "Outdated client! Please use 1.21.4" / "Outdated server! I'm still on 1.20.1" → the version the server wants. */
+export function versionFromKick(text: string | null | undefined): string | null {
+  const t = String(text ?? '');
+  if (!/outdated|please use|still on|incompatible|unsupported (client )?version/i.test(t)) return null;
+  const m = /(?:please use|still on|running|requires?|version)\s*:?\s*(?:minecraft\s*)?(1\.\d+(?:\.\d+)?|\d{2}\.\d+(?:\.\d+)?)/i.exec(t) ?? /\b(1\.\d+(?:\.\d+)?)\b/.exec(t);
+  return m ? m[1] : null;
 }
 
 /** Maps a protocol number to the newest release version using it (minecraft-data). */

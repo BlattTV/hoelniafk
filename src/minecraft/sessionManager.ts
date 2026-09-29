@@ -33,6 +33,7 @@ import type { IdentityRepository } from '../identity/repository.js';
 import type { NetworkService } from '../network/networkService.js';
 import type { GameInfo, MinecraftRuntime, RuntimeEvent, RuntimeSessionSpec, SessionStats } from '../runtime/types.js';
 import type { GameClientRuntime } from '../client/gameClientRuntime.js';
+import { versionFromKick } from '../client/instance.js';
 import type { LinkingWorkflow } from './linking.js';
 import type { RewardTracker } from './rewards.js';
 
@@ -470,7 +471,7 @@ export class SessionManager {
     return {
       sessionId: r.id,
       identityId: r.identityId,
-      server: { id: server.id, name: server.name, host: server.host, port: server.port, version: server.version },
+      server: { id: server.id, name: server.name, host: server.host, port: server.port, version: server.version || (await this.autoVersion(r, server, network)) || null },
       username: mc.authType === 'microsoft' ? mc.msaAccount! : mc.username,
       auth: mc.authType,
       network,
@@ -481,6 +482,48 @@ export class SessionManager {
       placement: s.agentId !== null && s.agentId !== undefined ? { agentId: s.agentId } : null,
       macros: this.macrosFor?.(r.identityId, r.serverId) ?? [],
     };
+  }
+
+  /**
+   * Version detection (production): a server behind Velocity/BungeeCord mirrors whatever version it
+   * is asked with, so "auto" would pick the newest version the library knows – and chat / the game
+   * window then break. Detected once per server (cached), corrected from "Outdated client" kicks.
+   */
+  detectVersion: ((host: string, port: number, network: RuntimeSessionSpec['network']) => Promise<{ version: string | null; proxy: boolean; name: string }>) | null = null;
+  proxyFallbackVersion = '1.21.1';
+  private readonly versionCache = new Map<number, { version: string | undefined; at: number }>();
+
+  private async autoVersion(r: SessionRecord, server: { id: number; host: string; port: number }, network: RuntimeSessionSpec['network']): Promise<string | undefined> {
+    const learned = this.repo.getSetting(`server.${server.id}.learnedVersion`);
+    if (learned) return learned;
+    if (!this.detectVersion) return undefined;
+    const hit = this.versionCache.get(server.id);
+    if (hit && Date.now() - hit.at < 30 * 60_000) return hit.version;
+    let version: string | undefined;
+    try {
+      const d = await this.detectVersion(server.host, server.port, network);
+      version = d.version ?? (d.proxy ? this.proxyFallbackVersion : undefined);
+      if (d.proxy) {
+        this.repo.addSessionEvent(r.identityId, r.serverId, r.id, 'version', `Proxy detected (${d.name || 'no name'}) – using ${version}; set the exact server version under Advanced → Servers if it differs`);
+      }
+    } catch {
+      version = undefined; // ping failed – the connection itself will report the problem
+    }
+    this.versionCache.set(server.id, { version, at: Date.now() });
+    return version;
+  }
+
+  /** The server told us which version it wants ("Outdated client! Please use 1.21.4"): remember it. */
+  private learnVersion(r: SessionRecord, text: string | null | undefined): boolean {
+    const server = this.repo.getServer(r.serverId);
+    if (server.version) return false; // fixed by the user
+    const v = versionFromKick(text);
+    if (!v || v === this.repo.getSetting(`server.${server.id}.learnedVersion`)) return false;
+    this.repo.setSetting(`server.${server.id}.learnedVersion`, v);
+    this.versionCache.delete(server.id);
+    this.repo.addSessionEvent(r.identityId, r.serverId, r.id, 'version', `Server wants Minecraft ${v} – using it from now on`);
+    this.audit.record(r.identityId, 'Server version learned', { server: server.name, version: v });
+    return true;
   }
 
   /** Network guard: verifies the exit IP before a session starts (setting per identity). */
@@ -724,6 +767,16 @@ export class SessionManager {
     r.lastEndReason = e.reason;
     this.repo.addSessionEvent(r.identityId, r.serverId, r.id, e.kicked ? 'kicked' : 'ended', detail);
     r.stats = null;
+    if (r.runtime !== 'game' && this.learnVersion(r, e.error)) {
+      // wrong version: reconnect right away with the one the server asked for
+      const a1 = this.repo.getAssignment(r.identityId, r.serverId);
+      if (a1?.enabled && a1.desiredState === 'ONLINE' && r.state !== 'STOPPING' && !this.stopped) {
+        r.nextAttemptAt = Date.now();
+        this.setState(r, 'RECONNECTING', e.error);
+        void this.reconcile();
+        return;
+      }
+    }
     const fromGame = r.runtime === 'game';
     if (fromGame) {
       r.runtime = 'lightweight';
