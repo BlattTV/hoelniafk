@@ -81,6 +81,8 @@ export class SessionRecord {
   takeover: 'none' | 'launching' | 'attached' = 'none';
   /** When the game joined the live session. */
   attachedAt = 0;
+  /** Last chat message sent through the suite (a kick right after it points at chat signing). */
+  lastChatAt = 0;
   /** Live takeover failed for this session (reason) – the game opens with its own login instead. */
   takeoverBroken: string | null = null;
   uuid: string | null = null;
@@ -346,6 +348,7 @@ export class SessionManager {
   async stopSession(sessionId: string): Promise<SessionInfo> {
     const r = this.get(sessionId);
     if (this.repo.getAssignment(r.identityId, r.serverId)) this.setDesired(r.identityId, r.serverId, 'OFFLINE');
+    r.takeoverBroken = null; // stopped by the user: the next start tries live takeover again
     await this.withLock(r, () => this.halt(r, 'Stopped by user'));
     return this.info(r);
   }
@@ -483,6 +486,7 @@ export class SessionManager {
       takeover: (!!this.game || s.agentId !== null) && s.gameClient.mode === 'takeover',
       placement: s.agentId !== null && s.agentId !== undefined ? { agentId: s.agentId } : null,
       macros: this.macrosFor?.(r.identityId, r.serverId) ?? [],
+      unsignedChat: this.repo.getSetting(`server.${server.id}.unsignedChat`) === '1',
     };
   }
 
@@ -513,6 +517,24 @@ export class SessionManager {
     }
     this.versionCache.set(server.id, { version, at: Date.now() });
     return version;
+  }
+
+  /**
+   * Kicked right after sending chat (e.g. "An internal error occurred in your connection" behind
+   * Velocity/ViaVersion): switch this server to unsigned chat. If that gets kicked as well, switch back
+   * – it was not the signature.
+   */
+  private adjustChatMode(r: SessionRecord, reason: string | null | undefined): boolean {
+    r.lastChatAt = 0;
+    const key = `server.${r.serverId}.unsignedChat`;
+    const cur = this.repo.getSetting(key);
+    if (cur === 'x') return false; // both tried – the problem is elsewhere
+    const unsigned = cur === '1';
+    this.repo.setSetting(key, unsigned ? 'x' : '1');
+    this.repo.addSessionEvent(r.identityId, r.serverId, r.id, 'chat-mode',
+      unsigned ? `Kicked after chat again (${reason ?? ''}) – unsigned chat did not help, signed chat again` : `Kicked right after chatting (${reason ?? ''}) – sending chat without signature from now on`);
+    this.audit.record(r.identityId, unsigned ? 'Chat signing switched back on' : 'Chat switched to unsigned', { server: r.serverName });
+    return true;
   }
 
   /** The server told us which version it wants ("Outdated client! Please use 1.21.4"): remember it. */
@@ -681,7 +703,8 @@ export class SessionManager {
       this.setState(r, r.state, e.reason === 'launchFailed' || e.reason === 'connectFailed' ? r.lastError : undefined);
       // The game crashed while entering / right after entering the live session: open it with its own login.
       const crashed = e.reason === 'clientExited' && /\(exit (?!0\))/.test(e.error ?? '');
-      if (crashed && (wasLaunching || Date.now() - r.attachedAt < 60_000) && !this.stopped) void this.fallbackToHandover(r, e.error ?? 'game crashed', false);
+      const failedToEnter = wasLaunching && e.reason === 'connectFailed';
+      if ((failedToEnter || (crashed && (wasLaunching || Date.now() - r.attachedAt < 60_000))) && !this.stopped) void this.fallbackToHandover(r, e.error ?? 'game crashed', false);
       return;
     }
     if (source === 'lightweight' && r.handoverPending && e.type === 'ended') {
@@ -772,6 +795,15 @@ export class SessionManager {
     r.lastEndReason = e.reason;
     this.repo.addSessionEvent(r.identityId, r.serverId, r.id, e.kicked ? 'kicked' : 'ended', detail);
     r.stats = null;
+    if (r.runtime !== 'game' && e.kicked && Date.now() - r.lastChatAt < 5000 && this.adjustChatMode(r, e.error)) {
+      const a2 = this.repo.getAssignment(r.identityId, r.serverId);
+      if (a2?.enabled && a2.desiredState === 'ONLINE' && r.state !== 'STOPPING' && !this.stopped) {
+        r.nextAttemptAt = Date.now();
+        this.setState(r, 'RECONNECTING', e.error);
+        void this.reconcile();
+        return;
+      }
+    }
     if (r.runtime !== 'game' && this.learnVersion(r, e.error)) {
       // wrong version: reconnect right away with the one the server asked for
       const a1 = this.repo.getAssignment(r.identityId, r.serverId);
@@ -892,6 +924,7 @@ export class SessionManager {
     const msg = text.replace(/[\r\n]+/g, ' ').trim().slice(0, 256);
     if (!msg) return;
     await this.runtime.sendChat(sessionId, msg);
+    r.lastChatAt = Date.now();
     this.repo.addSessionEvent(r.identityId, r.serverId, r.id, 'chat-sent', msg.startsWith('/') ? msg.split(' ')[0] : 'message');
   }
 

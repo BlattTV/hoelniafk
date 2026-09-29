@@ -29,7 +29,8 @@ export const mineflayerBotFactory: HostBotFactory = (spec, getJavaSession) => {
   const microsoftAuth = (client: any, options: any) => {
     getJavaSession()
       .then((js) => {
-        applyJavaSession(client, options, js);
+        // unsigned chat: no chat keys → no chat session, messages go out without a signature
+        applyJavaSession(client, options, spec.unsignedChat ? { ...js, profileKeys: null } : js);
         options.connect(client);
       })
       .catch((err) => {

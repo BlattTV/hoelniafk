@@ -31,6 +31,8 @@ export interface RuntimeSessionSpec {
   takeover?: boolean;
   /** Run on this remote agent (household PC) instead of a local runtime host. */
   placement?: { agentId: number } | null;
+  /** Send chat without signatures (some proxy/translation setups kick signed chat). */
+  unsignedChat?: boolean;
   /** Macros of this session (macro builder), started by their triggers. */
   macros?: import('../macros/types.js').MacroProgram[];
 }

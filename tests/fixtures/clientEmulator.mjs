@@ -72,6 +72,12 @@ log('main', 'INFO', `Setting user: ${username}`);
 log('Render thread', 'INFO', `Backend library: LWJGL version 3.3.1 (emulated, ${gameVersion})`);
 if (!host) {
   log('Render thread', 'INFO', 'No server given – staying in the title screen');
+} else if (fs.existsSync(path.join(gameDir, 'reject-once.txt'))) {
+  // like the real client when the server's configuration cannot be decoded: error screen, still running
+  const reason = fs.readFileSync(path.join(gameDir, 'reject-once.txt'), 'utf8');
+  fs.rmSync(path.join(gameDir, 'reject-once.txt'));
+  log('Render thread', 'INFO', `Connecting to ${host}, ${port}`);
+  setTimeout(() => log('Render thread', 'WARN', `Client disconnected with reason: ${reason}`), 800);
 } else {
   log('Render thread', 'INFO', `Connecting to ${host}, ${port}`);
   // mineflayer behaves like a vanilla client on the wire (teleport confirms, chunk batches, keep-alives)

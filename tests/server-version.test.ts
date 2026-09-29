@@ -85,3 +85,35 @@ describe('server version detection', () => {
     expect(detected).toHaveLength(1); // cached per server
   });
 });
+
+describe('kicked right after chatting', () => {
+  it('switches the server to unsigned chat, and back if that does not help (no endless toggling)', async () => {
+    const t = await createTestSuite();
+    const { suite, bots } = t;
+    const srv = suite.repo.upsertServer({ name: 'hoelni', host: 'proxy.example.com', version: '1.21.11' });
+    const id = suite.identities.create({ label: 'C' }).identity.id;
+    suite.repo.upsertMinecraft(id, { username: 'Cplayer', authType: 'offline' });
+    suite.repo.assignServer(id, { serverId: srv.id });
+    await suite.sessions.startSession(id, srv.id);
+    const sid = `${id}:${srv.id}`;
+    const chatKick = async (n: number) => {
+      await waitFor(() => bots.length === n, 3000, `bot ${n}`);
+      bots[n - 1].join();
+      await settle();
+      await suite.sessions.sendChat(sid, 'hallo');
+      bots[n - 1].emit('kicked', 'An internal error occurred in your connection.');
+      bots[n - 1].emit('end', 'socketClosed');
+    };
+    await chatKick(1);
+    expect(bots[0].spec.unsignedChat).toBe(false);
+    await waitFor(() => bots.length === 2, 3000, 'reconnect');
+    expect(bots[1].spec.unsignedChat).toBe(true);
+    expect(suite.repo.sessionEvents({ sessionId: sid }).some((e) => e.kind === 'chat-mode' && /without signature/.test(e.detail))).toBe(true);
+    await chatKick(2);
+    await waitFor(() => bots.length === 3, 5000, 'reconnect 2');
+    expect(bots[2].spec.unsignedChat).toBe(false); // back to signed
+    await chatKick(3);
+    await new Promise((r) => setTimeout(r, 300));
+    expect(suite.repo.getSetting(`server.${srv.id}.unsignedChat`)).toBe('x'); // no more toggling
+  });
+});

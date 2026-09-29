@@ -312,4 +312,20 @@ describe('real game client: live takeover fails → the game signs in on its own
     await suite.sessions.closeGame(sid());
     await waitFor(() => state().runtime === 'lightweight' && state().state === 'ONLINE', 60_000, 'AFK again');
   }, 240_000);
+  it('a game that cannot even enter the session (error screen before joining) is reopened with its own login', async () => {
+    // new session record → takeover is tried again
+    await suite.sessions.stopSession(sid());
+    await waitFor(() => state().state === 'STOPPED', 30_000, 'stopped');
+    await suite.sessions.startSession(identityId, serverId);
+    await waitFor(() => state().state === 'ONLINE' && state().runtime === 'lightweight', 60_000, 'AFK ONLINE');
+    const t0 = Date.now();
+    const gameDir = path.join(tmp, 'instances', `identity-${identityId}-server-${serverId}`);
+    fs.mkdirSync(gameDir, { recursive: true });
+    fs.writeFileSync(path.join(gameDir, 'reject-once.txt'), "Internal Exception: io.netty.handler.codec.DecoderException: Failed to decode packet 'clientbound/minecraft:cookie_request'");
+    await suite.sessions.openGame(sid());
+    await waitFor(() => suite.repo.sessionEvents({ sessionId: sid() }).some((x) => x.kind === 'game-takeover-failed' && Date.parse(x.ts) >= t0 - 1000), 30_000, 'failure noticed quickly (no 5 min wait)');
+    await waitFor(() => state().runtime === 'game' && state().state === 'ONLINE' && !!state().game?.pid, 90_000, 'game signed in on its own');
+    await suite.sessions.closeGame(sid());
+    await waitFor(() => state().runtime === 'lightweight' && state().state === 'ONLINE', 60_000, 'AFK again');
+  }, 240_000);
 });

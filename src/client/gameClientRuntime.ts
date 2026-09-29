@@ -328,6 +328,9 @@ export class GameClientRuntime {
     else if (p.type === 'disconnect') {
       // keep the real reason – a following "Connection lost: quitting/closed" line adds nothing
       if (!en.disconnectReason || !/quitting|closed/i.test(p.reason)) en.disconnectReason = p.reason.slice(0, 300);
+      // Live takeover: the game was dropped before it got into the session (error screen, music
+      // playing in the background) – report it now instead of waiting for the join timeout.
+      if (en.launch.connect && !en.loginSeen && !/quitting/i.test(p.reason)) this.end(en, 'connectFailed', `The game could not enter the session: ${p.reason.slice(0, 300)}`, false);
     }
     else if (p.type === 'error') en.lastErrorLine = (en.secret ? p.text.split(en.secret).join('***') : p.text).slice(0, 300);
   }
