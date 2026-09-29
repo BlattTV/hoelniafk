@@ -120,6 +120,38 @@ describe.each(['1.20.1', '1.20.2', '1.21.1'])('live takeover on Minecraft %s', (
     }, 10_000, 'game position = server position after renewal');
   }, 90_000);
 
+  it('server switch like Velocity (lobby → survival): the game follows into the new world, chat works there', async () => {
+    if (version === '1.20.1') return; // no configuration phase – proxies switch with a respawn there
+    const stateFile = path.join(tmp, 'instances', fs.readdirSync(path.join(tmp, 'instances'))[0], 'emulator-state.json');
+    const read = () => {
+      try {
+        return JSON.parse(fs.readFileSync(stateFile, 'utf8'));
+      } catch {
+        return null;
+      }
+    };
+    await waitFor(() => suite.sessions.getState(sid).takeover === 'attached', 30_000, 'attached before the switch');
+    const loginsBefore = read().logins;
+    expect(await server.switchServer('Taker')).toBe(true);
+    await waitFor(() => read()?.logins > loginsBefore && read()?.spawned === true, 30_000, 'game joined the new world');
+    await waitFor(() => suite.sessions.getState(sid).takeover === 'attached' && suite.sessions.getState(sid).state === 'ONLINE', 30_000, 'game attached again');
+    expect(read().ended).toBe(false);
+    // chat on the new server: reaches the game window and the suite …
+    server.say('Taker', 'hello from survival');
+    await waitFor(() => (read()?.messages ?? []).some((m: string) => /hello from survival/.test(m)), 10_000, 'game shows chat of the new server');
+    await waitFor(() => suite.sessions.getChat(sid, { limit: 200 }).some((l) => /hello from survival/.test(l.text)), 10_000, 'suite shows chat of the new server');
+    // … and chat sent from the suite reaches the new server
+    const t0 = Date.now();
+    await suite.sessions.sendChat(sid, '/stars');
+    await waitFor(() => suite.sessions.getChat(sid, { limit: 200 }).some((l) => /You have \d+ stars/.test(l.text) && Date.parse(l.ts) >= t0 - 500), 10_000, 'server answered after the switch');
+    // the game plays on the new world: its position is the one the server sees
+    await waitFor(() => {
+      const p = server.positionOf('Taker');
+      const g = read()?.position;
+      return !!p && !!g && Math.hypot(g.x - p.x, g.z - p.z) < 1.5;
+    }, 10_000, 'game position = server position after the switch');
+  }, 90_000);
+
   it('Back to AFK keeps the session', async () => {
     const pid = suite.sessions.getState(sid).game!.pid!;
     await suite.sessions.closeGame(sid);

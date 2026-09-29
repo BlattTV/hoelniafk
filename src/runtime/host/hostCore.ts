@@ -235,8 +235,17 @@ export class RuntimeHostCore {
       });
     }
 
-    bot.on('login', () => this.emit({ type: 'phase', sessionId: id, phase: 'AUTHENTICATING' }));
+    // A proxy server switch (lobby → survival) sends a fresh join on the same connection: the session
+    // stays online – only the very first join of a connection is "authenticating".
+    let inWorld = false;
+    bot.on('login', () => {
+      if (!inWorld) this.emit({ type: 'phase', sessionId: id, phase: 'AUTHENTICATING' });
+    });
+    bot.on('spawn', () => {
+      if (inWorld) this.emit({ type: 'phase', sessionId: id, phase: 'ONLINE' }); // after a server switch
+    });
     bot.once('spawn', () => {
+      inWorld = true;
       this.applyPhysics(s);
       const parked = this.parked.get(id);
       if (parked && s.cache) {

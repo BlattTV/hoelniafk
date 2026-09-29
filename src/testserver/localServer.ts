@@ -33,6 +33,12 @@ export interface LocalServer {
   broadcast(text: string): void;
   say(username: string, text: string): boolean;
   kick(username: string, reason: string): boolean;
+  /**
+   * Moves a player to "another server" the way Velocity does on 1.20.2+: start_configuration →
+   * configuration phase (registries, a cookie request) → finish → a fresh join (login, chunks,
+   * position). Returns false for versions without a configuration phase.
+   */
+  switchServer(username: string): Promise<boolean>;
   /** Drops all connections without a kick packet (simulates a crash/network loss). */
   dropAll(): void;
   linked: Set<string>;
@@ -81,6 +87,14 @@ export async function startLocalServer(opts: LocalServerOptions): Promise<LocalS
   const codes = new Map<string, string>();
   const findPlayer = (name: string) => serv.players.find((p: any) => p.username === name);
   const joined: Array<{ player: any; remote: string | undefined; at: number }> = [];
+  // remember each client's join packet (a server switch sends a fresh one)
+  serv._server.on('login', (client: any) => {
+    const write = client.write.bind(client);
+    client.write = (name: string, params: any) => {
+      if (name === 'login') client.__joinPacket = params;
+      return write(name, params);
+    };
+  });
   serv.on('newPlayer', (player: any) => {
     joined.push({ player, remote: player._client?.socket?.remoteAddress, at: Date.now() });
   });
@@ -172,6 +186,38 @@ export async function startLocalServer(opts: LocalServerOptions): Promise<LocalS
       const p = findPlayer(username);
       if (!p) return false;
       p.kick(reason);
+      return true;
+    },
+    switchServer: async (username) => {
+      const p = findPlayer(username);
+      const c = p?._client;
+      if (!c || !c.supportFeature?.('hasConfigurationState')) return false;
+      const once = (ev: string) => new Promise<void>((r) => c.once(ev, () => r()));
+      const acked = once('configuration_acknowledged');
+      c.write('start_configuration', {});
+      await acked;
+      c.state = 'configuration'; // flying-squid sends feature flags + tags on this
+      const o = serv._server.options;
+      if (c.supportFeature('segmentedRegistryCodecData')) for (const k in o.registryCodec) c.write('registry_data', o.registryCodec[k]);
+      else c.write('registry_data', { codec: o.registryCodec || {} });
+      if (c.supportFeature('cookies') || c.protocolVersion >= 766) {
+        // like a proxy plugin during the transfer: the client must answer before the switch finishes
+        const answered = once('cookie_response');
+        c.write('cookie_request', { cookie: 'hoelni:network' });
+        await Promise.race([answered, new Promise((r) => setTimeout(r, 5000))]);
+      }
+      const finished = once('finish_configuration');
+      c.write('finish_configuration', {});
+      await finished;
+      c.state = 'play';
+      // the next "server" sends its join
+      c.write('login', { ...c.__joinPacket, entityId: p.id });
+      p.sendSpawnPosition();
+      p.sendSelfPosition();
+      p.sendAbilities();
+      p.loadedChunks = {};
+      await p.worldSendInitialChunks();
+      p.updateHealth(p.health);
       return true;
     },
     dropAll: () => {
