@@ -308,7 +308,7 @@ export class TakeoverServer {
       client.removeAllListeners('login_acknowledged');
       client.once('login_acknowledged', () => {
         client.state = 'configuration';
-        for (const raw of this.cache.config) client.writeRaw(raw);
+        this.writeConfig(client);
         client.once('finish_configuration', () => {
           client.state = 'play';
           this.attach(client);
@@ -351,6 +351,25 @@ export class TakeoverServer {
     });
   }
 
+  /**
+   * The server's configuration for the local game. Checked by the packet id actually in the bytes (not
+   * only the parsed name): packets the game must not get (cookies, transfer, known packs, keep-alives …)
+   * never reach it, even if a proxy/translation layer labels them differently.
+   */
+  private writeConfig(client: any): void {
+    const sent: string[] = [];
+    for (const raw of this.cache.config) {
+      const name = rawPacketName(client.version, 'configuration', raw);
+      if (!name || SERVER_DROP.has(name) || /resource_pack/.test(name)) {
+        this.events.log('warn', `Configuration packet not passed to the game: ${name ?? `unknown id 0x${raw[0]?.toString(16)}`} (${raw.length} bytes)`);
+        continue;
+      }
+      sent.push(name);
+      client.writeRaw(raw);
+    }
+    this.events.log('info', `Configuration for the game: ${summarize(sent)}`);
+  }
+
   private attach(client: any): void {
     try {
       this.replay(client);
@@ -383,6 +402,11 @@ export class TakeoverServer {
         return;
       }
       if (SERVER_DROP.has(meta.name)) return;
+      const rawName = rawPacketName(client.version, 'play', raw);
+      if (!rawName || SERVER_DROP.has(rawName)) {
+        this.events.log('warn', `Packet not passed to the game: ${meta.name} (id says ${rawName ?? 'unknown'})`);
+        return;
+      }
       client.writeRaw(raw);
     };
     up.on('packet', onPacket);
@@ -458,7 +482,7 @@ export class TakeoverServer {
       if (client.supportFeature?.('hasConfigurationState')) {
         client.once('configuration_acknowledged', () => {
           client.state = 'configuration';
-          for (const raw of this.cache.config) client.writeRaw(raw);
+          this.writeConfig(client);
           client.once('finish_configuration', () => {
             client.state = 'play';
             finish();
@@ -479,7 +503,12 @@ export class TakeoverServer {
   /** Sends the cached state so the client enters the world exactly where the bot is. */
   private replay(client: any): void {
     const c = this.cache;
-    const w = (raw: Raw | null | undefined) => raw && client.writeRaw(raw);
+    const w = (raw: Raw | null | undefined) => {
+      if (!raw) return;
+      const name = rawPacketName(client.version, 'play', raw);
+      if (!name || SERVER_DROP.has(name)) return void this.events.log('warn', `Cached packet not passed to the game: ${name ?? 'unknown id'} (${raw.length} bytes)`);
+      client.writeRaw(raw);
+    };
     const login = { ...c.login };
     if ('enforcesSecureChat' in login) login.enforcesSecureChat = false;
     client.write('login', login);
@@ -583,6 +612,38 @@ function notify(client: any, text: string): void {
   } catch {
     /* informational only */
   }
+}
+
+/** "registry_data ×23, tags, …" for the log. */
+function summarize(names: string[]): string {
+  const counts = new Map<string, number>();
+  for (const n of names) counts.set(n, (counts.get(n) ?? 0) + 1);
+  return [...counts].map(([n, c]) => (c > 1 ? `${n} ×${c}` : n)).join(', ') || 'nothing';
+}
+
+/** Packet name for a raw packet's id in a protocol state (minecraft-data mapping of that version). */
+const idMaps = new Map<string, Record<number, string>>();
+export function rawPacketName(version: string, state: 'configuration' | 'play', raw: Raw): string | null {
+  const key = `${version}:${state}`;
+  let map = idMaps.get(key);
+  if (!map) {
+    map = {};
+    try {
+      const mappings = require('minecraft-data')(version).protocol[state].toClient.types.packet[1][0].type[1].mappings as Record<string, string>;
+      for (const [hex, name] of Object.entries(mappings)) map[Number(hex)] = name;
+    } catch {
+      /* unknown version: no check */
+    }
+    idMaps.set(key, map);
+  }
+  let id = 0;
+  let shift = 0;
+  for (let i = 0; i < 5 && i < raw.length; i++) {
+    id |= (raw[i] & 0x7f) << shift;
+    if (!(raw[i] & 0x80)) return map[id] ?? null;
+    shift += 7;
+  }
+  return null;
 }
 
 function hasPacket(client: any, name: string): boolean {
