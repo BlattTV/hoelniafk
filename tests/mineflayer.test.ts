@@ -44,3 +44,22 @@ describe('mineflayer session transport', () => {
     server.close();
   }, 30000);
 });
+
+describe('Mojang profile keys', () => {
+  it('reads the mislabelled "RSA PRIVATE KEY" PEMs from the certificate endpoint (PKCS#8 / SPKI inside)', async () => {
+    const crypto = await import('node:crypto');
+    const { profileKey } = await import('../src/minecraft/mineflayerBot.js');
+    const { publicKey, privateKey } = crypto.generateKeyPairSync('rsa', { modulusLength: 1024 });
+    const wrap = (label: string, der: Buffer) => `-----BEGIN ${label}-----\n${der.toString('base64').replace(/(.{76})/g, '$1\n')}\n-----END ${label}-----\n`;
+    // exactly how Mojang delivers them
+    const privPem = wrap('RSA PRIVATE KEY', privateKey.export({ format: 'der', type: 'pkcs8' }) as Buffer);
+    const pubPem = wrap('RSA PUBLIC KEY', publicKey.export({ format: 'der', type: 'spki' }) as Buffer);
+    expect(() => crypto.createPublicKey(pubPem)).toThrow(/wrong tag/); // the reported error
+    const priv = profileKey(privPem, 'private');
+    const pub = profileKey(pubPem, 'public');
+    const sig = crypto.sign('sha256', Buffer.from('chat'), priv);
+    expect(crypto.verify('sha256', Buffer.from('chat'), pub, sig)).toBe(true);
+    // correctly labelled PEMs keep working
+    expect(profileKey(privateKey.export({ format: 'pem', type: 'pkcs1' }) as string, 'private').asymmetricKeyType).toBe('rsa');
+  });
+});

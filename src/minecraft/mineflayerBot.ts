@@ -52,6 +52,20 @@ export const mineflayerBotFactory: HostBotFactory = (spec, getJavaSession) => {
   return bot as unknown as HostBot;
 };
 
+/**
+ * Mojang's certificate endpoint labels its keys "RSA PRIVATE KEY" / "RSA PUBLIC KEY" although the
+ * content is PKCS#8 / SPKI – parsing the PEM as-is fails with "asn1 … wrong tag". Like prismarine-auth,
+ * decode the base64 body and read it as DER; a correctly labelled PEM still works as fallback.
+ */
+export function profileKey(pem: string, kind: 'public' | 'private'): crypto.KeyObject {
+  const der = Buffer.from(pem.replace(/-----[^-]+-----/g, '').replace(/\s+/g, ''), 'base64');
+  try {
+    return kind === 'private' ? crypto.createPrivateKey({ key: der, format: 'der', type: 'pkcs8' }) : crypto.createPublicKey({ key: der, format: 'der', type: 'spki' });
+  } catch {
+    return kind === 'private' ? crypto.createPrivateKey(pem) : crypto.createPublicKey(pem);
+  }
+}
+
 /** Mirrors minecraft-protocol's microsoftAuth.authenticate() with a pre-fetched session. */
 export function applyJavaSession(client: any, options: any, js: JavaSession): void {
   const session = {
@@ -68,8 +82,8 @@ export function applyJavaSession(client: any, options: any, js: JavaSession): vo
     client.profileKeys = {
       publicPEM: k.publicPEM,
       privatePEM: k.privatePEM,
-      public: crypto.createPublicKey(k.publicPEM),
-      private: crypto.createPrivateKey(k.privatePEM),
+      public: profileKey(k.publicPEM, 'public'),
+      private: profileKey(k.privatePEM, 'private'),
       signature: Buffer.from(k.signature, 'base64'),
       signatureV2: Buffer.from(k.signatureV2, 'base64'),
       expiresOn: new Date(k.expiresOn),
