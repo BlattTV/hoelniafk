@@ -44,8 +44,8 @@ export async function sessionsView(root) {
             h('td', null, stateBadge(s.state, s.lastError ?? ''), scheduleNote(s)),
             h('td', { class: 'muted nowrap' }, relTime(s.since)),
             h('td', { class: 'mono' }, `${s.reconnects}${s.consecutiveFailures ? ` (${s.consecutiveFailures} failed)` : ''}`),
-            h('td', { class: 'mono' }, s.stats?.ping !== null && s.stats?.ping !== undefined ? `${s.stats.ping} ms` : '–'),
-            h('td', { class: 'mono muted' }, s.stats ? `${fmtBytes(s.stats.bytesIn)} / ${fmtBytes(s.stats.bytesOut)}` : '–'),
+            h('td', { class: 'mono', dataset: { ping: s.id } }, s.stats?.ping !== null && s.stats?.ping !== undefined ? `${s.stats.ping} ms` : '–'),
+            h('td', { class: 'mono muted', dataset: { traffic: s.id } }, s.stats ? `${fmtBytes(s.stats.bytesIn)} / ${fmtBytes(s.stats.bytesOut)}` : '–'),
             h('td', null, gameBadge(s) ?? (s.stats ? (s.stats.physics ? 'physics' : h('span', { class: 'muted', title: 'Physics off – lightweight AFK mode' }, 'lightweight')) : '–')),
             h('td', { class: s.state === 'BLOCKED' ? 's-error' : 'muted', style: { maxWidth: '320px', fontSize: '12px' } }, s.state === 'RECONNECTING' ? `next ${relTime(s.nextAttemptAt)} – ${s.lastError ?? ''}` : s.lastError ?? ''),
             h('td', null, h('div', { class: 'toolbar' },
@@ -71,7 +71,14 @@ export async function sessionsView(root) {
   return {
     onEvent(ev) {
       if (ctx.chatListener) ctx.chatListener(ev);
-      if ((ev.type === 'session.state' || ev.type === 'session.stats') && !document.getElementById('modal-root').childElementCount) {
+      if (ev.type === 'session.stats' && ev.data?.sessionId) {
+        // numbers only: update in place (a full reload every 5 s made the window flicker)
+        const st = ev.data.stats;
+        for (const el of root.querySelectorAll('[data-ping]')) if (el.dataset.ping === ev.data.sessionId) el.textContent = st.ping !== null && st.ping !== undefined ? `${st.ping} ms` : '–';
+        for (const el of root.querySelectorAll('[data-traffic]')) if (el.dataset.traffic === ev.data.sessionId) el.textContent = `${fmtBytes(st.bytesIn)} / ${fmtBytes(st.bytesOut)}`;
+        return;
+      }
+      if (ev.type === 'session.state' && !document.getElementById('modal-root').childElementCount) {
         clearTimeout(t);
         t = setTimeout(load, 700);
       }

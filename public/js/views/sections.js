@@ -328,6 +328,16 @@ export async function diagnose(identityId, profileId) {
 
 // ---------------------------------------------------------------- servers & sessions
 
+/** One line of live session stats (updated in place, see updateStats). */
+export const statsText = (st) => `ping ${st.ping ?? '–'} ms · health ${st.health ?? '–'} · ${st.physics ? 'physics' : 'lightweight'} · in ${fmtBytes(st.bytesIn)}`;
+
+/** Stats arrive every few seconds: update the numbers in place instead of re-rendering the page (no flicker). */
+export function updateStats(root, ev) {
+  if (ev.type !== 'session.stats' || !ev.data?.sessionId) return false;
+  for (const el of root.querySelectorAll('[data-stats]')) if (el.dataset.stats === ev.data.sessionId) el.textContent = statsText(ev.data.stats);
+  return true;
+}
+
 export function sessionsSection(ctx) {
   const { id, data, meta } = ctx;
   const byServer = new Map(data.assignments.map((a) => [a.serverId, a]));
@@ -357,7 +367,7 @@ export function sessionsSection(ctx) {
               h('td', null, a ? select('np', profileOpts, a.networkProfileId ?? '', { title: 'Per-session network override', onchange: (e) => update({ networkProfileId: e.target.value ? Number(e.target.value) : null }) }) : '–'),
               h('td', null, sess ? stateBadge(sess.state, sess.lastError ?? '') : h('span', { class: 'muted' }, '–'), gameBadge(sess), scheduleNote(sess)),
               h('td', { class: 'muted', style: { fontSize: '12px', maxWidth: '260px' } },
-                sess?.state === 'ONLINE' && st ? `ping ${st.ping ?? '–'} ms · health ${st.health ?? '–'} · ${st.physics ? 'physics' : 'lightweight'} · in ${fmtBytes(st.bytesIn)}` : null,
+                sess?.state === 'ONLINE' ? h('span', { dataset: { stats: sess.id } }, st ? statsText(st) : '') : null,
                 sess?.state === 'RECONNECTING' ? `next attempt ${relTime(sess.nextAttemptAt)} · failures ${sess.consecutiveFailures}` : null,
                 sess?.lastError && sess.state !== 'ONLINE' ? h('div', { class: sess.state === 'BLOCKED' ? 's-error' : '' }, sess.lastError) : null),
               h('td', null, a ? h('div', { class: 'toolbar' },

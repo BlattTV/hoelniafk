@@ -12,6 +12,7 @@ import {
   networkSection,
   rewardsSection,
   sessionsSection,
+  updateStats,
   settingsSection,
 } from './sections.js';
 
@@ -76,6 +77,7 @@ export async function identityView(root, [idStr, section]) {
     onEvent(ev) {
       if (ctx.chatListener) ctx.chatListener(ev);
       if (ev.identityId !== id || ev.type === 'session.chat' || ev.type === 'audit') return;
+      if (updateStats(root, ev)) return; // numbers only – no full re-render every 5 s
       clearTimeout(t);
       t = setTimeout(() => whenModalClosed(() => whenIdle(root, render)), 500); // never under an open dialog or unsaved edits
     },

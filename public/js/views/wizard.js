@@ -1,6 +1,6 @@
 import { api } from '../api.js';
 import { clear, field, guard, h, pad2, select, statusIcon, mount, whenIdle, whenModalClosed } from '../ui.js';
-import { discordSection, loadMeta, mailSection, minecraftSection, networkSection, sessionsSection } from './sections.js';
+import { discordSection, loadMeta, mailSection, minecraftSection, networkSection, sessionsSection, updateStats } from './sections.js';
 
 const STEPS = [
   ['Mail', (ctx) => mailSection(ctx, { withInbox: false })],
@@ -94,6 +94,7 @@ export async function wizardView(root, [idStr, stepStr]) {
     onEvent(ev) {
       if (ctx.chatListener) ctx.chatListener(ev);
       if (ev.identityId !== id || ev.type === 'session.chat' || ev.type === 'audit') return;
+      if (updateStats(root, ev)) return;
       clearTimeout(t);
       t = setTimeout(() => whenModalClosed(() => whenIdle(root, render)), 500);
     },
