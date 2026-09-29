@@ -79,8 +79,10 @@ export class SessionRecord {
   handoverPending = false;
   /** Live takeover: the game plays on this session's own connection. */
   takeover: 'none' | 'launching' | 'attached' = 'none';
-  /** When the game joined the live session (a game that leaves right away is left open to show why). */
+  /** When the game joined the live session. */
   attachedAt = 0;
+  /** Live takeover failed for this session (reason) – the game opens with its own login instead. */
+  takeoverBroken: string | null = null;
   uuid: string | null = null;
   /** "Start" outside the schedule: keep it online until this time (next schedule change). */
   scheduleOverrideUntil: number | null = null;
@@ -668,6 +670,7 @@ export class SessionManager {
     }
     if (source === 'game' && r.takeover !== 'none' && e.type === 'ended') {
       // The game (attached to or launching for the live session) is gone – the AFK client continues.
+      const wasLaunching = r.takeover === 'launching';
       r.takeover = 'none';
       r.wantGame = false;
       void this.runtime.closeTakeover(r.id, 'Game closed').catch(() => undefined);
@@ -676,6 +679,9 @@ export class SessionManager {
         this.repo.addSessionEvent(r.identityId, r.serverId, r.id, 'game-failed', r.lastError);
       } else this.repo.addSessionEvent(r.identityId, r.serverId, r.id, 'game-closed', e.error ?? '');
       this.setState(r, r.state, e.reason === 'launchFailed' || e.reason === 'connectFailed' ? r.lastError : undefined);
+      // The game crashed while entering / right after entering the live session: open it with its own login.
+      const crashed = e.reason === 'clientExited' && /\(exit (?!0\))/.test(e.error ?? '');
+      if (crashed && (wasLaunching || Date.now() - r.attachedAt < 60_000) && !this.stopped) void this.fallbackToHandover(r, e.error ?? 'game crashed', false);
       return;
     }
     if (source === 'lightweight' && r.handoverPending && e.type === 'ended') {
@@ -747,10 +753,9 @@ export class SessionManager {
         this.repo.addSessionEvent(r.identityId, r.serverId, r.id, 'game-detached', [e.message, why].filter(Boolean).join(' – ').slice(0, 500));
         const normalQuit = !why || /quitting|^closed$|^disconnected$/i.test(why);
         if (early && !normalQuit && this.game?.has(r.id)) {
-          // Left right after joining WITH an error/disconnect message (not a normal quit): keep the
-          // window open so Minecraft's own message stays readable.
-          r.lastError = `The game left the session right after joining${why ? `: ${why}` : ''} – the game window stays open with Minecraft's message`.slice(0, 500);
-          this.setState(r, r.state, r.lastError);
+          // Live takeover does not work with this server (e.g. a proxy/translation layer sends packets
+          // the game rejects): open the game with its own login instead – for the rest of this session.
+          void this.fallbackToHandover(r, why!, true);
           return;
         }
         if (this.game?.has(r.id)) void this.game.stopSession(r.id, 'Back to AFK');
@@ -917,7 +922,7 @@ export class SessionManager {
     }
     if (a.desiredState !== 'ONLINE') this.setDesired(r.identityId, r.serverId, 'ONLINE');
     this.audit.record(r.identityId, 'Game window opened', { server: r.serverName });
-    if (this.gameSettings(r).mode === 'takeover') {
+    if (this.gameSettings(r).mode === 'takeover' && !r.takeoverBroken) {
       if (r.state !== 'ONLINE' || r.runtime !== 'lightweight') await this.waitOnline(r);
       await this.withLock(r, async () => {
         if (this.game!.has(r.id)) return void (await this.game!.show(r.id));
@@ -997,6 +1002,22 @@ export class SessionManager {
       throw e;
     }
     this.setState(r, r.state);
+  }
+
+  /** Live takeover does not work with this server: open the game with its own login instead (rest of this session). */
+  private async fallbackToHandover(r: SessionRecord, why: string, gameStillOpen: boolean): Promise<void> {
+    if (r.takeoverBroken) return;
+    r.takeoverBroken = why.slice(0, 300);
+    this.repo.addSessionEvent(r.identityId, r.serverId, r.id, 'game-takeover-failed', `${why} – the game signs in on its own instead`.slice(0, 500));
+    this.setState(r, r.state, `Live takeover failed (${why}) – the game signs in on its own instead`.slice(0, 500));
+    try {
+      if (gameStillOpen) await this.game!.stopSession(r.id, 'Live takeover failed');
+      r.wantGame = true;
+      await this.withLock(r, () => this.handoverToGame(r));
+    } catch (err) {
+      r.wantGame = false;
+      this.setState(r, r.state, `Game could not be opened: ${(err as Error).message}`.slice(0, 500));
+    }
   }
 
   private async handoverToGame(r: SessionRecord): Promise<void> {

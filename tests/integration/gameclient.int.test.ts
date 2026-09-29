@@ -184,26 +184,6 @@ describe('real game client: live takeover (default) – same connection, no re-l
     expect(state().state).toBe('ONLINE');
     expect(joinsOf('Gamer01')).toHaveLength(1);
   }, 90_000);
-
-  it('a game that drops right after joining with an error stays open and the reason is logged', async () => {
-    process.env.EMULATOR_ACTIONS = 'fail';
-    await suite.sessions.openGame(sid());
-    delete process.env.EMULATOR_ACTIONS;
-    await waitFor(() => state().takeover === 'attached', 60_000, 'attached');
-    await waitFor(() => /Network Protocol Error/.test(state().lastError ?? ''), 20_000, 'reason shown');
-    expect(state().takeover).toBe('none');
-    expect(state().game?.pid).toBeTruthy(); // window kept open with Minecraft's message
-    expect(state().state).toBe('ONLINE'); // the AFK client carries on
-    const ev = suite.repo.sessionEvents({ sessionId: sid() }).find((x) => x.kind === 'game-detached' && /Network Protocol Error/.test(x.detail ?? ''));
-    expect(ev).toBeTruthy();
-    // opening the game again replaces the old window
-    const oldPid = state().game!.pid;
-    process.env.EMULATOR_ACTIONS = 'quit';
-    await suite.sessions.openGame(sid());
-    delete process.env.EMULATOR_ACTIONS;
-    await waitFor(() => state().takeover === 'attached' && state().game?.pid !== oldPid, 60_000, 'new game attached');
-    await waitFor(() => state().takeover === 'none' && !state().game?.pid, 20_000, 'game quit → AFK');
-  }, 150_000);
 });
 
 describe('real game client: handover mode (re-login fallback)', () => {
@@ -312,4 +292,24 @@ describe('real game client: background mode', () => {
     expect(state().state).toBe('STOPPED');
     await waitFor(() => !server.players().includes('Gamer01'), 10_000, 'left server');
   }, 30_000);
+});
+
+describe('real game client: live takeover fails → the game signs in on its own', () => {
+  it('a game dropped right after joining with an error is reopened with its own login (handover)', async () => {
+    suite.repo.updateIdentity(identityId, { settings: { gameClient: { mode: 'takeover' } } as any });
+    await suite.sessions.startSession(identityId, serverId);
+    await waitFor(() => state().state === 'ONLINE' && state().runtime === 'lightweight', 60_000, 'AFK ONLINE');
+    process.env.EMULATOR_ACTIONS = 'fail';
+    await suite.sessions.openGame(sid());
+    await waitFor(() => state().takeover === 'attached', 60_000, 'attached');
+    delete process.env.EMULATOR_ACTIONS;
+    await waitFor(() => suite.repo.sessionEvents({ sessionId: sid() }).some((x) => x.kind === 'game-takeover-failed' && /Network Protocol Error/.test(x.detail)), 20_000, 'takeover failure recorded');
+    expect(suite.repo.sessionEvents({ sessionId: sid() }).some((x) => x.kind === 'game-detached' && /Network Protocol Error/.test(x.detail))).toBe(true);
+    // the game comes back with its own login and holds the session
+    await waitFor(() => state().runtime === 'game' && state().state === 'ONLINE' && !!state().game?.pid, 90_000, 'game signed in on its own');
+    expect(server.players().filter((p) => p === 'Gamer01')).toHaveLength(1);
+    // back to AFK works as usual
+    await suite.sessions.closeGame(sid());
+    await waitFor(() => state().runtime === 'lightweight' && state().state === 'ONLINE', 60_000, 'AFK again');
+  }, 240_000);
 });
