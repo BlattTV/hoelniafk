@@ -5,7 +5,7 @@
  *  - Accounts page: account administration, shown ONLY when signed in as admin
  */
 import { api } from '../api.js';
-import { field, fmtTime, guard, h, modal, mount, relTime } from '../ui.js';
+import { field, fmtTime, guard, h, modal, mount, relTime, whenIdle } from '../ui.js';
 
 const STATE_TEXT = {
   'signed-out': ['skipped', 'signed out'],
@@ -128,7 +128,7 @@ export async function agentsView(root) {
   };
   await render();
   let t;
-  return { onEvent: (ev) => { if (ev.type === 'agents.changed' || ev.type === 'session.state') { clearTimeout(t); t = setTimeout(render, 500); } } };
+  return { onEvent: (ev) => { if (ev.type === 'agents.changed' || ev.type === 'session.state') { clearTimeout(t); t = setTimeout(() => whenIdle(root, render), 500); } } };
 }
 
 // ---------------------------------------------------------------- Accounts page (admins only)
@@ -203,5 +203,5 @@ export async function accountsView(root) {
           h('td', { class: 'muted mono' }, fmtTime(e.ts)), h('td', null, e.actor ?? ''), h('td', null, e.action), h('td', { class: 'muted' }, e.detail), h('td', { class: 'muted mono' }, e.ip ?? '')))))));
   };
   await render();
-  return { onEvent: (ev) => { if (ev.type === 'agents.changed') { clearTimeout(accountsView.t); accountsView.t = setTimeout(render, 1500); } } };
+  return { onEvent: (ev) => { if (ev.type === 'agents.changed') { clearTimeout(accountsView.t); accountsView.t = setTimeout(() => whenIdle(root, render), 1500); } } };
 }

@@ -1,6 +1,6 @@
 /** Discord: every identity's Discord account at a glance – open (= switch), create, sign in. */
 import { api } from '../api.js';
-import { guard, h, mount } from '../ui.js';
+import { guard, h, mount, whenIdle } from '../ui.js';
 import { discordTile, openDiscord } from './accounts.js';
 
 export async function discordView(root) {
@@ -39,5 +39,5 @@ export async function discordView(root) {
   };
   await render();
   let tm;
-  return { onEvent: (ev) => { if (ev.type === 'identity.changed' && !document.querySelector('.copy-rows:not([hidden])')) { clearTimeout(tm); tm = setTimeout(render, 500); } } };
+  return { onEvent: (ev) => { if (ev.type === 'identity.changed' && !document.querySelector('.copy-rows:not([hidden])')) { clearTimeout(tm); tm = setTimeout(() => whenIdle(root, render), 500); } } };
 }

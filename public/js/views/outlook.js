@@ -3,7 +3,7 @@
  * credentials in the suite, no app registration. Optional IMAP mailboxes stay under Advanced.
  */
 import { api } from '../api.js';
-import { h, mount } from '../ui.js';
+import { h, mount, whenIdle } from '../ui.js';
 import { openMicrosoft } from './accounts.js';
 
 export async function outlookView(root) {
@@ -33,5 +33,5 @@ export async function outlookView(root) {
   };
   await render();
   let tm;
-  return { onEvent: (ev) => { if (ev.type === 'identity.changed') { clearTimeout(tm); tm = setTimeout(render, 500); } } };
+  return { onEvent: (ev) => { if (ev.type === 'identity.changed') { clearTimeout(tm); tm = setTimeout(() => whenIdle(root, render), 500); } } };
 }

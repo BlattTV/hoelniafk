@@ -307,3 +307,24 @@ test('macro builder: drag blocks like in Scratch, save and run on a session', as
   await expect(page.locator('.macro-log')).toContainText('finished', { timeout: 20_000 });
   expect(errors).toEqual([]);
 });
+
+test('identity settings: live updates never overwrite unsaved edits', async ({ page }) => {
+  const errors = trackErrors(page);
+  await page.goto('/#/identity/2');
+  await page.locator('.more-details > summary').click();
+  const label = page.locator('#sec-settings input[name=label]');
+  await label.fill('Unsaved edit');
+  await page.locator('#sec-settings select[name=gcMode]').selectOption('handover');
+  await page.locator('h1').first().click(); // focus away from the form
+  // a server event for this identity arrives (normally the page re-renders)
+  await page.evaluate(async () => {
+    const t = document.querySelector('meta[name=hoelni-token]')!.getAttribute('content')!;
+    await fetch('/api/identities/2/network/verify', { method: 'POST', headers: { 'x-hoelni-token': t, 'content-type': 'application/json' }, body: '{}' });
+  });
+  await page.waitForTimeout(4000);
+  await expect(label).toHaveValue('Unsaved edit');
+  await expect(page.locator('#sec-settings select[name=gcMode]')).toHaveValue('handover');
+  await page.getByRole('button', { name: 'Save settings' }).click();
+  await expect(page.locator('h1').first()).toContainText('Unsaved edit');
+  expect(errors).toEqual([]);
+});

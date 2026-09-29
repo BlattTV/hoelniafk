@@ -1,5 +1,5 @@
 import { api } from '../api.js';
-import { clear, field, guard, h, pad2, select, statusIcon, mount, whenModalClosed } from '../ui.js';
+import { clear, field, guard, h, pad2, select, statusIcon, mount, whenIdle, whenModalClosed } from '../ui.js';
 import { discordSection, loadMeta, mailSection, minecraftSection, networkSection, sessionsSection } from './sections.js';
 
 const STEPS = [
@@ -95,7 +95,7 @@ export async function wizardView(root, [idStr, stepStr]) {
       if (ctx.chatListener) ctx.chatListener(ev);
       if (ev.identityId !== id || ev.type === 'session.chat' || ev.type === 'audit') return;
       clearTimeout(t);
-      t = setTimeout(() => whenModalClosed(render), 500);
+      t = setTimeout(() => whenModalClosed(() => whenIdle(root, render)), 500);
     },
   };
 }

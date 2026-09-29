@@ -161,7 +161,41 @@ export async function guard(fn, okMsg) {
 export function mount(el, ...children) {
   clear(el);
   append(el, children);
+  el.__editedAt = 0; // fresh content: nothing unsaved
+  trackEdits(el);
   return el;
+}
+
+/** Remembers when the user last changed an input inside el (see whenIdle). */
+function trackEdits(el) {
+  if (el.__editTracked) return;
+  el.__editTracked = true;
+  const mark = () => (el.__editedAt = Date.now());
+  el.addEventListener('input', mark, true);
+  el.addEventListener('change', mark, true);
+}
+
+const EDITABLE = 'input:not([type=checkbox]):not([type=radio]):not([type=button]):not([type=submit]), textarea, select';
+
+/**
+ * Live views re-render on events (session state, stats …). That must never throw away what the user
+ * is typing or has changed but not saved yet: fn runs once nobody edits in root (no focused input,
+ * no unsaved change in the last 2 minutes). Saving re-renders through mount(), which clears the mark.
+ */
+export function whenIdle(root, fn) {
+  trackEdits(root);
+  const busy = () => {
+    const a = document.activeElement;
+    return (a && root.contains(a) && a.matches(EDITABLE)) || (root.__editedAt && Date.now() - root.__editedAt < 120_000);
+  };
+  clearInterval(root.__idleTimer);
+  if (!busy()) return fn();
+  root.__idleTimer = setInterval(() => {
+    if (!root.isConnected) return clearInterval(root.__idleTimer);
+    if (busy()) return;
+    clearInterval(root.__idleTimer);
+    fn();
+  }, 1000);
 }
 
 /** Runs fn once the modal root becomes empty (dialog closed). */

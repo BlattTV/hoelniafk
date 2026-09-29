@@ -4,7 +4,7 @@
  * Everything else (network profiles, templates, rules …) stays in "Advanced".
  */
 import { api } from '../api.js';
-import { field, guard, h, mount } from '../ui.js';
+import { field, guard, h, mount, whenIdle } from '../ui.js';
 import { discordTile, microsoftTile } from './accounts.js';
 
 const STEPS = ['Name & servers', 'Microsoft', 'Discord', 'Done'];
@@ -84,5 +84,5 @@ export async function quickView(root, [idStr, stepStr]) {
   };
   await render();
   let tm;
-  return { onEvent: (ev) => { if (id && ev.identityId === id && ev.type !== 'session.chat') { clearTimeout(tm); tm = setTimeout(render, 400); } if (id && ev.type === 'auth.devicecode' && ev.identityId === id) render(); } };
+  return { onEvent: (ev) => { if (id && ev.identityId === id && ev.type !== 'session.chat') { clearTimeout(tm); tm = setTimeout(() => whenIdle(root, render), 400); } if (id && ev.type === 'auth.devicecode' && ev.identityId === id) whenIdle(root, render); } };
 }

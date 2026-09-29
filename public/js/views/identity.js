@@ -1,5 +1,5 @@
 import { api } from '../api.js';
-import { badge, clear, contextMenu, fmtTime, guard, h, identityName, pad2, mount, whenModalClosed } from '../ui.js';
+import { badge, clear, contextMenu, fmtTime, guard, h, identityName, pad2, mount, whenIdle, whenModalClosed } from '../ui.js';
 import { discordTile, microsoftTile } from './accounts.js';
 import {
   discordSection,
@@ -77,7 +77,7 @@ export async function identityView(root, [idStr, section]) {
       if (ctx.chatListener) ctx.chatListener(ev);
       if (ev.identityId !== id || ev.type === 'session.chat' || ev.type === 'audit') return;
       clearTimeout(t);
-      t = setTimeout(() => whenModalClosed(render), 500); // never re-render under an open dialog
+      t = setTimeout(() => whenModalClosed(() => whenIdle(root, render)), 500); // never under an open dialog or unsaved edits
     },
   };
 }
