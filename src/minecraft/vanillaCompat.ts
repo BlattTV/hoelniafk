@@ -9,6 +9,11 @@
  *  - A new chat session after every server switch: the vanilla client sends its chat key again and
  *    restarts message numbering / acknowledgements when it joins the next server (the library only
  *    does it on the first join – the next backend knows no chat session and rejects signed chat).
+ *  - Resource packs are always answered, each pack by its own id (accepted → downloaded → loaded),
+ *    in the play and in the configuration phase. The library only answers during configuration and
+ *    only for the latest pack: a network that sends several packs on a server switch (e.g. a network
+ *    pack plus a server pack) then waits forever for the first one – the player hangs in the
+ *    configuration phase of the next server (no world, no chat) until the connection drops.
  *  - Nothing play-only is sent during the configuration phase: chat typed then is held back and sent
  *    once the player is in the world again (Velocity decodes such packets with the configuration
  *    registry and kicks: "An internal error occurred in your connection.").
@@ -19,6 +24,10 @@ import crypto from 'node:crypto';
 const MAX_COOKIES = 64;
 const MAX_QUEUED_CHAT = 20;
 const CHAT_WAIT_MS = 60_000;
+// resource_pack_receive results
+const RP_LOADED = 0;
+const RP_ACCEPTED = 3;
+const RP_DOWNLOADED = 4;
 
 export function installVanillaCompat(bot: any): void {
   const client = bot?._client;
@@ -41,6 +50,36 @@ export function installVanillaCompat(bot: any): void {
       /* state without a cookie response – nothing to answer */
     }
   });
+
+  // ---- resource packs: answered like a vanilla client that has the pack enabled (not downloaded –
+  // the AFK session does not render anything)
+  const note = (kind: string, detail: string) => bot.emit?.('hoelni:note', kind, detail);
+  const answerPack = (uuid: string | undefined, kind: string) => {
+    const w = (result: number) => {
+      try {
+        client.write('resource_pack_receive', uuid ? { uuid, result } : { result });
+      } catch {
+        /* state without resource packs */
+      }
+    };
+    w(RP_ACCEPTED);
+    if (uuid) w(RP_DOWNLOADED); // 1.20.3+ (packs with id) – older clients know no "downloaded" status
+    w(RP_LOADED);
+    note('resource-pack', `Server resource pack answered (${kind}, ${client.state})`);
+  };
+  const onAddPack = (p: any) => answerPack(p?.uuid ? String(p.uuid) : undefined, 'add');
+  const onSendPack = (p: any) => answerPack(p?.uuid ? String(p.uuid) : undefined, 'send');
+  client.on('add_resource_pack', onAddPack);
+  client.on('resource_pack_send', onSendPack);
+  const ours = new Map<string, (...a: any[]) => void>([
+    ['add_resource_pack', onAddPack],
+    ['resource_pack_send', onSendPack],
+  ]);
+  const dropLibraryPackHandlers = () => {
+    // the library's own answer (latest pack only, configuration only) would answer packs twice
+    for (const [ev, mine] of ours) for (const l of client.listeners(ev)) if (l !== mine) client.removeListener(ev, l as any);
+  };
+  client.on('show_dialog', () => note('server-dialog', `The server shows a dialog (${client.state}) – it cannot be answered automatically`));
 
   // ---- new chat session after each server switch (every "login" after the first one)
   let logins = 0;
@@ -77,8 +116,16 @@ export function installVanillaCompat(bot: any): void {
       if (next === 'play') setImmediate(flush);
     });
   };
-  if (typeof bot.chat === 'function') wrapChat();
-  else if (typeof bot.once === 'function') bot.once('inject_allowed', () => setImmediate(wrapChat));
+  if (typeof bot.chat === 'function') {
+    wrapChat();
+    dropLibraryPackHandlers();
+  } else if (typeof bot.once === 'function')
+    bot.once('inject_allowed', () =>
+      setImmediate(() => {
+        wrapChat();
+        dropLibraryPackHandlers();
+      }),
+    );
 }
 
 /** Like the vanilla client on joining the next server: fresh chat state, chat key sent again. */

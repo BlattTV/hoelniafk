@@ -249,6 +249,7 @@ export class RuntimeHostCore {
     bot._client?.on?.('start_configuration', () => {
       if (inWorld) note('server-switch', 'Server switch started (configuration phase)');
     });
+    bot.on('hoelni:note', (kind: string, detail: string) => note(kind, detail));
     let lastErrorNote = 0;
     bot.on('spawn', () => {
       if (inWorld) this.emit({ type: 'phase', sessionId: id, phase: 'ONLINE' }); // after a server switch

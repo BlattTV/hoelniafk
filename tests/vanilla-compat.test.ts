@@ -90,4 +90,54 @@ describe('vanilla client behaviour behind a proxy', () => {
     client.end();
     server.close();
   }, 30_000);
+
+  it('answers every resource pack by its own id, in configuration and in play (mineflayer bot)', async () => {
+    const version = '1.21.11';
+    const mineflayer = require('mineflayer');
+    const server = mc.createServer({ version, 'online-mode': false, port: 0, host: '127.0.0.1' });
+    await new Promise<void>((r) => server.once('listening', () => r()));
+    const port = server.socketServer.address().port;
+    const answers: Array<{ state: string; uuid: string; result: number }> = [];
+    let serverClient: any;
+    const md = require('minecraft-data')(version);
+    server.on('playerJoin', (c: any) => {
+      serverClient = c;
+      c.on('packet', (data: any, meta: any) => {
+        if (meta.name === 'resource_pack_receive') answers.push({ state: meta.state, uuid: data.uuid, result: data.result });
+      });
+      c.write('login', { ...md.loginPacket, entityId: 1 });
+    });
+    const bot = mineflayer.createBot({ version, host: '127.0.0.1', port, username: 'Packs', auth: 'offline' });
+    installVanillaCompat(bot);
+    const notes: string[] = [];
+    bot.on('hoelni:note', (k: string) => notes.push(k));
+    await until(() => !!serverClient && bot._client.state === 'play', 8000, 'in play');
+    await new Promise((r) => setTimeout(r, 300)); // plugins loaded
+    const pack = (uuid: string) => serverClient.write('add_resource_pack', { uuid, url: 'http://127.0.0.1/p.zip', hash: '', forced: true, promptMessage: undefined });
+    const A = '11111111-1111-1111-1111-111111111111';
+    const B = '22222222-2222-2222-2222-222222222222';
+    const C = '33333333-3333-3333-3333-333333333333';
+    // server switch: a network pack and a server pack right after each other
+    serverClient.write('start_configuration', {});
+    await until(() => bot._client.state === 'configuration', 5000, 'configuration');
+    await new Promise((r) => setTimeout(r, 100));
+    serverClient.state = 'configuration';
+    pack(A);
+    pack(B);
+    await until(() => answers.filter((a) => a.result === 0).length === 2, 5000, 'both packs loaded');
+    for (const id of [A, B]) expect(answers.filter((a) => a.uuid === id).map((a) => a.result)).toEqual([3, 4, 0]);
+    expect(answers.every((a) => a.state === 'configuration')).toBe(true);
+    // in play (the library would not answer at all there)
+    serverClient.once('finish_configuration', () => (serverClient.state = 'play'));
+    serverClient.write('finish_configuration', {});
+    await until(() => bot._client.state === 'play', 5000, 'back in play');
+    await new Promise((r) => setTimeout(r, 100));
+    pack(C);
+    await until(() => answers.some((a) => a.uuid === C && a.result === 0), 5000, 'play pack loaded');
+    expect(answers.filter((a) => a.uuid === C).map((a) => a.result)).toEqual([3, 4, 0]);
+    expect(answers).toHaveLength(9); // nothing answered twice
+    expect(notes.filter((k) => k === 'resource-pack')).toHaveLength(3);
+    bot.end();
+    server.close();
+  }, 30_000);
 });
