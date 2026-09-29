@@ -358,3 +358,9 @@ button.link-button:hover { color: var(--text); background: none; }
 .blk-empty { color: var(--muted); font-size: 12px; padding: 4px 2px; }
 @media (max-width: 1100px) { .macro-layout { grid-template-columns: 1fr; } .macro-palette { position: static; max-height: none; } }
 .blk.pal .blk-word { white-space: normal; }
+
+/* ---------------------------------------------------------------- restart overlay (update / rollback / suite restart) */
+.restart-overlay { position: fixed; inset: 0; z-index: 200; background: rgba(2, 6, 23, .7); backdrop-filter: blur(3px); display: grid; place-items: center; }
+.restart-box { background: var(--panel); border: 1px solid var(--line-strong); border-radius: var(--radius-lg); padding: 22px 28px; display: flex; gap: 14px; align-items: center; box-shadow: 0 24px 60px rgba(0, 0, 0, .45); font-weight: 500; }
+.spinner { width: 22px; height: 22px; border-radius: 50%; border: 3px solid var(--tint-info); border-top-color: var(--primary); animation: spin .8s linear infinite; flex: none; }
+@keyframes spin { to { transform: rotate(360deg); } }

@@ -66,6 +66,7 @@ export function t(s, tag) {
 
 /** Remembers the language locally (the suite setting is saved by the caller) and reloads the UI. */
 export function setLanguage(next) {
+  window.__hoelniLeaving = true; // requests cut off by the reload are not errors
   try {
     localStorage.setItem(KEY, next === 'de' ? 'de' : 'en');
   } catch {
@@ -102,5 +103,6 @@ if (lang === 'de') {
   const wrap = (fn) => (msg, ...rest) => fn.call(window, t(String(msg ?? '')), ...rest);
   window.confirm = wrap(window.confirm);
   window.alert = wrap(window.alert);
+  window.__hoelniT = t;
   window.prompt = wrap(window.prompt);
 }

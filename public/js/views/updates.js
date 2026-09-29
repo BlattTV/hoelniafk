@@ -1,4 +1,4 @@
-import { api } from '../api.js';
+import { api, recoverAfterRestart } from '../api.js';
 import { field, fmtBytes, fmtTime, guard, h, modal, relTime } from '../ui.js';
 
 /** Settings → Updates: self-hosted update server (update-server/ in a LXC). */
@@ -47,10 +47,18 @@ export function updatesCard(st, rerender, backend = null) {
       st.lastFailed ? h('div', null, 'Last problem') : null, st.lastFailed ? h('div', { class: 's-error' }, `#${st.lastFailed.build}: ${st.lastFailed.error}`) : null),
     m && st.available && m.notes?.length ? h('div', null, h('h3', null, 'Changes'), h('ul', null, m.notes.slice(0, 15).map((n) => h('li', null, n)))) : null,
     h('div', { class: 'form-actions' },
-      st.available ? h('button', { class: 'primary', title: 'Downloads, verifies (signature + SHA-256) and restarts the suite; sessions come back automatically', onclick: () => guard(async () => { await api.post('/api/updates/install'); await rerender(); }, st.supervised ? 'Installing – the suite restarts in a moment' : 'Downloaded – restart the suite to apply') }, st.pending ? 'Restart & install' : 'Install update') : null,
+      st.available ? h('button', { class: 'primary', title: 'Downloads, verifies (signature + SHA-256) and restarts the suite; sessions come back automatically', onclick: () => guard(async () => {
+        const r = await api.post('/api/updates/install');
+        if (r?.state === 'restarting') return void recoverAfterRestart({ expectRestart: true, message: 'Installing the update – the suite restarts…' });
+        await rerender();
+      }, st.supervised ? null : 'Downloaded – restart the suite to apply') }, st.pending ? 'Restart & install' : 'Install update') : null,
       h('button', { disabled: !s.url || !s.keyFingerprint, onclick: () => guard(async () => { await api.post('/api/updates/check'); await rerender(); }) }, 'Check now'),
       st.installerUrl ? h('a', { class: 'btn-link', href: api.downloadUrl(st.installerUrl), title: 'New desktop program installer (window/tray program itself)' }, `Desktop installer ${m?.installer?.desktopVersion ?? ''}`) : null,
-      st.lastApplied ? h('button', { class: 'danger', title: 'Restore the version before the last update', onclick: () => guard(async () => { await api.post('/api/updates/rollback'); await rerender(); }, 'Rolling back – the suite restarts') }, 'Roll back last update') : null),
+      st.lastApplied ? h('button', { class: 'danger', title: 'Restore the version before the last update', onclick: () => guard(async () => {
+        const r = await api.post('/api/updates/rollback');
+        if (r?.state === 'restarting') return void recoverAfterRestart({ expectRestart: true, message: 'Restoring the previous version – the suite restarts…' });
+        await rerender();
+      }) }, 'Roll back last update') : null),
     h('h3', null, 'Update server'),
     h('div', { class: 'form-grid' }, field('URL', url), field('Channel', channel)),
     h('div', { class: 'toolbar' },

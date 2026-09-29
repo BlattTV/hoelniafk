@@ -152,7 +152,7 @@ export async function guard(fn, okMsg) {
     if (okMsg) toast(okMsg, 'ok');
     return r;
   } catch (e) {
-    toast(e.message || String(e), 'error', 7000);
+    if (!e?.silent && !window.__hoelniLeaving) toast(e.message || String(e), 'error', 7000);
     return undefined;
   }
 }

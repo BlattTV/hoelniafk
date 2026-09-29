@@ -1,4 +1,4 @@
-import { api, subscribe } from './api.js';
+import { api, recoverAfterRestart, subscribe } from './api.js';
 import { clear, h, toast } from './ui.js';
 import { dashboardView } from './views/dashboard.js';
 import { identityView } from './views/identity.js';
@@ -118,7 +118,11 @@ subscribe(
       toast(`Microsoft login for identity ${ev.identityId}: code ${ev.data.userCode} at ${ev.data.verificationUri}`, 'info', 20000);
     }
     handleEvent(ev);
-    if (ev.type === 'updates.status') showUpdate(ev.data);
+    if (ev.type === 'updates.status') {
+      showUpdate(ev.data);
+      // automatic install: the suite restarts by itself – reload once it is back
+      if (ev.data?.state === 'restarting') void recoverAfterRestart({ expectRestart: true, message: 'Installing the update – the suite restarts…' });
+    }
     if (ev.type === 'agents.changed') showBackend(ev.data);
     if (current && current.onEvent) current.onEvent(ev);
   },

@@ -1139,5 +1139,8 @@ export default {
  "Discord usernames have 2–32 letters, digits, _ or .": "Discord-Benutzernamen haben 2–32 Buchstaben, Ziffern, _ oder .",
  "Enter the e-mail address of the Microsoft account": "Gib die E-Mail-Adresse des Microsoft-Kontos ein",
  "Want verification codes recognised automatically?": "Verifizierungs-Codes automatisch erkennen lassen?",
- "Add an IMAP mailbox (optional)": "IMAP-Postfach hinzufügen (optional)"
+ "Add an IMAP mailbox (optional)": "IMAP-Postfach hinzufügen (optional)",
+ "The suite is restarting – one moment…": "Die Suite startet neu – einen Moment…",
+ "Installing the update – the suite restarts…": "Update wird installiert – die Suite startet neu…",
+ "Restoring the previous version – the suite restarts…": "Vorherige Version wird wiederhergestellt – die Suite startet neu…"
 };
