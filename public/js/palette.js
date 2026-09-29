@@ -6,10 +6,9 @@ import { closeGame, guard, h, identityName, openGame, toast } from './ui.js';
  * check for updates. Type to filter; words match in any order.
  */
 const PAGES = [
-  ['Identities', '#/'], ['Accounts × servers', '#/matrix'], ['New identity', '#/new'], ['Discord', '#/discord'], ['Macros', '#/macros'], ['Sessions', '#/sessions'],
-  ['Chat', '#/chat'], ['Schedules', '#/schedules'], ['Outlook', '#/mail'], ['IMAP mail', '#/inbox'], ['Verification mail', '#/verification'],
-  ['Mailboxes & aliases', '#/mailboxes'], ['Servers', '#/servers'], ['Templates', '#/templates'], ['Setup check', '#/setup'],
-  ['Settings & vault', '#/settings'], ['Monitoring', '#/monitoring'], ['Logs', '#/logs'], ['Audit log', '#/audit'],
+  ['Identities', '#/'], ['New identity', '#/new'], ['Discord', '#/discord'], ['Outlook', '#/mail'], ['Macros', '#/macros'], ['Sessions', '#/sessions'],
+  ['Chat', '#/chat'], ['Schedules', '#/schedules'], ['Agents', '#/agents'], ['Servers', '#/servers'], ['Proxy pool', '#/proxies'],
+  ['Settings & vault', '#/settings'], ['Logs', '#/logs'],
 ];
 
 async function collect() {

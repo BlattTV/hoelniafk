@@ -35,7 +35,6 @@ export async function identityView(root, [idStr, section]) {
           h('button', { class: 'primary', onclick: () => guard(async () => { await api.post('/api/bulk', { action: 'startSessions', identityIds: [id] }); await ctx.reload(); }, 'Sessions starting') }, 'Go online'),
           h('button', { onclick: () => guard(async () => { await api.post('/api/bulk', { action: 'stopSessions', identityIds: [id] }); await ctx.reload(); }, 'Sessions stopping') }, 'Go offline'),
           h('button', { title: 'More actions', onclick: (e) => contextMenu(e, [
-            ['Setup wizard (all steps)', () => (location.hash = `#/wizard/${id}`)],
             ['Clone (without secrets)', () => guard(async () => {
               const label = prompt('Label of the clone (credentials are NOT copied):', '');
               if (label === null) return;

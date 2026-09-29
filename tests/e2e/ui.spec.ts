@@ -113,11 +113,10 @@ test('quick actions (Ctrl+K) jump to a page', async ({ page }) => {
   await expect(page.locator('#view h1').first()).toHaveText('Identities');
   await page.keyboard.press('Control+k');
   await expect(page.locator('.palette input')).toBeFocused();
-  await page.keyboard.type('monitoring');
-  await expect(page.locator('.palette li.cur')).toContainText('Monitoring');
+  await page.keyboard.type('proxy');
+  await expect(page.locator('.palette li.cur')).toContainText('Proxy pool');
   await page.keyboard.press('Enter');
-  await expect(page).toHaveURL(/#\/monitoring$/);
-  await expect(page.locator('h1').first()).toHaveText('Monitoring');
+  await expect(page).toHaveURL(/#\/proxies$/);
 });
 
 test('theme switch persists', async ({ page }) => {
@@ -230,7 +229,8 @@ test('quick setup: name → Microsoft sign-in window (Minecraft + Outlook, no ap
   context.on('request', (r) => { if (/^https:\/\/(www\.microsoft\.com|outlook\.live\.com)\//.test(r.url())) external.push(r.url()); });
   await page.goto('/#/');
   // simple navigation: advanced pages are tucked away
-  await expect(page.locator('#nav-more a[data-nav="matrix"]')).toBeHidden();
+  await expect(page.locator('#nav-more a')).toHaveCount(5);
+  await expect(page.locator('#nav-more a[data-nav="proxies"]')).toBeHidden();
   await page.locator('.sidebar a[data-nav="new"]').click();
   await page.getByLabel('Name').fill('Quick Demo');
   await page.locator('.server-choice', { hasText: 'SMP' }).locator('input').check();

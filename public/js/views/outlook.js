@@ -28,7 +28,8 @@ export async function outlookView(root) {
               h('tr', null,
                 h('td', null, h('a', { href: `#/identity/${r.identityId}` }, r.label)),
                 h('td', null, h('button', { class: 'small primary', onclick: () => (location.hash = `#/new/${r.identityId}/1`) }, 'Sign in with Microsoft')))))))
-        : null);
+        : null,
+      h('p', { class: 'muted' }, 'Want verification codes recognised automatically? ', h('a', { href: '#/mailboxes' }, 'Add an IMAP mailbox (optional)')));
   };
   await render();
   let tm;

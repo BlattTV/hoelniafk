@@ -142,7 +142,6 @@ export async function dashboardView(root) {
     const online = r.sessions.find((s) => s.state === 'ONLINE') ?? r.sessions[0];
     contextMenu(e, [
       ['Open identity', () => (location.hash = `#/identity/${r.id}`)],
-      ['Setup wizard', () => (location.hash = `#/wizard/${r.id}`)],
       online ? [`Open game (${online.serverName})`, () => openGame(api, online.id)] : undefined,
       null,
       [`Set all sessions online${many}`, () => runBulk('startSessions', ids)],
@@ -155,7 +154,7 @@ export async function dashboardView(root) {
       [`Open Discord${many}`, () => runBulk('openDiscord', ids)],
       [`Open mail${many}`, () => runBulk('openMail', ids)],
       null,
-      ['Clone (without secrets)', () => guard(async () => { const c = await api.post(`/api/identities/${r.id}/clone`, {}); location.hash = `#/wizard/${c.id}`; })],
+      ['Clone (without secrets)', () => guard(async () => { const c = await api.post(`/api/identities/${r.id}/clone`, {}); location.hash = `#/new/${c.id}/1`; })],
     ].filter((x) => x !== undefined));
   };
 
