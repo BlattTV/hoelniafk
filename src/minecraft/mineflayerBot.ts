@@ -3,6 +3,7 @@ import mineflayer from 'mineflayer';
 import { openSocket, resolveMinecraftTarget } from '../network/connector.js';
 import type { HostBot, HostBotFactory } from '../runtime/host/hostCore.js';
 import type { JavaSession } from '../runtime/types.js';
+import { installVanillaCompat } from './vanillaCompat.js';
 
 /**
  * Real bot factory based on mineflayer (runs inside a runtime host).
@@ -50,6 +51,7 @@ export const mineflayerBotFactory: HostBotFactory = (spec, getJavaSession) => {
     viewDistance: spec.viewDistance,
     connect,
   } as any);
+  installVanillaCompat(bot);
   return bot as unknown as HostBot;
 };
 

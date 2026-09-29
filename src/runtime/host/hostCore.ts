@@ -219,7 +219,7 @@ export class RuntimeHostCore {
     }
     const s: HostSession = { spec, bot, afkTimer: null, statsTimer: null, ended: false, kicked: false, lastError: null, cache: null, takeover: null, macros: null };
     // Macro builder: macros pause while the real game controls the session.
-    s.macros = new MacroEngine(bot, (e) => this.emit({ type: 'macro', sessionId: spec.sessionId, ...e }), () => !!s.takeover?.isAttached);
+    s.macros = new MacroEngine(bot, (e) => this.emit({ type: 'macro', sessionId: spec.sessionId, ...e }), () => !!s.takeover?.isAttached || (!!bot._client && bot._client.state !== 'play'));
     s.macros.set(spec.macros ?? []);
     this.sessions.set(spec.sessionId, s);
     const id = spec.sessionId;
@@ -384,6 +384,7 @@ export class RuntimeHostCore {
     if (!afk.enabled || afk.action === 'none') return;
     s.afkTimer = setInterval(() => {
       if (s.takeover?.isAttached) return; // the player is in control
+      if (s.bot._client && s.bot._client.state !== 'play') return; // server switch in progress
       try {
         const b = s.bot;
         if (afk.action === 'look') b.look?.(Math.random() * Math.PI * 2 - Math.PI, (Math.random() - 0.5) * 0.6, false);

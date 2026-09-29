@@ -137,6 +137,12 @@ export function createSuite(deps: SuiteDeps) {
   // Real servers only (tests with fake bots have no server to ping): see SessionManager.autoVersion
   if (!deps.botFactory && !deps.runtime) sessions.detectVersion = (host, port, network) => detectServerVersion(host, port, network);
   sessions.proxyFallbackVersion = PROXY_FALLBACK_VERSION;
+  // One-time: chat kicks behind Velocity were caused by unanswered cookie requests, not by signing –
+  // undo the automatic switch to unsigned chat made before that was fixed.
+  if (!repo.getSetting('compat.cookies')) {
+    for (const srv of repo.listServers()) if (repo.getSetting(`server.${srv.id}.unsignedChat`)) repo.setSetting(`server.${srv.id}.unsignedChat`, '');
+    repo.setSetting('compat.cookies', '1');
+  }
   const macros = new MacroService(db, runtime, audit, bus);
   sessions.macrosFor = (identityId, serverId) => macros.forSession(identityId, serverId);
   macros.runningSessions = () =>
