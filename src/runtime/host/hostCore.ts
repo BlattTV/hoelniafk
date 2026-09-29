@@ -150,7 +150,10 @@ export class RuntimeHostCore {
           return this.stop(m.sessionId, m.reason);
         case 'chat': {
           const s = this.sessions.get(m.sessionId);
-          if (s && !s.ended) s.bot.chat(m.text);
+          if (!s || s.ended) return;
+          if (s.bot._client && s.bot._client.state !== 'play')
+            this.emit({ type: 'note', sessionId: m.sessionId, kind: 'chat-held', detail: `Server switch in progress (${s.bot._client.state}) – message is sent once the player is in the world` });
+          s.bot.chat(m.text);
           return;
         }
         case 'takeover.open':
@@ -238,9 +241,15 @@ export class RuntimeHostCore {
     // A proxy server switch (lobby → survival) sends a fresh join on the same connection: the session
     // stays online – only the very first join of a connection is "authenticating".
     let inWorld = false;
+    const note = (kind: string, detail: string) => this.emit({ type: 'note', sessionId: id, kind, detail: detail.slice(0, 300) });
     bot.on('login', () => {
       if (!inWorld) this.emit({ type: 'phase', sessionId: id, phase: 'AUTHENTICATING' });
+      else note('server-switch', `Joined the next server (${bot.game?.dimension ?? 'unknown world'})`);
     });
+    bot._client?.on?.('start_configuration', () => {
+      if (inWorld) note('server-switch', 'Server switch started (configuration phase)');
+    });
+    let lastErrorNote = 0;
     bot.on('spawn', () => {
       if (inWorld) this.emit({ type: 'phase', sessionId: id, phase: 'ONLINE' }); // after a server switch
     });
@@ -278,6 +287,10 @@ export class RuntimeHostCore {
     });
     bot.on('error', (err: Error) => {
       s.lastError = String(err?.message ?? err).slice(0, 500);
+      if (Date.now() - lastErrorNote > 30_000) {
+        lastErrorNote = Date.now();
+        note('error', s.lastError);
+      }
     });
     bot.on('end', (reason: unknown) => this.finish(s, typeof reason === 'string' ? reason : 'end'));
   }

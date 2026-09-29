@@ -86,6 +86,8 @@ export class SessionRecord {
   attachedAt = 0;
   /** Last chat message sent through the suite (a kick right after it points at chat signing). */
   lastChatAt = 0;
+  /** Last incoming chat line (diagnosis). */
+  lastChatInAt = 0;
   /** Live takeover failed for this session (reason) – the game opens with its own login instead. */
   takeoverBroken: string | null = null;
   uuid: string | null = null;
@@ -738,6 +740,9 @@ export class SessionManager {
       case 'chat':
         this.onChat(r, e.text, e.ts);
         return;
+      case 'note':
+        this.repo.addSessionEvent(r.identityId, r.serverId, r.id, e.kind.slice(0, 40), e.detail.slice(0, 500));
+        return;
       case 'ended':
         this.onEnded(r, e);
         return;
@@ -885,6 +890,7 @@ export class SessionManager {
 
   private onChat(r: SessionRecord, text: string, ts: string): void {
     const line: ChatLine = { ts, sessionId: r.id, identityId: r.identityId, serverId: r.serverId, text };
+    r.lastChatInAt = Date.now();
     r.chat.push(line);
     if (r.chat.length > this.opts.chatBuffer) r.chat.splice(0, r.chat.length - this.opts.chatBuffer);
     this.chatQueue.push({ ...line });
@@ -927,8 +933,15 @@ export class SessionManager {
     const msg = text.replace(/[\r\n]+/g, ' ').trim().slice(0, 256);
     if (!msg) return;
     await this.runtime.sendChat(sessionId, msg);
-    r.lastChatAt = Date.now();
+    const sentAt = (r.lastChatAt = Date.now());
     this.repo.addSessionEvent(r.identityId, r.serverId, r.id, 'chat-sent', msg.startsWith('/') ? msg.split(' ')[0] : 'message');
+    // Diagnosis: the server echoes chat and answers commands – nothing at all coming back means the
+    // message did not arrive or incoming chat is not readable (shown in the session log).
+    const check = setTimeout(() => {
+      if (this.records.get(r.id) !== r || r.state !== 'ONLINE' || r.lastChatInAt >= sentAt) return;
+      this.repo.addSessionEvent(r.identityId, r.serverId, r.id, 'chat-no-reply', 'Nothing came back from the server within 10 s');
+    }, 10_000);
+    check.unref?.();
   }
 
   // ------------------------------------------------------------------ real game window

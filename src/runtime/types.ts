@@ -70,6 +70,8 @@ export type RuntimeEvent =
   | { type: 'chat'; sessionId: string; text: string; ts: string }
   | { type: 'ended'; sessionId: string; reason: string; kicked: boolean; error: string | null }
   | { type: 'stats'; sessionId: string; stats: SessionStats }
+  /** Diagnostic entry for the session log (server switch, held chat, library errors). */
+  | { type: 'note'; sessionId: string; kind: string; detail: string }
   /** Live takeover of a lightweight session by the real game (MineflayerRuntime only). */
   | { type: 'takeover'; sessionId: string; status: TakeoverStatus; port?: number; message?: string }
   | { type: 'macro'; sessionId: string; macroId: number; status: 'started' | 'finished' | 'stopped' | 'error' | 'log'; message?: string }

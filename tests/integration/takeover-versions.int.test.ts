@@ -136,6 +136,10 @@ describe.each(['1.20.1', '1.20.2', '1.21.1'])('live takeover on Minecraft %s', (
     await waitFor(() => read()?.logins > loginsBefore && read()?.spawned === true, 30_000, 'game joined the new world');
     await waitFor(() => suite.sessions.getState(sid).takeover === 'attached' && suite.sessions.getState(sid).state === 'ONLINE', 30_000, 'game attached again');
     expect(read().ended).toBe(false);
+    // the switch is visible in the session log
+    expect(suite.repo.sessionEvents({ sessionId: sid }).filter((e) => e.kind === 'server-switch').map((e) => e.detail)).toEqual(
+      expect.arrayContaining([expect.stringMatching(/switch started/), expect.stringMatching(/Joined the next server/)]),
+    );
     // chat on the new server: reaches the game window and the suite …
     server.say('Taker', 'hello from survival');
     await waitFor(() => (read()?.messages ?? []).some((m: string) => /hello from survival/.test(m)), 10_000, 'game shows chat of the new server');
