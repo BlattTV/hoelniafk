@@ -1,7 +1,10 @@
 /**
  * Runs macro programs next to a session's bot (runtime host – also on agents).
  *
- *  - triggers: manual, session online (spawn), chat line, interval, daily time, health below
+ *  - triggers: manual, session online (spawn), chat line, interval, daily time, health / food below,
+ *    death, a player coming near
+ *  - variables (numbers, shared by the session's macros) and placeholders in texts:
+ *    {health} {food} {x} {y} {z} {time} {name}, {var:counter}
  *  - one run per macro at a time; every run can be stopped
  *  - pauses while the real game controls the session (live takeover) – the player has priority
  *  - human timing (optional): waits/actions vary by ±15 %, small pauses between actions
@@ -34,6 +37,10 @@ export class MacroEngine {
   private readonly offs: Array<() => void> = [];
   private lastTimeKey = '';
   private healthArmed = new Set<number>();
+  private foodArmed = new Set<number>();
+  private playerArmed = new Set<number>();
+  /** Macro variables of this session (numbers), shared by all its macros. */
+  readonly vars = new Map<string, number>();
   private disposed = false;
 
   constructor(
@@ -76,6 +83,40 @@ export class MacroEngine {
     };
     this.bot.on('health', onHealth);
     this.offs.push(() => this.bot.removeListener('health', onHealth));
+
+    const onFood = () => {
+      for (const p of this.programs) {
+        if (p.trigger.type !== 'food') continue;
+        const f = Number(this.bot.food ?? 20);
+        if (f < p.trigger.below && !this.foodArmed.has(p.id)) {
+          this.foodArmed.add(p.id);
+          this.run(p.id, `food ${f}`);
+        } else if (f >= p.trigger.below) this.foodArmed.delete(p.id);
+      }
+    };
+    this.bot.on('health', onFood); // mineflayer reports food with the health update
+    this.offs.push(() => this.bot.removeListener('health', onFood));
+
+    const onDeath = () => {
+      for (const p of this.programs) if (p.trigger.type === 'death') this.run(p.id, 'died');
+    };
+    this.bot.on('death', onDeath);
+    this.offs.push(() => this.bot.removeListener('death', onDeath));
+
+    if (this.programs.some((p) => p.trigger.type === 'playerNearby')) {
+      const t = setInterval(() => {
+        for (const p of this.programs) {
+          if (p.trigger.type !== 'playerNearby') continue;
+          const near = this.nearestPlayer(p.trigger.distance);
+          if (near && !this.playerArmed.has(p.id)) {
+            this.playerArmed.add(p.id);
+            this.run(p.id, `player ${near.username ?? ''} nearby`);
+          } else if (!near) this.playerArmed.delete(p.id);
+        }
+      }, 2000);
+      t.unref?.();
+      this.timers.push(t);
+    }
 
     for (const p of this.programs) {
       if (p.trigger.type === 'interval') {
@@ -148,6 +189,49 @@ export class MacroEngine {
     for (const t of this.timers.splice(0)) clearInterval(t);
     for (const off of this.offs.splice(0)) off();
     this.healthArmed.clear();
+    this.foodArmed.clear();
+    this.playerArmed.clear();
+  }
+
+  /** Nearest other player within distance blocks (or null). */
+  private nearestPlayer(distance: number): any {
+    const me = this.bot.entity;
+    if (!me?.position || typeof this.bot.nearestEntity !== 'function') return null;
+    try {
+      return this.bot.nearestEntity((e: any) => e !== me && e.type === 'player' && e.position && e.position.distanceTo(me.position) <= distance) ?? null;
+    } catch {
+      return null; // entity data not ready yet
+    }
+  }
+
+  /** Placeholders in chat / log texts. */
+  private fill(text: string): string {
+    const b = this.bot;
+    const pos = b.entity?.position;
+    const r = (v: number | undefined) => (typeof v === 'number' ? String(Math.round(v)) : '?');
+    return text.replace(/\{(var:)?([A-Za-z_][A-Za-z0-9_]{0,23})\}/g, (m, isVar, key) => {
+      if (isVar) return String(this.vars.get(key) ?? 0);
+      switch (key) {
+        case 'health':
+          return r(b.health);
+        case 'food':
+          return r(b.food);
+        case 'x':
+          return r(pos?.x);
+        case 'y':
+          return r(pos?.y);
+        case 'z':
+          return r(pos?.z);
+        case 'name':
+          return String(b.username ?? '');
+        case 'time': {
+          const d = new Date();
+          return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+        }
+        default:
+          return this.vars.has(key) ? String(this.vars.get(key)) : m;
+      }
+    });
   }
 
   // ------------------------------------------------------------------ interpreter
@@ -192,6 +276,37 @@ export class MacroEngine {
         return (this.bot.inventory?.items?.() ?? []).some((i: any) => i.name === c.name);
       case 'random':
         return this.random() * 100 < c.percent;
+      case 'varCompare': {
+        const v = this.vars.get(c.name) ?? 0;
+        switch (c.op) {
+          case '<':
+            return v < c.value;
+          case '<=':
+            return v <= c.value;
+          case '=':
+            return v === c.value;
+          case '>=':
+            return v >= c.value;
+          case '>':
+            return v > c.value;
+          default:
+            return v !== c.value;
+        }
+      }
+      case 'playerNearby':
+        return !!this.nearestPlayer(c.distance);
+      case 'isNight': {
+        const tod = Number(this.bot.time?.timeOfDay ?? 6000);
+        return tod >= 13000 && tod < 23000;
+      }
+      case 'timeBetween': {
+        const d = new Date();
+        const now = d.getHours() * 60 + d.getMinutes();
+        const m = (s: string) => Number(s.slice(0, 2)) * 60 + Number(s.slice(3));
+        const from = m(c.from);
+        const to = m(c.to);
+        return from <= to ? now >= from && now < to : now >= from || now < to;
+      }
     }
   }
 
@@ -203,6 +318,62 @@ export class MacroEngine {
         case 'wait':
           await this.sleep(this.jitter(b.seconds * 1000, p), ctx);
           break;
+        case 'waitRandom':
+          await this.sleep((b.min + this.random() * (b.max - b.min)) * 1000, ctx);
+          break;
+        case 'waitUntil': {
+          const deadline = Date.now() + b.timeoutSec * 1000;
+          while (!this.check(b.cond, ctx)) {
+            if (Date.now() > deadline) throw new Error(`Condition not met within ${b.timeoutSec}s`);
+            await this.sleep(500, ctx);
+          }
+          break;
+        }
+        case 'repeatUntil':
+          while (!this.check(b.cond, ctx)) {
+            await this.exec(p, b.body, ctx);
+            await this.sleep(20, ctx);
+          }
+          break;
+        case 'setVar':
+          this.vars.set(b.name, b.value);
+          break;
+        case 'changeVar':
+          this.vars.set(b.name, (this.vars.get(b.name) ?? 0) + b.by);
+          break;
+        case 'lookAtPlayer': {
+          await this.ready(ctx, p);
+          const pl = this.nearestPlayer(b.distance);
+          if (pl) await bot.lookAt?.(pl.position.offset(0, pl.height ?? 1.62, 0), false);
+          break;
+        }
+        case 'eat':
+          await this.ready(ctx, p);
+          try {
+            await bot.consume?.();
+          } catch (e) {
+            throw new Error(`Could not eat: ${(e as Error).message}`);
+          }
+          break;
+        case 'equip': {
+          await this.ready(ctx, p);
+          const item = (bot.inventory?.items?.() ?? []).find((i: any) => i.name === b.name);
+          if (!item) throw new Error(`No ${b.name} in the inventory`);
+          await bot.equip?.(item, 'hand');
+          break;
+        }
+        case 'drop': {
+          await this.ready(ctx, p);
+          const held = bot.heldItem;
+          if (held) await (b.all ? bot.tossStack?.(held) : bot.toss?.(held.type, null, 1));
+          break;
+        }
+        case 'breakBlock': {
+          await this.ready(ctx, p);
+          const block = bot.blockAtCursor?.(4.5);
+          if (block && block.name !== 'air' && bot.canDigBlock?.(block) !== false) await bot.dig?.(block, true);
+          break;
+        }
         case 'waitChat': {
           const deadline = Date.now() + b.timeoutSec * 1000;
           while (!ctx.chat.some((l) => l.toLowerCase().includes(b.text.toLowerCase()))) {
@@ -229,11 +400,11 @@ export class MacroEngine {
           throw new Stopped();
         case 'say':
           await this.ready(ctx, p);
-          bot.chat(b.text);
+          bot.chat(this.fill(b.text).slice(0, 256));
           break;
         case 'command':
           await this.ready(ctx, p);
-          bot.chat(`/${b.text}`);
+          bot.chat(`/${this.fill(b.text)}`.slice(0, 256));
           break;
         case 'move':
           await this.ready(ctx, p);
@@ -294,7 +465,7 @@ export class MacroEngine {
           bot.setQuickBarSlot?.(b.slot - 1);
           break;
         case 'log':
-          this.emit({ macroId: p.id, status: 'log', message: b.text });
+          this.emit({ macroId: p.id, status: 'log', message: this.fill(b.text) });
           break;
       }
     }

@@ -285,7 +285,7 @@ test('macro builder: drag blocks like in Scratch, save and run on a session', as
   await page.locator('.macro-script .blk', { hasText: 'command /' }).locator('input').fill('stars');
   await page.locator('.macro-script .blk', { hasText: 'command /' }).locator('input').blur();
   // a C-block by click, then a block dragged INTO it
-  await page.locator('.macro-palette .blk', { hasText: 'repeat' }).click();
+  await page.locator('.macro-palette .blk', { hasText: /^repeat\s*10\s*times$/ }).click();
   await page.locator('.macro-palette .blk', { hasText: 'swing hand' }).dragTo(page.locator('.macro-script .blk.c .blk-inner .drop-slot').first());
   await expect(page.locator('.macro-script .blk.c .blk-inner')).toContainText('swing hand');
   await expect(page.locator('.badge', { hasText: 'unsaved changes' })).toBeVisible();
@@ -298,6 +298,20 @@ test('macro builder: drag blocks like in Scratch, save and run on a session', as
   expect(saved.blocks.map((b: any) => b.type)).toEqual(['wait', 'command', 'repeat']);
   expect(saved.blocks[1].text).toBe('stars');
   expect(saved.blocks[2].body.map((b: any) => b.type)).toEqual(['swing']);
+  // new blocks: variables with a condition on them
+  await page.locator('.macro-palette .blk', { hasText: /^set\s*counter\s*to\s*0$/ }).click();
+  await page.locator('.macro-palette .blk', { hasText: /^repeat until/ }).click();
+  const until = page.locator('.macro-script .blk.c', { hasText: 'repeat until' });
+  await until.locator('select').first().selectOption('varCompare');
+  await expect(until.locator('select').nth(1)).toHaveValue('<');
+  await page.locator('.macro-palette .blk', { hasText: /^change\s*counter\s*by\s*1$/ }).dragTo(until.locator('.blk-inner .drop-slot').first());
+  await page.locator('.macro-palette .blk', { hasText: /^wait random/ }).dragTo(until.locator('.blk-inner .drop-slot').last());
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(page.locator('.badge', { hasText: 'unsaved changes' })).toHaveCount(0);
+  const again = (await (await page.request.get('/api/macros', { headers: { 'x-hoelni-token': token } })).json()).macros.find((m: any) => m.name === 'E2E stars');
+  expect(again.blocks.map((b: any) => b.type)).toEqual(['wait', 'command', 'repeat', 'setVar', 'repeatUntil']);
+  expect(again.blocks[4].cond).toEqual({ type: 'varCompare', name: 'counter', op: '<', value: 10 });
+  expect(again.blocks[4].body.map((b: any) => b.type)).toEqual(['changeVar', 'waitRandom']);
 
   // run it on an online demo session
   await waitOnline(page, 1);

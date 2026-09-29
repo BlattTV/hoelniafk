@@ -123,3 +123,113 @@ describe('macro validation', () => {
     expect(validateBlocks([{ type: 'command', text: '/spawn' }])).toEqual([{ type: 'command', text: 'spawn' }]);
   });
 });
+
+describe('macro builder – extended blocks', () => {
+  class Bot2 extends Bot {
+    username = 'Tester';
+    time = { timeOfDay: 18000 };
+    heldItem: any = null;
+    calls: string[] = [];
+    entities: any[] = [];
+    override entity: any = { yaw: 0, pitch: 0, position: { x: 10.4, y: 64, z: -3.6, distanceTo: (o: any) => Math.hypot(o.x - 10.4, o.y - 64, o.z + 3.6), offset: () => ({}) } };
+    override inventory = { items: () => [{ name: 'bread', type: 1 }, { name: 'stone', type: 2 }] };
+    nearestEntity(f: (e: any) => boolean) {
+      return this.entities.find(f) ?? null;
+    }
+    async consume() {
+      this.calls.push('eat');
+    }
+    async equip(item: any) {
+      this.heldItem = item;
+      this.calls.push(`equip:${item.name}`);
+    }
+    async toss(type: number, _m: any, n: number) {
+      this.calls.push(`toss:${type}x${n}`);
+    }
+    async tossStack(item: any) {
+      this.calls.push(`tossStack:${item.name}`);
+    }
+    blockAtCursor() {
+      return { name: 'dirt' };
+    }
+    async dig(block: any) {
+      this.calls.push(`dig:${block.name}`);
+    }
+    async lookAt() {
+      this.calls.push('lookAt');
+    }
+  }
+  const player = (d: number) => ({ type: 'player', username: 'Friend', height: 1.8, position: { x: 10.4 + d, y: 64, z: -3.6, offset: () => ({}), distanceTo: () => d } });
+
+  it('variables, repeat until, placeholders, wait until and random waits', async () => {
+    const bot = new Bot2();
+    const events: MacroEvent[] = [];
+    const e = new MacroEngine(bot, (x) => events.push(x), () => false, () => 0.5);
+    e.set([prog([
+      { type: 'setVar', name: 'counter', value: 0 },
+      { type: 'repeatUntil', cond: { type: 'varCompare', name: 'counter', op: '>=', value: 3 }, body: [{ type: 'changeVar', name: 'counter', by: 1 }, { type: 'wait', seconds: 0.05 }] },
+      { type: 'say', text: 'round {counter} at {x} {y} {z}, health {health}, I am {name}' },
+      { type: 'waitRandom', min: 0.05, max: 0.1 },
+      { type: 'waitUntil', cond: { type: 'isNight' }, timeoutSec: 2 },
+      { type: 'if', cond: { type: 'timeBetween', from: '00:00', to: '23:59' }, then: [{ type: 'log', text: 'var {var:counter}' }] },
+    ])]);
+    e.run(1);
+    await until(() => events.some((x) => x.status === 'finished' || x.status === 'error'));
+    expect(events.find((x) => x.status === 'error')).toBeUndefined();
+    expect(e.vars.get('counter')).toBe(3);
+    expect(bot.sent).toEqual(['round 3 at 10 64 -4, health 20, I am Tester']);
+    expect(events.find((x) => x.status === 'log')?.message).toBe('var 3');
+  });
+
+  it('actions: hold item, eat, drop, break block, look at a player', async () => {
+    const bot = new Bot2();
+    bot.entities = [player(5)];
+    const events: MacroEvent[] = [];
+    const e = new MacroEngine(bot, (x) => events.push(x));
+    e.set([prog([
+      { type: 'equip', name: 'minecraft:bread' },
+      { type: 'eat' },
+      { type: 'drop', all: false },
+      { type: 'drop', all: true },
+      { type: 'breakBlock' },
+      { type: 'lookAtPlayer', distance: 10 },
+    ])]);
+    e.run(1);
+    await until(() => events.some((x) => x.status === 'finished' || x.status === 'error'));
+    expect(bot.calls).toEqual(['equip:bread', 'eat', 'toss:1x1', 'tossStack:bread', 'dig:dirt', 'lookAt']);
+    // a missing item is a clear error
+    e.set([prog([{ type: 'equip', name: 'diamond' }])]);
+    e.run(1);
+    await until(() => events.some((x) => x.status === 'error'));
+    expect(events.find((x) => x.status === 'error')?.message).toMatch(/No diamond in the inventory/);
+  });
+
+  it('triggers: food below, death, a player coming near (edge only)', async () => {
+    const bot = new Bot2();
+    const e = new MacroEngine(bot, () => undefined);
+    e.set([
+      { ...prog([{ type: 'say', text: 'hungry' }], { type: 'food', below: 6 }), id: 1 },
+      { ...prog([{ type: 'say', text: 'died' }], { type: 'death' }), id: 2 },
+      { ...prog([{ type: 'say', text: 'hi {name}' }], { type: 'playerNearby', distance: 8 }), id: 3 },
+    ]);
+    bot.food = 4;
+    bot.emit('health');
+    bot.emit('health');
+    bot.emit('death');
+    bot.entities = [player(3)];
+    await until(() => bot.sent.includes('hi Tester'), 4000);
+    await new Promise((r) => setTimeout(r, 2200)); // still near → no second greeting
+    expect(bot.sent.sort()).toEqual(['died', 'hi Tester', 'hungry']);
+    e.dispose();
+  });
+
+  it('validation of the new blocks', () => {
+    expect(() => validateBlocks([{ type: 'setVar', name: '1abc', value: 1 }])).toThrow(/Variable names/);
+    expect(() => validateBlocks([{ type: 'waitRandom', min: 5, max: 2 }])).toThrow(/max must not be smaller/);
+    expect(() => validateBlocks([{ type: 'if', cond: { type: 'varCompare', name: 'x', op: '~', value: 1 }, then: [] }])).toThrow(/Unknown comparison/);
+    expect(() => validateBlocks([{ type: 'if', cond: { type: 'timeBetween', from: '25:00', to: '10:00' }, then: [] }])).toThrow(/18:30/);
+    expect(() => assertLoopsTakeTime(validateBlocks([{ type: 'repeatUntil', cond: { type: 'isNight' }, body: [{ type: 'say', text: 'x' }] }]))).toThrow(/repeat until/);
+    expect(() => validateTrigger({ type: 'playerNearby', distance: 500 })).toThrow(/Distance/);
+    expect(validateBlocks([{ type: 'equip', name: 'minecraft:Bread' }])).toEqual([{ type: 'equip', name: 'bread' }]);
+  });
+});

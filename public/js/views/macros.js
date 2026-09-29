@@ -12,6 +12,7 @@ const CATS = {
   motion: { name: 'Motion', color: '#4c86d8' },
   actions: { name: 'Actions', color: '#4fa35a' },
   chat: { name: 'Chat', color: '#8a63cf' },
+  vars: { name: 'Variables', color: '#d9656b' },
   suite: { name: 'Suite', color: '#4aa0b8' },
 };
 
@@ -21,8 +22,11 @@ const txt = (k, d) => ({ k, t: 'text', d });
 /** Block catalogue: label parts are text or inputs; c = nested stacks (C-blocks). */
 export const BLOCKS = {
   wait: { cat: 'control', parts: ['wait', num('seconds', 1), 'seconds'] },
+  waitRandom: { cat: 'control', parts: ['wait random', num('min', 2), 'to', num('max', 5), 'seconds'] },
   waitChat: { cat: 'control', parts: ['wait until chat contains', txt('text', 'Welcome'), 'max.', num('timeoutSec', 60, 1), 's'] },
+  waitUntil: { cat: 'control', parts: ['wait until'], cond: true, condWord: '', after: ['max.', num('timeoutSec', 60, 1), 's'] },
   repeat: { cat: 'control', parts: ['repeat', num('times', 10, 1), 'times'], c: ['body'] },
+  repeatUntil: { cat: 'control', parts: ['repeat until'], cond: true, condWord: '', c: ['body'] },
   forever: { cat: 'control', parts: ['forever'], c: ['body'] },
   if: { cat: 'control', parts: ['if'], cond: true, c: ['then', 'else'] },
   stop: { cat: 'control', parts: ['stop macro'] },
@@ -31,20 +35,33 @@ export const BLOCKS = {
   sneak: { cat: 'motion', parts: ['sneak for', num('seconds', 1), 's'] },
   turn: { cat: 'motion', parts: ['turn by', num('degrees', 90), '°'] },
   look: { cat: 'motion', parts: ['look at yaw', num('yaw', 0), 'pitch', num('pitch', 0)] },
+  lookAtPlayer: { cat: 'motion', parts: ['look at nearest player within', num('distance', 16, 1), 'blocks'] },
   swing: { cat: 'actions', parts: ['swing hand'] },
   use: { cat: 'actions', parts: ['use item (right click) for', num('seconds', 0.2), 's'] },
   attack: { cat: 'actions', parts: ['attack nearby mob', num('times', 1, 1), 'times'] },
   slot: { cat: 'actions', parts: ['select hotbar slot', num('slot', 1, 1)] },
+  equip: { cat: 'actions', parts: ['hold item', txt('name', 'bread')] },
+  eat: { cat: 'actions', parts: ['eat held food'] },
+  drop: { cat: 'actions', parts: ['drop held item', { k: 'all', t: 'check', d: false, label: 'whole stack' }] },
+  breakBlock: { cat: 'actions', parts: ['break the block in view'] },
+  setVar: { cat: 'vars', parts: ['set', txt('name', 'counter'), 'to', num('value', 0)] },
+  changeVar: { cat: 'vars', parts: ['change', txt('name', 'counter'), 'by', num('by', 1)] },
   say: { cat: 'chat', parts: ['say', txt('text', 'Hello!')] },
   command: { cat: 'chat', parts: ['command /', txt('text', 'spawn')] },
   log: { cat: 'suite', parts: ['note in the suite log', txt('text', 'step done')] },
 };
 
+const OPS = [['<', '<'], ['<=', '≤'], ['=', '='], ['>=', '≥'], ['>', '>'], ['!=', '≠']];
+/** [type, label, ...inputs] */
 const CONDITIONS = [
   ['chatContains', 'chat contains', txt('text', 'text')],
   ['healthBelow', 'health below', num('value', 10, 1)],
   ['foodBelow', 'food below', num('value', 10, 1)],
   ['hasItem', 'inventory has', txt('name', 'bread')],
+  ['playerNearby', 'a player within', num('distance', 16, 1)],
+  ['isNight', 'it is night in the game'],
+  ['timeBetween', 'real time between', { k: 'from', t: 'time', d: '18:00' }, { k: 'to', t: 'time', d: '23:00' }],
+  ['varCompare', 'variable', txt('name', 'counter'), { k: 'op', t: 'select', d: '<', o: OPS }, num('value', 10)],
   ['random', 'random chance %', num('percent', 50, 1)],
 ];
 
@@ -55,6 +72,9 @@ const TRIGGERS = [
   ['interval', 'every … seconds', num('seconds', 300, 1)],
   ['time', 'every day at', { k: 'at', t: 'time', d: '18:00' }],
   ['health', 'when health below', num('below', 6, 1)],
+  ['food', 'when food below', num('below', 6, 1)],
+  ['death', 'when the player died'],
+  ['playerNearby', 'when a player comes within', num('distance', 10, 1)],
 ];
 
 function newBlock(type) {
@@ -62,6 +82,7 @@ function newBlock(type) {
   const b = { type };
   for (const p of def.parts) if (typeof p === 'object') b[p.k] = p.d;
   if (def.cond) b.cond = { type: 'chatContains', text: 'text' };
+  for (const p of def.after ?? []) if (typeof p === 'object') b[p.k] = p.d;
   for (const c of def.c ?? []) b[c] = [];
   return b;
 }
@@ -136,7 +157,8 @@ export async function macrosView(root) {
     const color = CATS[def.cat].color;
     const row = h('div', { class: 'blk-row' },
       def.parts.map((p) => (typeof p === 'string' ? h('span', { class: 'blk-word' }, p) : input(b, p, markDirty))),
-      def.cond ? condEditor(b) : null,
+      def.cond ? condEditor(b, def.condWord ?? 'then') : null,
+      (def.after ?? []).map((p) => (typeof p === 'string' ? h('span', { class: 'blk-word' }, p) : input(b, p, markDirty))),
       h('button', { class: 'blk-del', title: 'Remove block', onclick: () => { list.splice(index, 1); markDirty(); renderScript(); } }, '×'));
     const el = h('div', { class: `blk${def.c ? ' c' : ''}`, style: `--blk:${color}`, draggable: 'true' }, row);
     el.addEventListener('dragstart', (e) => {
@@ -152,16 +174,18 @@ export async function macrosView(root) {
     return el;
   };
 
-  const condEditor = (b) => {
+  const condEditor = (b, word) => {
     const c = b.cond;
     const def = CONDITIONS.find((x) => x[0] === c.type) ?? CONDITIONS[0];
+    const inputs = def.slice(2);
     const sel = h('select', { class: 'blk-in', onmousedown: (e) => e.stopPropagation(), onchange: (e) => {
       const d = CONDITIONS.find((x) => x[0] === e.target.value);
-      b.cond = { type: d[0], [d[2].k]: d[2].d };
+      b.cond = { type: d[0] };
+      for (const p of d.slice(2)) b.cond[p.k] = p.d;
       markDirty();
       renderScript();
     } }, CONDITIONS.map(([v, l]) => h('option', { value: v, selected: v === c.type }, l)));
-    return h('span', { class: 'blk-cond' }, sel, input(c, def[2], markDirty), h('span', { class: 'blk-word' }, 'then'));
+    return h('span', { class: 'blk-cond' }, sel, inputs.map((p) => input(c, p, markDirty)), word ? h('span', { class: 'blk-word' }, word) : null);
   };
 
   const stack = (list) => {
@@ -189,7 +213,8 @@ export async function macrosView(root) {
         } }, TRIGGERS.map(([v, l]) => h('option', { value: v, selected: v === trig.type }, l))),
         def[2] ? input(trig, def[2], markDirty) : null,
         trig.type === 'chat' ? h('label', { class: 'blk-check' }, h('input', { type: 'checkbox', checked: !!trig.regex, onchange: (e) => { trig.regex = e.target.checked; markDirty(); } }), 'regex') : null));
-    mount(scriptEl, hat, stack(current.blocks));
+    mount(scriptEl, hat, stack(current.blocks),
+      h('p', { class: 'muted macro-hint' }, 'Placeholders in chat / command / note texts: {health} {food} {x} {y} {z} {time} {name} – variables as {counter} or {var:counter}.'));
   };
 
   // ---------------------------------------------------------------- palette
@@ -198,7 +223,7 @@ export async function macrosView(root) {
       h('div', { class: 'pal-title', style: { color: c.color } }, c.name),
       Object.entries(BLOCKS).filter(([, d]) => d.cat === cat).map(([type, d]) => {
         const el = h('div', { class: `blk pal${d.c ? ' c' : ''}`, style: `--blk:${c.color}`, draggable: 'true', title: 'Drag into the script – or click to append' },
-          h('div', { class: 'blk-row' }, d.parts.map((p) => (typeof p === 'string' ? h('span', { class: 'blk-word' }, p) : h('span', { class: 'blk-ph' }, p.t === 'check' ? p.label : String(p.d))))));
+          h('div', { class: 'blk-row' }, [...d.parts, ...(d.cond ? [{ t: 'ph', d: '…' }] : []), ...(d.after ?? [])].map((p) => (typeof p === 'string' ? h('span', { class: 'blk-word' }, p) : h('span', { class: 'blk-ph' }, p.t === 'check' ? p.label : String(p.d))))));
         el.addEventListener('dragstart', (e) => {
           drag = { from: 'palette', type };
           e.dataTransfer.setData('text/plain', type);

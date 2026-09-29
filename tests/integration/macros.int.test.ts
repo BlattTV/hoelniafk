@@ -82,4 +82,24 @@ describe('macro builder on a real session', () => {
     await waitFor(() => suite.macros.recent().some((l) => l.macroId === m.id && l.status === 'finished'), 10_000, 'macro finished');
     await waitFor(() => answers() > before, 10_000, 'server answered the macro command');
   }, 20_000);
+
+  it('variables, "repeat until" and placeholders work on the real session (the server sees the commands)', async () => {
+    const m = suite.macros.save({
+      name: 'Counter',
+      trigger: { type: 'manual' },
+      blocks: [
+        { type: 'setVar', name: 'n', value: 0 },
+        { type: 'repeatUntil', cond: { type: 'varCompare', name: 'n', op: '>=', value: 2 }, body: [{ type: 'changeVar', name: 'n', by: 1 }, { type: 'command', text: 'stars' }, { type: 'waitRandom', min: 0.2, max: 0.4 }] },
+        { type: 'log', text: 'done after {n} rounds at y={y}' },
+      ],
+    });
+    await new Promise((r) => setTimeout(r, 300));
+    const answers = () => suite.sessions.getChat(sid, { limit: 200 }).filter((l) => /You have \d+ stars/.test(l.text)).length;
+    const before = answers();
+    suite.macros.run(m.id, sid);
+    await waitFor(() => suite.macros.recent().some((l) => l.macroId === m.id && l.status === 'finished'), 15_000, 'macro finished');
+    await waitFor(() => answers() >= before + 2, 10_000, 'two commands answered');
+    const note = suite.macros.recent().find((l) => l.macroId === m.id && l.status === 'log');
+    expect(note?.message).toMatch(/^done after 2 rounds at y=-?\d+$/);
+  }, 30_000);
 });

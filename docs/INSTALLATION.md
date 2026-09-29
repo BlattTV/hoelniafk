@@ -640,6 +640,14 @@ Links unter **Makros**. Du baust Abläufe aus Blöcken zusammen wie in Scratch:
 * **Aktionen:** Hand schwingen, Gegenstand benutzen (Rechtsklick), Mob in der Nähe angreifen, Hotbar-Slot wählen.
 * **Chat:** sagen, Befehl.
 * **Suite:** Notiz ins Protokoll.
+* **Variablen:** „setze“ / „ändere um“, zum Beispiel als Zähler, abfragbar in Bedingungen („Variable ≥ 5“).
+* **Weitere Steuerung:** zufällig warten (von–bis), warten bis eine Bedingung erfüllt ist, wiederhole bis.
+* **Weitere Aktionen:** Gegenstand in die Hand nehmen, essen, gehaltenen Gegenstand wegwerfen,
+  angeschauten Block abbauen, zum nächsten Spieler schauen.
+* **Weitere Bedingungen:** Spieler in der Nähe, Nacht im Spiel, echte Uhrzeit zwischen, Variable vergleichen.
+* **Weitere Auslöser:** wenn Hunger unter, wenn der Spieler gestorben ist, wenn ein Spieler näher kommt.
+* **Platzhalter** in Chat-, Befehls- und Notiz-Texten: `{health}` `{food}` `{x}` `{y}` `{z}` `{time}` `{name}`
+  und Variablen wie `{counter}`.
 
 **Bedienung:**
 * Blöcke aus der Palette ins Skript ziehen oder anklicken, um sie anzuhängen.
