@@ -61,6 +61,9 @@ const DEFAULTS: SessionManagerOptions = {
 
 const ACTIVE: SessionState[] = ['STARTING', 'CONNECTING', 'AUTHENTICATING', 'ONLINE', 'STOPPING'];
 
+/** Kick reasons that point at the chat packet itself (not a normal kick that happens to follow chat). */
+const CHAT_KICK = /internal (server )?error|internal exception|chat|signature|profile (public )?key|message validation|decoderexception/i;
+
 export class SessionRecord {
   state: SessionState = 'STOPPED';
   since = nowIso();
@@ -795,7 +798,7 @@ export class SessionManager {
     r.lastEndReason = e.reason;
     this.repo.addSessionEvent(r.identityId, r.serverId, r.id, e.kicked ? 'kicked' : 'ended', detail);
     r.stats = null;
-    if (r.runtime !== 'game' && e.kicked && Date.now() - r.lastChatAt < 5000 && this.adjustChatMode(r, e.error)) {
+    if (r.runtime !== 'game' && e.kicked && Date.now() - r.lastChatAt < 5000 && CHAT_KICK.test(e.error ?? '') && this.adjustChatMode(r, e.error)) {
       const a2 = this.repo.getAssignment(r.identityId, r.serverId);
       if (a2?.enabled && a2.desiredState === 'ONLINE' && r.state !== 'STOPPING' && !this.stopped) {
         r.nextAttemptAt = Date.now();
