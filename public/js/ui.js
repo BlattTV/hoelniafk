@@ -166,6 +166,38 @@ export function mount(el, ...children) {
   return el;
 }
 
+/**
+ * Like mount, but keeps every child that did not change (same markup): a live update then only swaps
+ * what really changed instead of rebuilding the whole view (no jumping, no reloaded images, scroll
+ * position and hover stay). Children with data-key are matched by key, others by position.
+ */
+export function patch(el, ...children) {
+  const tmp = document.createElement(el.tagName);
+  append(tmp, children);
+  const next = [...tmp.childNodes];
+  const old = [...el.childNodes];
+  const byKey = new Map(old.filter((n) => n.nodeType === 1 && n.dataset.key).map((n) => [n.dataset.key, n]));
+  const result = next.map((n, i) => {
+    const prev = n.nodeType === 1 && n.dataset.key ? byKey.get(n.dataset.key) : old[i];
+    if (!prev || prev.nodeType !== n.nodeType || prev.nodeName !== n.nodeName) return n;
+    if (prev.isEqualNode(n)) return prev;
+    // same element, different content: patch its children (tables: tbody rows keep their DOM)
+    if (n.nodeType === 1 && (n.tagName === 'TABLE' || n.tagName === 'TBODY' || n.tagName === 'THEAD') && sameAttributes(prev, n)) {
+      patch(prev, ...n.childNodes);
+      return prev;
+    }
+    return n;
+  });
+  if (result.length !== old.length || result.some((n, i) => n !== old[i])) el.replaceChildren(...result);
+  return el;
+}
+
+function sameAttributes(a, b) {
+  if (a.attributes.length !== b.attributes.length) return false;
+  for (const at of a.attributes) if (b.getAttribute(at.name) !== at.value) return false;
+  return true;
+}
+
 /** Remembers when the user last changed an input inside el (see whenIdle). */
 function trackEdits(el) {
   if (el.__editTracked) return;

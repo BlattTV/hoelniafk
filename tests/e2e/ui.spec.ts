@@ -30,6 +30,27 @@ test('every page renders without errors', async ({ page }) => {
   expect(errors).toEqual([]);
 });
 
+test('dashboard: live updates only swap the rows that changed (no jumping list)', async ({ page }) => {
+  const errors = trackErrors(page);
+  await page.goto('/#/');
+  await expect(page.locator('tbody tr')).toHaveCount(5);
+  await waitOnline(page, 5);
+  await page.waitForTimeout(2000); // the list has caught up with the sessions coming online
+  await page.evaluate(() => document.querySelectorAll('tbody tr').forEach((tr, i) => ((tr as any).__probe = i)));
+  const token = await page.evaluate(() => document.querySelector<HTMLMetaElement>('meta[name="hoelni-token"]')!.content);
+  const ids = await page.evaluate(() => [...document.querySelectorAll('tbody tr')].map((tr) => (tr as HTMLElement).dataset.key));
+  const target = ids[ids.length - 1];
+  const oldLabel = (await (await page.request.get(`/api/identities/${target}`, { headers: { 'x-hoelni-token': token } })).json()).identity?.label;
+  const r = await page.request.fetch(`/api/identities/${target}`, { method: 'PATCH', headers: { 'x-hoelni-token': token, 'Content-Type': 'application/json' }, data: { label: 'Renamed live' } });
+  expect(r.ok()).toBe(true);
+  await expect(page.locator(`tbody tr[data-key="${target}"]`)).toContainText('Renamed live');
+  const kept = await page.evaluate(() => [...document.querySelectorAll('tbody tr')].map((tr) => (tr as any).__probe ?? null));
+  expect(kept.filter((x) => x !== null)).toHaveLength(4); // the other four rows are the same DOM elements
+  // later tests use the demo names
+  await page.request.fetch(`/api/identities/${target}`, { method: 'PATCH', headers: { 'x-hoelni-token': token, 'Content-Type': 'application/json' }, data: { label: oldLabel ?? null } });
+  expect(errors).toEqual([]);
+});
+
 test('dashboard: search, filter and context menu', async ({ page }) => {
   const errors = trackErrors(page);
   await page.goto('/#/');

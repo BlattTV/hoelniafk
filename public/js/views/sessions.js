@@ -1,5 +1,5 @@
 import { api } from '../api.js';
-import { clear, contextMenu, fmtBytes, guard, h, identityName, mount, openGame, closeGame, gameBadge, scheduleNote, pad2, relTime, select, stateBadge } from '../ui.js';
+import { clear, contextMenu, fmtBytes, guard, h, identityName, mount, patch, openGame, closeGame, gameBadge, scheduleNote, pad2, relTime, select, stateBadge } from '../ui.js';
 import { openChat, openSessionLog } from './sections.js';
 
 /** Session Manager: every session with actual vs. desired state, filters and actions. */
@@ -32,12 +32,12 @@ export async function sessionsView(root) {
       (!f.state || s.state === f.state) && (!f.server || String(s.serverId) === f.server) &&
       (!f.q || `${names.get(s.identityId)} ${s.username ?? ''} ${s.serverName}`.toLowerCase().includes(f.q)));
     const by = (st) => sessions.filter((s) => s.state === st).length;
-    mount(head, h('div', null, h('h1', null, 'Sessions'),
+    patch(head, h('div', null, h('h1', null, 'Sessions'),
       h('div', { class: 'sub' }, `${by('ONLINE')} online · ${by('RECONNECTING')} reconnecting · ${by('BLOCKED')} blocked · ${sessions.filter((s) => s.desiredState === 'ONLINE').length} desired online · ${sessions.length} total`)));
-    clear(wrap).appendChild(list.length
+    patch(wrap, list.length // only changed rows are replaced
       ? h('table', null,
           h('thead', null, h('tr', null, ['Identity', 'Server', 'Should be', 'State', 'Since', 'Reconnects', 'Ping', 'Traffic', 'Mode', 'Last error / next attempt', ''].map((t) => h('th', null, t)))),
-          h('tbody', null, list.map((s) => h('tr', { oncontextmenu: (e) => menu(e, s) },
+          h('tbody', null, list.map((s) => h('tr', { 'data-key': s.id, oncontextmenu: (e) => menu(e, s) },
             h('td', null, h('a', { href: `#/identity/${s.identityId}/sessions` }, names.get(s.identityId) ?? `#${s.identityId}`), s.username ? h('div', { class: 'muted' }, s.username) : null),
             h('td', null, s.serverName),
             h('td', null, s.desiredState === 'ONLINE' ? h('span', { class: 's-ok' }, 'online') : h('span', { class: 'muted' }, 'offline')),

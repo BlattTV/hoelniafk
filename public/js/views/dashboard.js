@@ -1,5 +1,5 @@
 import { api } from '../api.js';
-import { badge, clear, contextMenu, guard, h, identityName, mount, openGame, pad2, select, toast } from '../ui.js';
+import { badge, clear, contextMenu, guard, h, identityName, mount, openGame, pad2, patch, select, toast } from '../ui.js';
 import { openDiscord, openMicrosoft } from './accounts.js';
 
 const BULK = [
@@ -114,7 +114,7 @@ export async function dashboardView(root) {
     const visible = rows.filter(matches);
     const online = rows.reduce((a, r) => a + r.minecraft.online, 0);
     const desired = rows.reduce((a, r) => a + r.minecraft.sessions, 0);
-    mount(
+    patch(
       head,
       h('div', null, h('h1', null, 'Identities'), h('div', { class: 'sub' }, `Identities: ${rows.length} · ${rows.filter((r) => r.ready).length} ready · sessions ${online}/${desired} online · ${visible.length} shown`)),
       h('div', { class: 'toolbar' },
@@ -172,18 +172,20 @@ export async function dashboardView(root) {
     const all = visible.length > 0 && visible.every((r) => selected.has(r.id));
     const table = h('table', null,
       h('thead', null, h('tr', null,
-        h('th', { style: { width: '32px' } }, h('input', { type: 'checkbox', checked: all, title: 'Select all shown', onchange: (e) => { visible.forEach((r) => (e.target.checked ? selected.add(r.id) : selected.delete(r.id))); renderHead(); renderTable(); } })),
+        // data-for: the markup changes with the rows it acts on, so a live update never keeps a stale handler
+        h('th', { style: { width: '32px' } }, h('input', { type: 'checkbox', checked: all, 'data-for': `${all ? 1 : 0}:${visible.map((r) => r.id).join(',')}`, title: 'Select all shown', onchange: (e) => { visible.forEach((r) => (e.target.checked ? selected.add(r.id) : selected.delete(r.id))); renderHead(); renderTable(); } })),
         th('#', 'number'), th('Identity', 'identity'), th('Minecraft', 'minecraft', 'Player name and one dot per assigned server (green online, amber reconnecting, red blocked)'),
         th('Discord'), th('Mail', 'mail'), th('Exit IP', null, 'Public exit IP verification'), th('Stars', 'stars'), th('Health', 'health'))),
       h('tbody', null,
         visible.length
           ? visible.map((r) =>
               h('tr', {
+                'data-key': String(r.id),
                 class: `clickable ${selected.has(r.id) ? 'selected' : ''}`,
                 onclick: (e) => { if (e.target.tagName !== 'INPUT') location.hash = `#/identity/${r.id}`; },
                 oncontextmenu: (e) => rowMenu(e, r),
               },
-                h('td', null, h('input', { type: 'checkbox', checked: selected.has(r.id), onchange: (e) => { e.target.checked ? selected.add(r.id) : selected.delete(r.id); renderHead(); renderTable(); } })),
+                h('td', null, h('input', { type: 'checkbox', checked: selected.has(r.id), 'data-checked': selected.has(r.id) ? '1' : '0', onchange: (e) => { e.target.checked ? selected.add(r.id) : selected.delete(r.id); renderHead(); renderTable(); } })),
                 h('td', { class: 'num' }, pad2(r.number)),
                 h('td', null, r.color ? h('span', { class: 'mark', style: { background: r.color } }) : null, identityName(r), ' ', r.tags.map((t) => h('span', { class: 'tag' }, t))),
                 h('td', null, mcCell(r)),
@@ -194,7 +196,7 @@ export async function dashboardView(root) {
                 h('td', null, badge(r.health, r.ready ? 'READY' : r.health)),
               ))
           : h('tr', null, h('td', { colspan: 9, class: 'empty' }, rows.length ? 'No identity matches the filters.' : h('div', null, h('img', { class: 'logo-card', src: '/static/img/logo-card.png', alt: 'Hoelni AFK Client', style: 'width:220px;margin:8px auto 14px' }), 'No identities yet – click “New identity”.')))));
-    clear(tableWrap).appendChild(table);
+    patch(tableWrap, table); // only changed rows are replaced – live updates no longer rebuild the list
   };
 
   const load = async () => {
