@@ -20,6 +20,9 @@
  */
 
 import crypto from 'node:crypto';
+import { createRequire } from 'node:module';
+
+const require = createRequire(import.meta.url);
 
 const MAX_COOKIES = 64;
 const MAX_QUEUED_CHAT = 20;
@@ -78,6 +81,33 @@ export function installVanillaCompat(bot: any): void {
   const dropLibraryPackHandlers = () => {
     // the library's own answer (latest pack only, configuration only) would answer packs twice
     for (const [ev, mine] of ours) for (const l of client.listeners(ev)) if (l !== mine) client.removeListener(ev, l as any);
+    // a chat line the library cannot format (unknown chat type, missing name) must not end the session
+    for (const ev of ['playerChat', 'systemChat']) {
+      for (const l of client.listeners(ev) as Array<(...a: any[]) => void>) {
+        if ((l as any).__hoelni) continue;
+        const safe = (...a: any[]) => {
+          try {
+            l(...a);
+          } catch (e) {
+            note('error', `Chat line could not be read: ${(e as Error)?.message ?? e}`);
+            const d = a[0] ?? {};
+            if (ev === 'playerChat' && d.plainMessage != null) {
+              const name = plainText(d.senderName);
+              const text = name ? `<${name}> ${d.plainMessage}` : String(d.plainMessage);
+              try {
+                const ChatMessage = require('prismarine-chat')(bot.registry);
+                bot.emit?.('messagestr', text, 'chat', new ChatMessage({ text }), d.sender);
+              } catch {
+                /* no registry yet */
+              }
+            }
+          }
+        };
+        safe.__hoelni = true;
+        client.removeListener(ev, l);
+        client.on(ev, safe);
+      }
+    }
   };
   client.on('show_dialog', () => note('server-dialog', `The server shows a dialog (${client.state}) – it cannot be answered automatically`));
 
@@ -151,3 +181,36 @@ export function resetChatSession(client: any): void {
 
 /** True while the connection is not in the world (server switch in progress). */
 export const inConfiguration = (bot: any): boolean => !!bot?._client && bot._client.state !== 'play';
+
+/**
+ * Chat line as the vanilla client shows it. Servers like Paper render the whole line (name, prefix,
+ * message) into the message's unsigned content and send it with a chat type that only shows the
+ * content – the library prints the bare signed text then ("eeyyy" instead of "LiebUFF » eeyyy").
+ * The vanilla client shows the unsigned content; if even that lacks the sender, the name is put
+ * in front like the default chat format.
+ */
+export function chatLine(text: string, position: string | undefined, msg: any, sender: string | undefined, players?: Record<string, any>): string {
+  let line = String(text ?? '');
+  if (position !== 'chat') return line;
+  try {
+    const unsigned = msg?.unsigned?.toString?.();
+    if (unsigned) line = unsigned;
+  } catch {
+    /* keep the plain text */
+  }
+  const name = sender ? Object.values(players ?? {}).find((p: any) => p?.uuid === sender)?.username : undefined;
+  if (name && !line.includes(name)) line = `<${name}> ${line}`;
+  return line;
+}
+
+/** Plain text of a JSON text component (string form as the protocol library hands it over). */
+function plainText(json: unknown): string {
+  if (json == null) return '';
+  try {
+    const walk = (c: any): string =>
+      typeof c === 'string' ? c : Array.isArray(c) ? c.map(walk).join('') : `${c?.text ?? ''}${(c?.extra ?? []).map(walk).join('')}`;
+    return walk(typeof json === 'string' ? JSON.parse(json) : json);
+  } catch {
+    return String(json);
+  }
+}

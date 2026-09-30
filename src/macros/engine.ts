@@ -12,6 +12,7 @@
  */
 import { createRequire } from 'node:module';
 import type { MacroBlock, MacroCondition, MacroProgram } from './types.js';
+import { chatLine } from '../minecraft/vanillaCompat.js';
 
 const require = createRequire(import.meta.url);
 
@@ -54,9 +55,9 @@ export class MacroEngine {
   set(programs: MacroProgram[]): void {
     this.clearTriggers();
     this.programs = programs;
-    const onChat = (text: string, position?: string) => {
+    const onChat = (text: string, position?: string, msg?: any, sender?: string) => {
       if (position === 'game_info') return;
-      const line = String(text);
+      const line = chatLine(text, position, msg, sender, this.bot.players);
       for (const ctx of this.runs.values()) {
         ctx.chat.push(line);
         if (ctx.chat.length > 200) ctx.chat.shift();

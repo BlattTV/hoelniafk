@@ -13,6 +13,7 @@ import type { HostChannel, MainToHost } from '../protocol.js';
 import type { JavaSession, RuntimeEvent, RuntimeSessionSpec, SessionStats } from '../types.js';
 import { StateCache, TakeoverServer } from './takeover.js';
 import { MacroEngine } from '../../macros/engine.js';
+import { chatLine } from '../../minecraft/vanillaCompat.js';
 
 /** The subset of a mineflayer bot the host uses (fakes in tests implement parts of it). */
 export interface HostBot extends EventEmitter {
@@ -278,9 +279,10 @@ export class RuntimeHostCore {
       s.statsTimer = setInterval(() => this.emit({ type: 'stats', sessionId: id, stats: this.statsOf(s) }), STATS_INTERVAL_MS);
       s.statsTimer.unref?.();
     });
-    bot.on('messagestr', (text: string, position?: string) => {
+    bot.on('messagestr', (text: string, position?: string, msg?: any, sender?: string) => {
       if (position === 'game_info') return; // action bar spam
-      this.emit({ type: 'chat', sessionId: id, text: String(text).slice(0, 1000), ts: new Date().toISOString() });
+      const line = chatLine(text, position, msg, sender, (bot as any).players);
+      this.emit({ type: 'chat', sessionId: id, text: line.slice(0, 1000), ts: new Date().toISOString() });
     });
     bot.on('kicked', (reason: unknown) => {
       s.kicked = true;

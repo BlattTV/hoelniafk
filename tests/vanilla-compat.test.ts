@@ -140,4 +140,40 @@ describe('vanilla client behaviour behind a proxy', () => {
     bot.end();
     server.close();
   }, 30_000);
+
+  it('chat lines keep the player name (server-rendered lines, chat types without the name)', async () => {
+    const version = '1.21.11';
+    const mineflayer = require('mineflayer');
+    const nbt = require('prismarine-nbt');
+    const { chatLine } = await import('../src/minecraft/vanillaCompat.js');
+    const server = mc.createServer({ version, 'online-mode': false, port: 0, host: '127.0.0.1' });
+    await new Promise<void>((r) => server.once('listening', () => r()));
+    const port = server.socketServer.address().port;
+    const md = require('minecraft-data')(version);
+    let sc: any;
+    server.on('playerJoin', (c: any) => {
+      sc = c;
+      c.write('login', { ...md.loginPacket, entityId: 1 });
+    });
+    const bot = mineflayer.createBot({ version, host: '127.0.0.1', port, username: 'Me', auth: 'offline' });
+    installVanillaCompat(bot);
+    const lines: string[] = [];
+    bot.on('messagestr', (t: string, pos: string, msg: any, sender: string) => lines.push(chatLine(t, pos, msg, sender, bot.players)));
+    await until(() => !!sc && bot._client.state === 'play', 8000, 'in play');
+    await new Promise((r) => setTimeout(r, 300));
+    // like Paper: the chat plugin renders the whole line, sent with a chat type that shows only the content
+    bot.registry.chatFormattingById[7] = { id: 7, name: 'paper:raw', formatString: '%s', parameters: ['content'] };
+    const uuid = '11111111-2222-3333-4444-555555555555';
+    sc.write('player_info', { action: { add_player: true, update_listed: true }, data: [{ uuid, player: { name: 'LiebUFF', properties: [] }, listed: true }] });
+    const base = { senderUuid: uuid, index: 0, signature: undefined, plainMessage: 'eeyyy', timestamp: BigInt(Date.now()), salt: 0n, previousMessages: [], filterType: 0, networkName: nbt.comp({ text: nbt.string('LiebUFF') }), networkTargetName: undefined };
+    sc.write('player_chat', { ...base, globalIndex: 0, unsignedChatContent: nbt.comp({ text: nbt.string('LiebUFF » eeyyy') }), type: { chatType: 7 } });
+    sc.write('player_chat', { ...base, globalIndex: 1, plainMessage: 'moinn', unsignedChatContent: undefined, type: { chatType: 7 } });
+    sc.write('player_chat', { ...base, globalIndex: 2, plainMessage: 'hallo', unsignedChatContent: undefined, type: { chatType: 0 } });
+    // a line the library cannot format (outgoing whisper without target) – no crash, still shown
+    sc.write('player_chat', { ...base, globalIndex: 3, plainMessage: 'psst', unsignedChatContent: undefined, type: { chatType: 3 } });
+    await until(() => lines.length >= 4, 5000, 'chat lines');
+    expect(lines.slice(-4)).toEqual(['LiebUFF » eeyyy', '<LiebUFF> moinn', '<LiebUFF> hallo', '<LiebUFF> psst']);
+    bot.end();
+    server.close();
+  }, 30_000);
 });
