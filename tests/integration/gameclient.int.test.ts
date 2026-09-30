@@ -149,6 +149,11 @@ describe('real game client: live takeover (default) – same connection, no re-l
     await waitFor(() => dist(emulatorState()?.position, server.positionOf('Gamer01')) < 1, 5000, 'game and server agree on the position');
     const pid = state().game!.pid!;
     await waitFor(() => windows.calls.some(([c, p]) => c === 'show' && p === pid), 5000, 'window shown');
+    // every start step is in the session log (shows where a start that "does nothing" stops)
+    await waitFor(() => suite.repo.sessionEvents({ sessionId: sid() }).some((x) => x.kind === 'game-running'), 5000, 'running logged');
+    const kinds = suite.repo.sessionEvents({ sessionId: sid() }).map((x) => x.kind);
+    for (const k of ['game-installing', 'game-launching', 'game-starting', 'game-running']) expect(kinds).toContain(k);
+    expect(suite.repo.sessionEvents({ sessionId: sid() }).find((x) => x.kind === 'game-starting')!.detail).toMatch(new RegExp(`pid ${pid}`));
   }, 90_000);
 
   it('the player controls the session: chat and movement go through the same connection', async () => {

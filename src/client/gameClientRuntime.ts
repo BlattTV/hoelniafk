@@ -348,8 +348,8 @@ export class GameClientRuntime {
       if (en.ended) return;
       tries++;
       if (await this.window.hasWindow(pid)) {
-        await (en.info.visible ? this.window.show(pid) : this.window.minimize(pid));
-        this.update(en, { status: 'running', message: null });
+        const res = await (en.info.visible ? this.window.show(pid) : this.window.minimize(pid));
+        this.update(en, { status: 'running', message: res === 'ok' ? null : `Window control failed (${res}) – use Alt-Tab` });
         return;
       }
       if (tries < 180) en.timers.push(setTimeout(() => void tick(), 1000));

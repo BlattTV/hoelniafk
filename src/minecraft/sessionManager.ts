@@ -672,6 +672,13 @@ export class SessionManager {
     const r = this.records.get(e.sessionId);
     if (!r) return;
     if (e.type === 'game') {
+      const before = r.game;
+      // Start progress in the session log: shows where a start that "does nothing" stops.
+      const stage = (g: typeof e.game | null) => (g ? `${g.status}|${g.status === 'installing' ? (g.message ?? '').replace(/\s*\d.*$/, '') : g.message ?? ''}` : '');
+      if (stage(e.game) !== stage(before) && e.game.status !== 'closed') {
+        const detail = [e.game.status === 'starting' && e.game.pid ? `pid ${e.game.pid}` : null, e.game.message, e.game.version].filter(Boolean).join(' · ');
+        this.repo.addSessionEvent(r.identityId, r.serverId, r.id, `game-${e.game.status}`, detail.slice(0, 300));
+      }
       r.game = e.game;
       this.bus.emit({ type: 'session.game', identityId: r.identityId, data: { sessionId: r.id, game: e.game } });
       this.bus.emit({ type: 'session.state', identityId: r.identityId, data: this.info(r) });
