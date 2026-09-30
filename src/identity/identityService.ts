@@ -99,8 +99,12 @@ export class IdentityService {
     return this.repo.saveTemplate({ name, config });
   }
 
+  /** Set by the app: the identity's accounts go back to the library (with their logins) first. */
+  beforeDelete: ((identityId: number) => Promise<void>) | null = null;
+
   async delete(identityId: number): Promise<void> {
     const identity = this.repo.getIdentity(identityId);
+    await this.beforeDelete?.(identityId);
     this.sessions.forgetIdentity(identityId);
     const removed = await this.vault.forIdentity(identityId).purge();
     this.repo.deleteIdentity(identityId);

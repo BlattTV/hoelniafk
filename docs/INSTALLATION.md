@@ -607,6 +607,22 @@ Alles Weitere (Netzwerkprofile, Vorlagen, Zeitpläne, Proxy-Pool, Server, Logs �
 
 ---
 
+### E4. Zugänge: Konten einzeln anlegen und selbst verknüpfen
+
+Unter **Zugänge** (linke Leiste) legst du Microsoft- und Discord-Konten unabhängig von Identitäten an:
+
+1. **Microsoft-Konto hinzufügen:** E-Mail eintragen → es öffnet sich ein eigenes Fenster für dieses
+   Konto, dort bei Microsoft anmelden. **Discord-Konto hinzufügen:** optional Name/Benutzername →
+   im eigenen Fenster registrieren oder anmelden → *Fertig – eingerichtet*.
+2. In der Spalte **Identität** das Konto einer Identität zuweisen. Hat die Identität schon ein Konto
+   dieser Art, geht das alte zurück in die Zugänge.
+3. Umhängen auf eine andere Identität geht genauso. Der Minecraft-Login des Microsoft-Kontos zieht
+   verschlüsselt mit; „– nicht verknüpft –“ löst das Konto, es bleibt mit seiner Anmeldung erhalten.
+
+Auf der Seite einer Identität geht dasselbe über *„… aus den Zugängen verknüpfen“* bzw. *Trennen*.
+Jedes Konto behält sein eigenes Browserprofil – Outlook und Discord bleiben angemeldet, egal zu
+welcher Identität es gerade gehört. Bestehende Anmeldungen wurden beim Update automatisch übernommen.
+
 ## Teil F – Automatische Session-Erneuerung und Makro-Builder
 
 ### F1. Abgelaufene Session: läuft einfach weiter

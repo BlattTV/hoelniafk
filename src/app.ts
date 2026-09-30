@@ -29,6 +29,7 @@ import { Updater } from './ops/updater.js';
 import { BackendLink } from './relay/backendLink.js';
 import { ProxyPool } from './network/proxyPool.js';
 import { MicrosoftAccountService } from './identity/microsoftAccount.js';
+import { AccountService } from './identity/accountService.js';
 import { MacroService } from './macros/service.js';
 import { GameClientRuntime, type GameClientOptions } from './client/gameClientRuntime.js';
 import { createWindowController } from './client/window.js';
@@ -132,7 +133,10 @@ export function createSuite(deps: SuiteDeps) {
   const identities = new IdentityService(repo, vault, network, sessions, linking, audit, bus);
   const bulk = new BulkOperations(repo, mail, network, sessions, discord, audit, auth);
   const updater = new Updater(repo, audit, bus);
-  const microsoft = new MicrosoftAccountService(repo, auth, audit, bus);
+  const accounts = new AccountService(repo, vault, auth, audit, bus);
+  identities.beforeDelete = (id) => accounts.releaseIdentity(id);
+  discord.accounts = accounts;
+  const microsoft = new MicrosoftAccountService(repo, auth, audit, bus, accounts);
   sessions.renewAuth = (identityId) => auth.renew(identityId);
   // Real servers only (tests with fake bots have no server to ping): see SessionManager.autoVersion
   if (!deps.botFactory && !deps.runtime) sessions.detectVersion = (host, port, network) => detectServerVersion(host, port, network);
@@ -221,6 +225,7 @@ export function createSuite(deps: SuiteDeps) {
     network,
     proxies,
     microsoft,
+    accounts,
     macros,
     auth,
     linking,

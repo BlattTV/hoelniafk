@@ -10,6 +10,7 @@ export interface SuiteEvent {
     | 'session.game'
     | 'updates.status'
     | 'agents.changed'
+    | 'accounts.changed'
     | 'log'
     | 'link.state'
     | 'mail.updated'

@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 
-const PAGES = ['/', '/matrix', '/sessions', '/chat', '/inbox', '/verification', '/mailboxes', '/servers', '/templates', '/monitoring', '/logs', '/audit', '/setup', '/settings', '/wizard', '/identity/1', '/wizard/1/5', '/schedules', '/agents', '/accounts', '/proxies', '/new', '/discord', '/macros', '/mail'];
+const PAGES = ['/', '/matrix', '/sessions', '/chat', '/inbox', '/verification', '/mailboxes', '/servers', '/templates', '/monitoring', '/logs', '/audit', '/setup', '/settings', '/wizard', '/identity/1', '/wizard/1/5', '/schedules', '/agents', '/accounts', '/proxies', '/new', '/discord', '/macros', '/mail', '/logins'];
 
 function trackErrors(page: Page): string[] {
   const errors: string[] = [];
@@ -363,3 +363,36 @@ test('identity settings: live updates never overwrite unsaved edits', async ({ p
   await expect(page.locator('h1').first()).toContainText('Unsaved edit');
   expect(errors).toEqual([]);
 });
+
+test('logins: add a Microsoft and a Discord account on their own, link them to an identity, unlink again', async ({ page, context }) => {
+  const errors = trackErrors(page);
+  // the account windows would open Microsoft / Discord – not reachable in tests
+  await context.route(/https:\/\/(login\.live\.com|discord\.com)\/.*/, (r) => r.abort());
+  await page.goto('/#/logins');
+  await page.getByLabel('Microsoft e-mail').fill('e2e.alt@outlook.com');
+  await page.getByRole('button', { name: 'Add Microsoft account' }).click();
+  const msRow = page.locator('tr', { hasText: 'e2e.alt@outlook.com' });
+  await expect(msRow).toBeVisible();
+  await page.getByLabel('Discord username').fill('e2e_dc');
+  await page.getByRole('button', { name: 'Add Discord account' }).click();
+  const dcRow = page.locator('tr', { hasText: '@e2e_dc' });
+  await expect(dcRow).toBeVisible();
+  await dcRow.getByRole('button', { name: 'Done – set up' }).click();
+  await expect(dcRow).toContainText('Set up');
+  // link both to identity 2 (Identity02 in the demo)
+  await msRow.getByLabel('Linked identity').selectOption('2');
+  await expect(page.locator('.toast', { hasText: /^Linked/ })).toBeVisible();
+  await expect(dcRow.getByLabel('Linked identity').locator('option', { hasText: 'Identity03' })).not.toContainText('has one');
+  await dcRow.getByLabel('Linked identity').selectOption('3');
+  await expect(dcRow.getByLabel('Linked identity')).toHaveValue('3');
+  await page.goto('/#/identity/2');
+  await expect(page.locator('#view')).toContainText('e2e.alt@outlook.com');
+  await page.goto('/#/identity/3');
+  await expect(page.locator('#view')).toContainText('@e2e_dc');
+  // unlink from the library page: the accounts stay there
+  await page.goto('/#/logins');
+  await page.locator('tr', { hasText: 'e2e.alt@outlook.com' }).getByLabel('Linked identity').selectOption({ value: '' });
+  await expect(page.locator('tr', { hasText: 'e2e.alt@outlook.com' }).getByLabel('Linked identity')).toHaveValue('');
+  expect(errors.filter((e) => !/ERR_FAILED|net::/.test(e))).toEqual([]);
+});
+

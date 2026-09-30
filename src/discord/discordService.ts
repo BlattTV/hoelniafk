@@ -14,6 +14,7 @@ import { registerSecret } from '../core/logger.js';
 import type { DiscordIdentity } from '../core/types.js';
 import type { IdentityRepository } from '../identity/repository.js';
 import type { Vault } from '../vault/vault.js';
+import type { AccountService } from '../identity/accountService.js';
 
 export const DISCORD_SIGNUP_URL = 'https://discord.com/register';
 export const DISCORD_APP_URL = 'https://discord.com/app';
@@ -38,6 +39,9 @@ export class DiscordService {
     private readonly audit: AuditLog,
     private readonly bus: EventBus,
   ) {}
+
+  /** Account library (set by the app): every Discord login of an identity is a library entry. */
+  accounts: AccountService | null = null;
 
   /**
    * Page for this identity's Discord profile window. The suite never fills in or submits Discord forms:
@@ -77,6 +81,7 @@ export class DiscordService {
   /** Step 1 of "Create Discord Account": the user registers on discord.com themselves. */
   beginSignup(identityId: number): { url: string } {
     this.repo.getIdentity(identityId);
+    this.accounts?.ensureFor(identityId, 'discord');
     this.repo.upsertDiscord(identityId, { oauthState: this.repo.getDiscord(identityId)?.oauthState ?? 'NONE' });
     this.audit.record(identityId, 'Discord sign-up opened in browser');
     return { url: DISCORD_SIGNUP_URL };
@@ -88,6 +93,8 @@ export class DiscordService {
     const username = String(usernameInput ?? '').trim().replace(/^@/, '');
     if (username && !/^[a-z0-9_.]{2,32}$/i.test(username)) throw new ValidationError('Discord usernames have 2–32 letters, digits, _ or .');
     const cur = this.repo.getDiscord(identityId);
+    const account = this.accounts?.ensureFor(identityId, 'discord');
+    if (account) this.repo.updateAccount(account.id, { ready: true, username: username || account.username || cur?.username || null });
     const updated = this.repo.upsertDiscord(identityId, {
       oauthState: 'CONNECTED',
       username: username || cur?.username || null,
@@ -99,7 +106,13 @@ export class DiscordService {
     return updated;
   }
 
+  /** Detaches the identity's Discord account – it stays in the library with its login. */
   async disconnect(identityId: number): Promise<void> {
+    const account = this.repo.accountOf(identityId, 'discord');
+    if (account && this.accounts) {
+      await this.accounts.unlink(account.id);
+      return;
+    }
     const d = this.repo.getDiscord(identityId);
     if (d?.credentialRef) await this.vault.forIdentity(identityId).delete(d.credentialRef);
     this.repo.upsertDiscord(identityId, {

@@ -15,6 +15,7 @@ import { ValidationError } from '../core/errors.js';
 import type { EventBus } from '../core/events.js';
 import { createLogger } from '../core/logger.js';
 import type { DeviceCodeInfo, MinecraftAuthService } from '../minecraft/authService.js';
+import type { AccountService } from './accountService.js';
 import type { IdentityRepository } from './repository.js';
 
 const log = createLogger('microsoft');
@@ -45,6 +46,7 @@ export class MicrosoftAccountService {
     private readonly auth: MinecraftAuthService,
     private readonly audit: AuditLog,
     private readonly bus: EventBus,
+    private readonly accounts: AccountService,
   ) {}
 
   status(identityId: number): MicrosoftLinkStatus {
@@ -58,17 +60,21 @@ export class MicrosoftAccountService {
     this.repo.getIdentity(identityId);
     const email = String(emailInput ?? '').trim().toLowerCase();
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email) || email.length > 254) throw new ValidationError('Enter the e-mail address of the Microsoft account');
+    // The account lives in the library: an existing entry (with its login) is moved here, a new
+    // e-mail becomes a new entry. The identity's previous account goes back to the library.
     const cur = this.repo.getMinecraft(identityId);
-    const changed = !!cur && (cur.msaAccount !== email || cur.authType !== 'microsoft');
-    if (changed) await this.auth.logout(identityId);
-    this.repo.upsertMinecraft(identityId, {
-      username: cur?.username || `Pending_${identityId}`.slice(0, 16),
-      authType: 'microsoft',
-      msaAccount: email,
-      ...(changed ? { uuid: null } : {}),
-      authStatus: 'PENDING',
-      lastError: null,
-    });
+    const linked = this.repo.accountOf(identityId, 'microsoft');
+    if (!(linked && linked.email === email && cur?.msaAccount === email)) {
+      let account = this.repo.accountByEmail('microsoft', email);
+      if (!account) {
+        // first Microsoft account of this identity: keep its former browser profile (Outlook login)
+        if (linked) await this.accounts.unlink(linked.id);
+        account = this.accounts.ensureFor(identityId, 'microsoft', email);
+        await this.accounts.unlink(account.id); // detach so link() moves secrets and sets the identity fields
+      }
+      await this.accounts.link(account.id, identityId);
+    }
+    this.repo.upsertMinecraft(identityId, { authStatus: 'PENDING', lastError: null });
     this.audit.record(identityId, 'Microsoft account set', { account: email });
     this.bus.emit({ type: 'identity.changed', identityId });
 
@@ -92,9 +98,14 @@ export class MicrosoftAccountService {
     return code ? `${MICROSOFT_LINK_URL}?otc=${encodeURIComponent(code.userCode)}` : MICROSOFT_LINK_URL;
   }
 
+  /** Detaches the identity's Microsoft account – it stays in the library with its login. */
   async unlink(identityId: number): Promise<void> {
-    await this.auth.logout(identityId);
-    this.repo.upsertMinecraft(identityId, { msaAccount: null, uuid: null, authStatus: 'NONE', lastError: null });
+    const account = this.repo.accountOf(identityId, 'microsoft');
+    if (account) await this.accounts.unlink(account.id);
+    else {
+      await this.auth.logout(identityId);
+      this.repo.upsertMinecraft(identityId, { msaAccount: null, uuid: null, authStatus: 'NONE', lastError: null });
+    }
     this.audit.record(identityId, 'Microsoft account disconnected');
     this.bus.emit({ type: 'identity.changed', identityId });
   }

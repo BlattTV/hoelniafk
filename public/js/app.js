@@ -22,6 +22,7 @@ import { quickView } from './views/quick.js';
 import { discordView } from './views/discord.js';
 import { outlookView } from './views/outlook.js';
 import { macrosView } from './views/macros.js';
+import { loginsView } from './views/logins.js';
 import { openPalette, toggleTheme } from './palette.js';
 import { handleEvent, primeStates } from './notify.js';
 import { syncLanguage, t, translateStatic } from './i18n.js';
@@ -35,6 +36,7 @@ const routes = [
   [/^\/wizard(?:\/(\d+))?(?:\/(\d+))?$/, 'wizard', wizardView],
   [/^\/new(?:\/(\d+))?(?:\/(\d+))?$/, 'new', quickView],
   [/^\/discord$/, 'discord', discordView],
+  [/^\/logins$/, 'logins', loginsView],
   [/^\/mail$/, 'mail', outlookView],
   [/^\/macros$/, 'macros', macrosView],
   [/^\/inbox$/, 'inbox', (root) => inboxView(root, { verification: false })],

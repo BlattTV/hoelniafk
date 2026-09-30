@@ -298,17 +298,11 @@ function createWindow() {
     suiteShown = false;
     retryTimer = setTimeout(loadSuite, 1000);
   });
-  // Everything outside the suite opens in the default browser – except the per-identity
-  // Discord and Microsoft (Minecraft sign-in + Outlook) windows.
+  // Everything outside the suite opens in the default browser – except the account windows
+  // (Microsoft: Minecraft sign-in + Outlook, Discord), each with its own browser profile.
   win.webContents.setWindowOpenHandler(({ url }) => {
-    const discord = /\/api\/identities\/(\d+)\/discord\/open\?/.exec(url);
-    if (discord && url.startsWith(BASE)) {
-      void openDiscordProfile(Number(discord[1]), url);
-      return { action: 'deny' };
-    }
-    const microsoft = /\/api\/identities\/(\d+)\/microsoft\/open\?/.exec(url);
-    if (microsoft && url.startsWith(BASE)) {
-      void openMicrosoftProfile(Number(microsoft[1]), url);
+    if (url.startsWith(BASE) && /\/api\/(accounts\/\d+|identities\/\d+\/(discord|microsoft))\/open\?/.test(url)) {
+      void accountWindowInfo(url).then((info) => openAccountWindow(info, url)).catch(() => undefined);
       return { action: 'deny' };
     }
     if (/^https?:\/\//.test(url)) shell.openExternal(url);
@@ -408,62 +402,15 @@ function trayMenu() {
     ]);
 }
 
-// ------------------------------------------------------------------ Discord: one browser profile per identity
-// Each identity gets its own persistent Discord login (like browser containers). "Switching" accounts
-// = opening the window of another identity. The suite only opens pages here – it never fills in or
-// submits Discord forms, reads Discord pages or uses Discord tokens (no automation, no self-bots).
-const discordWindows = new Map();
-
-async function openDiscordProfile(identityId, url) {
-  let w = discordWindows.get(identityId);
-  if (!w || w.isDestroyed()) {
-    let label = `Identity ${identityId}`;
-    try {
-      const list = await api('GET', '/api/discord');
-      const row = list.find((r) => r.identityId === identityId);
-      if (row) label = row.discord?.username ? `${row.label} · @${row.discord.username}` : row.label;
-    } catch {}
-    w = new BrowserWindow({
-      width: 1200,
-      height: 820,
-      title: `Discord – ${label}`,
-      icon: icon('icon.png'),
-      autoHideMenuBar: true,
-      webPreferences: { partition: `persist:hoelni-discord-${identityId}`, contextIsolation: true, sandbox: true, nodeIntegration: false },
-    });
-    w.removeMenu();
-    const title = `Discord – ${label}`;
-    w.on('page-title-updated', (e) => {
-      e.preventDefault();
-      w.setTitle(title);
-    });
-    // Discord's own popups (captcha, OAuth) stay in the same profile; other sites open in the normal browser.
-    w.webContents.setWindowOpenHandler(({ url: next }) => {
-      try {
-        const host = new URL(next).hostname;
-        if (/(^|\.)(discord\.com|discordapp\.com|discord\.gg|hcaptcha\.com)$/.test(host)) {
-          return { action: 'allow', overrideBrowserWindowOptions: { autoHideMenuBar: true, webPreferences: { partition: `persist:hoelni-discord-${identityId}`, contextIsolation: true, sandbox: true } } };
-        }
-      } catch {}
-      if (/^https?:\/\//.test(next)) shell.openExternal(next);
-      return { action: 'deny' };
-    });
-    discordWindows.set(identityId, w);
-    w.on('closed', () => discordWindows.delete(identityId));
-  }
-  // The suite URL answers with a redirect to the Discord page (or the OAuth consent page).
-  await w.loadURL(url).catch(() => undefined);
-  w.show();
-  w.focus();
-}
-
-// ------------------------------------------------------------------ Microsoft: one browser profile per identity
-// The Minecraft sign-in (Microsoft's own confirmation page, code already filled in) and Outlook run in
-// the same persistent profile – one Microsoft login per identity, no app registration. Links in mails:
-// Discord links open in the identity's Discord window, Microsoft pages stay here, everything else goes
-// to the normal browser. The suite never reads these pages or fills in forms.
-const microsoftWindows = new Map();
+// ------------------------------------------------------------------ account windows (Microsoft / Discord)
+// Every account of the library has its own persistent browser profile (like browser containers):
+// its login stays there, whichever identity the account is linked to. "Switching" accounts = opening
+// the window of another account. The suite only opens pages here – it never fills in or submits
+// forms, reads the pages or uses tokens (no automation, no self-bots).
+const accountWindows = new Map(); // partition → BrowserWindow
 const MS_HOSTS = /(^|\.)(microsoft\.com|live\.com|outlook\.com|office\.com|office\.net|office365\.com|microsoftonline\.com|msauth\.net|msftauth\.net|live\.net|xboxlive\.com|xbox\.com|minecraft\.net|bing\.com|msn\.com|hcaptcha\.com)$/i;
+const DISCORD_HOSTS = /(^|\.)(discord\.com|discordapp\.com|discord\.gg|hcaptcha\.com)$/i;
+const PARTITION = /^persist:hoelni-[a-z0-9-]{1,60}$/;
 
 /** Outlook wraps links as safelinks – unwrap them before deciding where they open. */
 function unwrapLink(url) {
@@ -474,39 +421,44 @@ function unwrapLink(url) {
   return url;
 }
 
-async function openMicrosoftProfile(identityId, url) {
-  let w = microsoftWindows.get(identityId);
+/** Window data of an account: { id, kind, partition, title, identityId } (from the suite). */
+async function accountWindowInfo(url) {
+  const acc = /\/api\/accounts\/(\d+)\/open\?/.exec(url);
+  if (acc) return api('GET', `/api/accounts/${acc[1]}/window`);
+  const ident = /\/api\/identities\/(\d+)\/(discord|microsoft)\/open\?/.exec(url);
+  if (ident) return api('POST', `/api/identities/${ident[1]}/accounts/${ident[2]}/window`);
+  return null;
+}
+
+async function openAccountWindow(info, url) {
+  if (!info || !PARTITION.test(String(info.partition))) return;
+  const { partition, kind } = info;
+  let w = accountWindows.get(partition);
   if (!w || w.isDestroyed()) {
-    let label = `Identity ${identityId}`;
-    try {
-      const list = await api('GET', '/api/discord');
-      const row = list.find((r) => r.identityId === identityId);
-      if (row) label = row.email ? `${row.label} · ${row.email}` : row.label;
-    } catch {}
-    const partition = `persist:hoelni-ms-${identityId}`;
     w = new BrowserWindow({
-      width: 1280,
-      height: 860,
-      title: `Microsoft – ${label}`,
+      width: kind === 'microsoft' ? 1280 : 1200,
+      height: kind === 'microsoft' ? 860 : 820,
+      title: info.title,
       icon: icon('icon.png'),
       autoHideMenuBar: true,
       webPreferences: { partition, contextIsolation: true, sandbox: true, nodeIntegration: false },
     });
     w.removeMenu();
-    const title = `Microsoft – ${label}`;
     w.on('page-title-updated', (e) => {
       e.preventDefault();
-      w.setTitle(title);
+      w.setTitle(info.title);
     });
+    const own = kind === 'microsoft' ? MS_HOSTS : DISCORD_HOSTS;
     const route = (next) => {
       const target = unwrapLink(next);
       try {
         const host = new URL(target).hostname;
-        if (/(^|\.)(discord\.com|discordapp\.com|discord\.gg)$/i.test(host)) {
-          void openDiscordProfile(identityId, target);
+        // Discord links in a Microsoft mail open in the Discord window of the same identity
+        if (kind === 'microsoft' && /(^|\.)(discord\.com|discordapp\.com|discord\.gg)$/i.test(host) && info.identityId) {
+          void api('POST', `/api/identities/${info.identityId}/accounts/discord/window`).then((d) => openAccountWindow(d, target)).catch(() => shell.openExternal(target));
           return 'handled';
         }
-        if (MS_HOSTS.test(host)) return 'stay';
+        if (own.test(host)) return 'stay';
       } catch {}
       if (/^https?:\/\//.test(target)) shell.openExternal(target);
       return 'handled';
@@ -516,12 +468,13 @@ async function openMicrosoftProfile(identityId, url) {
       return { action: 'deny' };
     });
     w.webContents.on('will-navigate', (e, next) => {
+      if (next.startsWith(BASE)) return; // the suite's redirect to the page
       if (route(next) !== 'stay') e.preventDefault();
     });
-    microsoftWindows.set(identityId, w);
-    w.on('closed', () => microsoftWindows.delete(identityId));
+    accountWindows.set(partition, w);
+    w.on('closed', () => accountWindows.delete(partition));
   }
-  // The suite URL answers with a redirect to the Microsoft page.
+  // The suite URL answers with a redirect to the page (Outlook, Minecraft sign-in, Discord …).
   await w.loadURL(url).catch(() => undefined);
   w.show();
   w.focus();

@@ -5,6 +5,8 @@ import { ConflictError, IsolationError, NotFoundError, ValidationError } from '.
 import {
   DEFAULT_SETTINGS,
   mergeSettings,
+  type Account,
+  type AccountKind,
   type DiscordIdentity,
   type IdentityProfile,
   type IdentitySettings,
@@ -380,6 +382,59 @@ export class IdentityRepository {
   }
 
   // ------------------------------------------------------------ discord
+
+  // ------------------------------------------------------------------ account library
+
+  private toAccount(r: any): Account {
+    return { id: r.id, kind: r.kind, label: r.label, email: r.email, username: r.username, partition: r.partition, ready: !!r.ready, identityId: r.identity_id, createdAt: r.created_at, updatedAt: r.updated_at };
+  }
+
+  listAccounts(kind?: AccountKind): Account[] {
+    const rows = kind ? this.db.prepare('SELECT * FROM accounts WHERE kind = ? ORDER BY id').all(kind) : this.db.prepare('SELECT * FROM accounts ORDER BY kind, id').all();
+    return rows.map((r) => this.toAccount(r));
+  }
+
+  getAccount(id: number): Account {
+    const r = this.db.prepare('SELECT * FROM accounts WHERE id = ?').get(id);
+    if (!r) throw new NotFoundError(`Account ${id} not found`);
+    return this.toAccount(r);
+  }
+
+  accountOf(identityId: number, kind: AccountKind): Account | null {
+    const r = this.db.prepare('SELECT * FROM accounts WHERE identity_id = ? AND kind = ?').get(identityId, kind);
+    return r ? this.toAccount(r) : null;
+  }
+
+  accountByEmail(kind: AccountKind, email: string): Account | null {
+    const r = this.db.prepare('SELECT * FROM accounts WHERE kind = ? AND email = ?').get(kind, email);
+    return r ? this.toAccount(r) : null;
+  }
+
+  accountByPartition(partition: string): Account | null {
+    const r = this.db.prepare('SELECT * FROM accounts WHERE partition = ?').get(partition);
+    return r ? this.toAccount(r) : null;
+  }
+
+  createAccount(input: { kind: AccountKind; label?: string; email?: string | null; username?: string | null; partition: string; ready?: boolean }): Account {
+    const ts = nowIso();
+    const r = this.db
+      .prepare('INSERT INTO accounts (kind, label, email, username, partition, ready, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(input.kind, input.label ?? '', input.email ?? null, input.username ?? null, input.partition, input.ready ? 1 : 0, ts, ts);
+    return this.getAccount(Number(r.lastInsertRowid));
+  }
+
+  updateAccount(id: number, patch: Partial<Pick<Account, 'label' | 'email' | 'username' | 'ready' | 'identityId'>>): Account {
+    const cur = this.getAccount(id);
+    const next = { ...cur, ...patch };
+    this.db
+      .prepare('UPDATE accounts SET label = ?, email = ?, username = ?, ready = ?, identity_id = ?, updated_at = ? WHERE id = ?')
+      .run(next.label, next.email, next.username, next.ready ? 1 : 0, next.identityId, nowIso(), id);
+    return this.getAccount(id);
+  }
+
+  deleteAccount(id: number): void {
+    this.db.prepare('DELETE FROM accounts WHERE id = ?').run(id);
+  }
 
   getDiscord(identityId: number): DiscordIdentity | null {
     const r = this.db.prepare('SELECT * FROM discord_identities WHERE identity_id = ?').get(identityId) as Row | undefined;

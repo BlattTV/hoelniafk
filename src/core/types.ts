@@ -116,6 +116,29 @@ export interface MailIdentity {
 export type DiscordOAuthState = 'NONE' | 'PENDING' | 'CONNECTED' | 'EXPIRED' | 'ERROR';
 export type LinkState = 'UNKNOWN' | 'WAITING' | 'LINKED' | 'ERROR';
 
+export type AccountKind = 'microsoft' | 'discord';
+
+/**
+ * Library entry: a Microsoft or Discord login with its own browser profile, added on its own and
+ * linked to at most one identity (and each identity to at most one account per kind).
+ */
+export interface Account {
+  id: number;
+  kind: AccountKind;
+  label: string;
+  /** Microsoft: account e-mail (also the Minecraft sign-in key). */
+  email: string | null;
+  /** Minecraft profile name (Microsoft) or Discord username – for the overview only. */
+  username: string | null;
+  /** Electron browser profile of this login (desktop program). */
+  partition: string;
+  /** Discord: marked as set up; Microsoft: Minecraft sign-in done at least once. */
+  ready: boolean;
+  identityId: number | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface DiscordIdentity {
   identityId: number;
   discordUserId: string | null;

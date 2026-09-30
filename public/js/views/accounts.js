@@ -8,6 +8,7 @@
 import { api } from '../api.js';
 import { codeBox, copy, guard, h, toast } from '../ui.js';
 import { t } from '../i18n.js';
+import { libraryPicker } from './logins.js';
 
 const tick = (ok, text) => h('div', { class: `step-line ${ok ? 'ok' : ''}` }, h('span', { class: `mark ${ok ? 'ok' : ''}` }), text);
 
@@ -63,8 +64,9 @@ export function microsoftTile(identityId, data, reload) {
         : [
             mcOk ? h('button', { class: 'primary', title: 'Outlook in this identity\'s own window', onclick: () => openMicrosoft(identityId, 'outlook') }, 'Open Outlook') : null,
             !mcOk && !data.deviceCode ? h('button', { class: 'primary', onclick: () => guard(async () => { await microsoftSignIn(identityId, ms.email); await reload(); }) }, 'Sign in again') : null,
-            h('button', { class: 'link-button', onclick: () => confirm('Disconnect the Microsoft account from this identity? Minecraft stops working until you sign in again.') && guard(async () => { await api.del(`/api/identities/${identityId}/microsoft`); await reload(); }, 'Disconnected') }, 'Disconnect'),
-          ]));
+            h('button', { class: 'link-button', onclick: () => confirm(t('Unlink the Microsoft account from this identity? It stays under Logins with its login and can be linked again.')) && guard(async () => { await api.del(`/api/identities/${identityId}/microsoft`); await reload(); }, 'Unlinked') }, 'Unlink'),
+          ],
+      libraryPicker('microsoft', identityId, reload)));
 }
 
 /** Discord tile. d = discord identity row (may be null), email = identity e-mail. */
@@ -103,6 +105,8 @@ export function discordTile(identityId, d, email, reload, opts = {}) {
         : [
             h('button', { class: 'primary big', onclick: () => { openDiscord(identityId, 'register'); helper.hidden = false; } }, 'Create Discord account'),
             h('button', { onclick: () => { openDiscord(identityId, 'login'); helper.hidden = false; } }, 'I already have one – sign in'),
-          ]),
+          ],
+      ready ? h('button', { class: 'link-button', onclick: () => confirm(t('Unlink the Discord account from this identity? It stays under Logins with its login and can be linked again.')) && guard(async () => { await api.post(`/api/identities/${identityId}/discord/disconnect`); await reload(); }, 'Unlinked') }, 'Unlink') : null,
+      libraryPicker('discord', identityId, reload)),
     helper);
 }

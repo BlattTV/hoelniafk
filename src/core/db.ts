@@ -379,6 +379,33 @@ const MIGRATIONS: string[] = [
     updated_at TEXT NOT NULL
   );
   `,
+  // v6: account library – Microsoft / Discord accounts on their own, linked to identities by hand.
+  // Existing logins become library entries with their previous browser profiles (still signed in).
+  `
+  CREATE TABLE accounts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind TEXT NOT NULL CHECK (kind IN ('microsoft', 'discord')),
+    label TEXT NOT NULL DEFAULT '',
+    email TEXT,
+    username TEXT,
+    partition TEXT NOT NULL UNIQUE,
+    ready INTEGER NOT NULL DEFAULT 0,
+    identity_id INTEGER REFERENCES identities(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+  CREATE UNIQUE INDEX accounts_identity ON accounts(kind, identity_id) WHERE identity_id IS NOT NULL;
+  CREATE UNIQUE INDEX accounts_email ON accounts(kind, email) WHERE email IS NOT NULL;
+  INSERT INTO accounts (kind, label, email, username, partition, ready, identity_id, created_at, updated_at)
+    SELECT 'microsoft', '', msa_account, CASE WHEN username LIKE 'Pending\_%' ESCAPE '\' THEN NULL ELSE username END,
+           'persist:hoelni-ms-' || identity_id, CASE WHEN auth_status = 'AUTHENTICATED' THEN 1 ELSE 0 END, identity_id,
+           strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+    FROM minecraft_identities WHERE auth_type = 'microsoft' AND msa_account IS NOT NULL;
+  INSERT INTO accounts (kind, label, email, username, partition, ready, identity_id, created_at, updated_at)
+    SELECT 'discord', '', NULL, username, 'persist:hoelni-discord-' || identity_id, 1, identity_id,
+           strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+    FROM discord_identities WHERE oauth_state = 'CONNECTED';
+  `,
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.length;

@@ -538,6 +538,39 @@ export async function buildServer(suite: Suite, opts: ServerOptions = {}): Promi
   );
   app.post('/api/identities/:id/discord/ready', async (req: Req) => suite.discord.markReady(num(req.params.id), bodyOf(req).username ? String(bodyOf(req).username) : null));
 
+  // ------------------------------------------------------------------ account library (Microsoft / Discord)
+  app.get('/api/accounts', async () => suite.accounts.list());
+  app.post('/api/accounts', async (req: Req) => {
+    const b = bodyOf(req);
+    return suite.accounts.create({ kind: b.kind, label: b.label, email: b.email, username: b.username });
+  });
+  app.patch('/api/accounts/:id', async (req: Req) => {
+    const b = bodyOf(req);
+    return suite.accounts.update(num(req.params.id), { label: b.label, username: b.username, ready: b.ready });
+  });
+  app.delete('/api/accounts/:id', async (req: Req) => {
+    await suite.accounts.remove(num(req.params.id));
+    return { ok: true };
+  });
+  app.post('/api/accounts/:id/link', async (req: Req) => {
+    const target = bodyOf(req).identityId;
+    return suite.accounts.link(num(req.params.id), target === null || target === undefined || target === '' ? null : num(target));
+  });
+  /** Window data for the desktop program (browser profile of the account). */
+  app.get('/api/accounts/:id/window', async (req: Req) => suite.accounts.window(num(req.params.id)));
+  /** Desktop program: the window of an identity's account (created for Discord / an existing Microsoft e-mail). */
+  app.post('/api/identities/:id/accounts/:kind/window', async (req: Req) => {
+    const kind = String(req.params.kind);
+    if (kind !== 'microsoft' && kind !== 'discord') throw new ValidationError('kind must be microsoft or discord');
+    return suite.accounts.window(suite.accounts.ensureFor(num(req.params.id), kind).id);
+  });
+  /** Opens a page in the account's window (a normal browser just follows the redirect). */
+  app.get('/api/accounts/:id/open', async (req: Req, reply: FastifyReply) => {
+    const url = suite.accounts.target(num(req.params.id), String(req.query.to ?? 'app'));
+    if (!isMicrosoftUrl(url) && !isDiscordUrl(url)) throw new ValidationError('Refusing to open this page');
+    return reply.header('Referrer-Policy', 'no-referrer').redirect(url, 302);
+  });
+
   // ------------------------------------------------------------------ Microsoft: Minecraft sign-in + Outlook, no app registration
   app.get('/api/identities/:id/microsoft', async (req: Req) => suite.microsoft.status(num(req.params.id)));
   app.post('/api/identities/:id/microsoft/connect', async (req: Req) => suite.microsoft.connect(num(req.params.id), String(bodyOf(req).email ?? '')));
