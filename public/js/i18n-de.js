@@ -1116,7 +1116,7 @@ export default {
  "Recent runs": "Letzte Ausführungen",
  "No runs yet.": "Noch keine Ausführungen.",
  "Macro builder": "Makro-Builder",
- "Blocks like in Scratch – for your Minecraft sessions. Macros pause while you play in the real game.": "Blöcke wie in Scratch – für deine Minecraft-Sessions. Makros pausieren, solange du selbst im echten Spiel spielst.",
+ "Blocks like in Scratch – for your Minecraft sessions. While you play in the game window, macros keep chatting and running commands; movement is up to you.": "Blöcke wie in Scratch – für deine Minecraft-Sessions. Während du im Spielfenster spielst, chatten Makros weiter und führen Befehle aus; bewegen tust du dich selbst.",
  "unsaved changes": "ungespeicherte Änderungen",
  "Macros": "Makros",
  "Scratch-style macros for your sessions": "Makros im Scratch-Stil für deine Sessions",

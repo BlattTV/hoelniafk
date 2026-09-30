@@ -1,7 +1,7 @@
 /**
  * Macro builder – Scratch-style blocks for Minecraft sessions.
  * Palette (drag) → script (drop between blocks or into C-blocks). Blocks carry their inputs inline.
- * Macros run next to the session (also on agents) and pause while you play in the real game.
+ * Macros run next to the session (also on agents); while you play in the game window only chat, commands and logic run.
  */
 import { api } from '../api.js';
 import { guard, h, mount, relTime, toast } from '../ui.js';
@@ -311,7 +311,7 @@ export async function macrosView(root) {
   };
 
   const renderHead = () => mount(headEl, h('div', { class: 'page-head' },
-    h('div', null, h('h1', null, 'Macro builder'), h('div', { class: 'muted' }, 'Blocks like in Scratch – for your Minecraft sessions. Macros pause while you play in the real game.')),
+    h('div', null, h('h1', null, 'Macro builder'), h('div', { class: 'muted' }, 'Blocks like in Scratch – for your Minecraft sessions. While you play in the game window, macros keep chatting and running commands; movement is up to you.')),
     dirty ? h('span', { class: 'badge warn' }, 'unsaved changes') : null));
 
   const renderAll = () => {
