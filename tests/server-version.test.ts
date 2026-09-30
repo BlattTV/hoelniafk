@@ -117,3 +117,24 @@ describe('kicked right after chatting', () => {
     expect(suite.repo.getSetting(`server.${srv.id}.unsignedChat`)).toBe('x'); // no more toggling
   });
 });
+
+describe('refused by the agent', () => {
+  it('stops with the reason instead of retrying forever (retrying cannot fix the setup)', async () => {
+    const t = await createTestSuite();
+    const { suite, bots } = t;
+    const srv = suite.repo.upsertServer({ name: 'hoelni', host: 'proxy.example.com', version: '1.21.11' });
+    const id = suite.identities.create({ label: 'R' }).identity.id;
+    suite.repo.upsertMinecraft(id, { username: 'Rplayer', authType: 'offline' });
+    suite.repo.assignServer(id, { serverId: srv.id });
+    await suite.sessions.startSession(id, srv.id);
+    await waitFor(() => bots.length === 1, 2000, 'bot');
+    bots[0].emit('error', new Error('Agent refused: Server 192.168.1.10 is a local/private address'));
+    bots[0].emit('end', 'refused');
+    const sid = `${id}:${srv.id}`;
+    await waitFor(() => suite.sessions.getState(sid).state === 'BLOCKED', 3000, 'blocked');
+    expect(suite.sessions.getState(sid).lastError).toMatch(/local\/private address/);
+    await new Promise((r) => setTimeout(r, 600));
+    expect(bots).toHaveLength(1); // no retry loop
+  });
+});
+

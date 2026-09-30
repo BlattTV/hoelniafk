@@ -27,6 +27,8 @@ const SESSION_ID = /^\d{1,9}:\d{1,9}$/;
 const HOSTNAME = /^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*\.?$/i;
 const VERSION = /^(auto|latest-release|latest-snapshot|[0-9A-Za-z][0-9A-Za-z._-]{0,39})$/;
 const USERNAME = /^[A-Za-z0-9_]{1,16}$/;
+/** Microsoft identities are named by the account e-mail (the profile name comes from the sign-in). */
+const ACCOUNT_EMAIL = /^[^\s@<>"'\\/]{1,64}@[A-Za-z0-9-]{1,63}(\.[A-Za-z0-9-]{1,63})+$/;
 
 /** True for addresses that must not be reached from an agent (private, loopback, link-local, CGNAT, multicast, …). */
 export function isPrivateAddress(ip: string): boolean {
@@ -58,7 +60,9 @@ async function assertPublicHost(host: string, what: string, allowPrivate: boolea
 
 async function checkSpec(spec: RuntimeSessionSpec, allowPrivate: boolean): Promise<void> {
   if (!SESSION_ID.test(String(spec?.sessionId))) throw new Error('invalid session id');
-  if (!USERNAME.test(String(spec.username))) throw new Error('invalid username');
+  if (spec.auth !== 'offline' && spec.auth !== 'microsoft') throw new Error('invalid sign-in type');
+  const name = String(spec.username);
+  if (!(USERNAME.test(name) || (spec.auth === 'microsoft' && name.length <= 254 && ACCOUNT_EMAIL.test(name)))) throw new Error('invalid username');
   const port = Number(spec.server?.port);
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('invalid server port');
   if (spec.server.version != null && !VERSION.test(String(spec.server.version))) throw new Error('invalid server version');

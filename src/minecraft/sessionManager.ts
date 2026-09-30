@@ -889,6 +889,14 @@ export class SessionManager {
       this.setState(r, 'STOPPED', r.state === 'STOPPING' ? null : e.error);
       return;
     }
+    if (e.reason === 'refused' && !/paused/i.test(e.error ?? '')) {
+      // The agent's own safety checks refused this session (e.g. a private server address): retrying
+      // cannot help until the setup is changed – stop and say why instead of looping.
+      r.lastError = (e.error ?? 'Agent refused the session').slice(0, 500);
+      this.audit.record(r.identityId, 'Session refused by the agent', { server: r.serverName, reason: r.lastError });
+      this.setState(r, 'BLOCKED', `${r.lastError} – change the setup, then start the session again`);
+      return;
+    }
     const policy = this.getRules().reconnect;
     const wasStable = r.onlineSince !== null && Date.now() - r.onlineSince > policy.stableAfterSec * 1000;
     r.consecutiveFailures = wasStable ? 1 : r.consecutiveFailures + 1;
@@ -1052,10 +1060,13 @@ export class SessionManager {
       return this.info(r);
     }
     const spec = await this.buildSpec(r);
+    // The game joins with the in-game profile name (for Microsoft identities spec.username is the e-mail).
+    const profileName = r.username ?? (spec.auth === 'offline' ? spec.username : null);
+    if (!profileName) throw new ValidationError('The session is not in the world yet – try again in a moment');
     r.takeover = 'launching';
     r.wantGame = true;
     this.audit.record(r.identityId, 'Game window opened on agent', { server: r.serverName });
-    this.runtime.sendToSessionHost?.(r.id, { cmd: 'game.open', sessionId: r.id, spec, settings: this.gameSettings(r), auth: { username: r.username ?? spec.username, uuid: r.uuid ?? '' } });
+    this.runtime.sendToSessionHost?.(r.id, { cmd: 'game.open', sessionId: r.id, spec, settings: this.gameSettings(r), auth: { username: profileName, uuid: r.uuid ?? '' } });
     this.setState(r, r.state);
     return this.info(r);
   }

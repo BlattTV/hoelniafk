@@ -45,6 +45,11 @@ describe('agent guard (commands from the manager)', () => {
   it('validates identifiers and game settings that end up in paths and launch arguments', async () => {
     expect(await refuseReason({ cmd: 'start', spec: { ...spec(), sessionId: '../../x' } } as MainToHost, true)).toMatch(/session id/);
     expect(await refuseReason({ cmd: 'start', spec: { ...spec(), username: 'a b' } } as MainToHost, true)).toMatch(/username/);
+    // Microsoft identities are named by the account e-mail – accepted only for Microsoft sign-in
+    expect(await refuseReason({ cmd: 'start', spec: { ...spec(), auth: 'microsoft', username: 'max.mustermann@outlook.de' } } as MainToHost, true)).toBeNull();
+    expect(await refuseReason({ cmd: 'start', spec: { ...spec(), auth: 'offline', username: 'max.mustermann@outlook.de' } } as MainToHost, true)).toMatch(/username/);
+    expect(await refuseReason({ cmd: 'start', spec: { ...spec(), auth: 'microsoft', username: '../x@y.de' } } as MainToHost, true)).toMatch(/username/);
+    expect(await refuseReason({ cmd: 'start', spec: { ...spec(), auth: 'other' } } as unknown as MainToHost, true)).toMatch(/sign-in type/);
     const open = (settings: Record<string, unknown>) =>
       ({ cmd: 'game.open', sessionId: '1:2', spec: spec(), settings: { mode: 'takeover', version: 'auto', loader: 'vanilla', memoryMb: 2048, ...settings }, auth: { username: 'Player01', uuid: '' } }) as MainToHost;
     expect(await refuseReason(open({}), true)).toBeNull();
