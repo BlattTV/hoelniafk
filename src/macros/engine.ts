@@ -27,6 +27,8 @@ class Stopped extends Error {}
 
 interface RunCtx {
   stopped: boolean;
+  /** "skipped while you play" was logged for this run. */
+  skipNoted?: boolean;
   chat: string[];
   wake: Array<() => void>;
 }
@@ -49,6 +51,8 @@ export class MacroEngine {
     private readonly emit: (e: MacroEvent) => void,
     private readonly isPaused: () => boolean = () => false,
     private readonly random: () => number = Math.random,
+    /** The player controls the body (game window open): movement/actions are skipped, chat and logic run. */
+    private readonly playerControls: () => boolean = () => false,
   ) {}
 
   /** Installs (or replaces) the macros of this session and their triggers. */
@@ -265,6 +269,17 @@ export class MacroEngine {
     if (p.humanize) await this.sleep(80 + this.random() * 140, ctx);
   }
 
+  /** Before a block that moves or uses the body: false while the player controls it in the game. */
+  private async body(ctx: RunCtx, p: MacroProgram, what: string): Promise<boolean> {
+    await this.ready(ctx, p);
+    if (!this.playerControls()) return true;
+    if (!ctx.skipNoted) {
+      ctx.skipNoted = true;
+      this.emit({ macroId: p.id, status: 'log', message: `"${what}" skipped – you are playing in the game window (chat, commands and logic keep running)` });
+    }
+    return false;
+  }
+
   private check(c: MacroCondition, ctx: RunCtx): boolean {
     switch (c.type) {
       case 'chatContains':
@@ -343,13 +358,13 @@ export class MacroEngine {
           this.vars.set(b.name, (this.vars.get(b.name) ?? 0) + b.by);
           break;
         case 'lookAtPlayer': {
-          await this.ready(ctx, p);
+          if (!(await this.body(ctx, p, 'lookAtPlayer'))) break;
           const pl = this.nearestPlayer(b.distance);
           if (pl) await bot.lookAt?.(pl.position.offset(0, pl.height ?? 1.62, 0), false);
           break;
         }
         case 'eat':
-          await this.ready(ctx, p);
+          if (!(await this.body(ctx, p, 'eat'))) break;
           try {
             await bot.consume?.();
           } catch (e) {
@@ -357,20 +372,20 @@ export class MacroEngine {
           }
           break;
         case 'equip': {
-          await this.ready(ctx, p);
+          if (!(await this.body(ctx, p, 'equip'))) break;
           const item = (bot.inventory?.items?.() ?? []).find((i: any) => i.name === b.name);
           if (!item) throw new Error(`No ${b.name} in the inventory`);
           await bot.equip?.(item, 'hand');
           break;
         }
         case 'drop': {
-          await this.ready(ctx, p);
+          if (!(await this.body(ctx, p, 'drop'))) break;
           const held = bot.heldItem;
           if (held) await (b.all ? bot.tossStack?.(held) : bot.toss?.(held.type, null, 1));
           break;
         }
         case 'breakBlock': {
-          await this.ready(ctx, p);
+          if (!(await this.body(ctx, p, 'breakBlock'))) break;
           const block = bot.blockAtCursor?.(4.5);
           if (block && block.name !== 'air' && bot.canDigBlock?.(block) !== false) await bot.dig?.(block, true);
           break;
@@ -408,7 +423,7 @@ export class MacroEngine {
           bot.chat(`/${this.fill(b.text)}`.slice(0, 256));
           break;
         case 'move':
-          await this.ready(ctx, p);
+          if (!(await this.body(ctx, p, 'move'))) break;
           bot.physicsEnabled = true;
           if (b.sprint) bot.setControlState('sprint', true);
           bot.setControlState(b.dir, true);
@@ -420,41 +435,41 @@ export class MacroEngine {
           }
           break;
         case 'jump':
-          bot.physicsEnabled = true;
           for (let i = 0; i < b.times; i++) {
-            await this.ready(ctx, p);
+            if (!(await this.body(ctx, p, 'jump'))) break;
+            bot.physicsEnabled = true;
             bot.setControlState('jump', true);
             await this.sleep(this.jitter(260, p), ctx).finally(() => bot.setControlState('jump', false));
             await this.sleep(this.jitter(340, p), ctx);
           }
           break;
         case 'sneak':
-          await this.ready(ctx, p);
+          if (!(await this.body(ctx, p, 'sneak'))) break;
           bot.setControlState('sneak', true);
           await this.sleep(this.jitter(b.seconds * 1000, p), ctx).finally(() => bot.setControlState('sneak', false));
           break;
         case 'turn':
-          await this.ready(ctx, p);
+          if (!(await this.body(ctx, p, 'turn'))) break;
           await bot.look((bot.entity?.yaw ?? 0) - (b.degrees * Math.PI) / 180, bot.entity?.pitch ?? 0, false);
           break;
         case 'look': {
-          await this.ready(ctx, p);
+          if (!(await this.body(ctx, p, 'look'))) break;
           const conv = require('mineflayer/lib/conversions');
           await bot.look(conv.fromNotchianYaw(b.yaw), conv.fromNotchianPitch(b.pitch), false);
           break;
         }
         case 'swing':
-          await this.ready(ctx, p);
+          if (!(await this.body(ctx, p, 'swing'))) break;
           bot.swingArm?.();
           break;
         case 'use':
-          await this.ready(ctx, p);
+          if (!(await this.body(ctx, p, 'use'))) break;
           bot.activateItem?.();
           await this.sleep(this.jitter(b.seconds * 1000, p), ctx).finally(() => bot.deactivateItem?.());
           break;
         case 'attack':
           for (let i = 0; i < b.times; i++) {
-            await this.ready(ctx, p);
+            if (!(await this.body(ctx, p, 'attack'))) break;
             const target = bot.nearestEntity?.((e: any) => e !== bot.entity && e.type !== 'player' && e.position && bot.entity && e.position.distanceTo(bot.entity.position) < 3.5);
             if (target) bot.attack(target);
             else bot.swingArm?.();
@@ -462,7 +477,7 @@ export class MacroEngine {
           }
           break;
         case 'slot':
-          await this.ready(ctx, p);
+          if (!(await this.body(ctx, p, 'slot'))) break;
           bot.setQuickBarSlot?.(b.slot - 1);
           break;
         case 'log':

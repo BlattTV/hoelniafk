@@ -222,8 +222,15 @@ export class RuntimeHostCore {
       return;
     }
     const s: HostSession = { spec, bot, afkTimer: null, statsTimer: null, ended: false, kicked: false, lastError: null, cache: null, takeover: null, macros: null };
-    // Macro builder: macros pause while the real game controls the session.
-    s.macros = new MacroEngine(bot, (e) => this.emit({ type: 'macro', sessionId: spec.sessionId, ...e }), () => !!s.takeover?.isAttached || (!!bot._client && bot._client.state !== 'play'));
+    // Macro builder: macros pause during a server switch; while the real game is open they keep running
+    // (chat, commands, logic) but leave movement and actions to the player.
+    s.macros = new MacroEngine(
+      bot,
+      (e) => this.emit({ type: 'macro', sessionId: spec.sessionId, ...e }),
+      () => !!bot._client && bot._client.state !== 'play',
+      Math.random,
+      () => !!s.takeover?.isAttached,
+    );
     s.macros.set(spec.macros ?? []);
     this.sessions.set(spec.sessionId, s);
     const id = spec.sessionId;

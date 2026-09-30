@@ -81,7 +81,7 @@ describe('macro engine', () => {
     e.dispose();
   });
 
-  it('pauses while the real game controls the session', async () => {
+  it('pauses during a server switch (configuration phase)', async () => {
     const bot = new Bot();
     let paused = true;
     const events: MacroEvent[] = [];
@@ -94,7 +94,32 @@ describe('macro engine', () => {
     await until(() => bot.sent.length === 1);
   });
 
-  it('humanized timing varies waits within ±15 %', async () => {
+  it('game window open: chat, commands and logic run, movement is left to the player', async () => {
+    const bot = new Bot();
+    const events: MacroEvent[] = [];
+    let playing = true;
+    const e = new MacroEngine(bot, (x) => events.push(x), () => false, Math.random, () => playing);
+    e.set([
+      prog([
+        { type: 'say', text: 'hello' },
+        { type: 'move', dir: 'forward', seconds: 0.2 },
+        { type: 'jump', times: 2 },
+        { type: 'command', text: 'spawn' },
+      ]),
+    ]);
+    e.run(1);
+    await until(() => events.some((x) => x.status === 'finished'));
+    expect(bot.sent).toEqual(['hello', '/spawn']);
+    expect(bot.controls.filter((c: string) => /(forward|jump):true/.test(c))).toEqual([]);
+    expect(events.filter((x) => x.status === 'log' && /skipped – you are playing/.test(x.message ?? ''))).toHaveLength(1);
+    // back to AFK: the same macro moves again
+    playing = false;
+    e.run(1);
+    await until(() => bot.controls.some((c: string) => /forward/.test(c)), 3000);
+    e.dispose();
+  });
+
+    it('humanized timing varies waits within ±15 %', async () => {
     const bot = new Bot();
     const events: MacroEvent[] = [];
     const e = new MacroEngine(bot, (x) => events.push(x), () => false, () => 1); // max jitter
