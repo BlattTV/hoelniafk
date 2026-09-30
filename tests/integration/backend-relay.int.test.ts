@@ -24,6 +24,8 @@ import { startLocalServer, type LocalServer } from '../../src/testserver/localSe
 import { StaticKeyProvider } from '../../src/vault/keyProviders.js';
 import { EncryptedFileVault } from '../../src/vault/vault.js';
 import { startSocks5 } from '../fixtures/socks5.js';
+import { startFakeMojang, type FakeMojang } from '../fixtures/fakeMojang.js';
+import type { WindowController, WindowResult } from '../../src/client/window.js';
 import { TEST_RULES, waitFor } from '../helpers.js';
 
 async function freePort(): Promise<number> {
@@ -50,10 +52,39 @@ let agentId: number;
 let identityId: number;
 let serverId: number;
 let tmp: string;
+let fakeMojang: FakeMojang;
+
+/** Records window operations of the game on THIS PC (the emulated game has no real window). */
+class FakeWindows implements WindowController {
+  readonly name = 'fake';
+  calls: Array<[string, number]> = [];
+  async show(pid: number): Promise<WindowResult> {
+    this.calls.push(['show', pid]);
+    return 'ok';
+  }
+  async minimize(pid: number): Promise<WindowResult> {
+    this.calls.push(['minimize', pid]);
+    return 'ok';
+  }
+  async close(): Promise<WindowResult> {
+    return 'nowindow';
+  }
+  async hasWindow(pid: number) {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  dispose() {}
+}
+const windows = new FakeWindows();
 
 beforeAll(async () => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hoelni-relay-'));
   mc = await startLocalServer({ port: await freePort(), version: '1.20.1' });
+  fakeMojang = await startFakeMojang();
 
   accounts = new Accounts(openDb(path.join(tmp, 'backend.db')));
   accounts.createUser('niklas', ADMIN_PW, 'admin');
@@ -66,12 +97,17 @@ beforeAll(async () => {
 
   const store = await EncryptedFileVault.open(null, new StaticKeyProvider());
   suite = createSuite({
-    config: { ...DEFAULT_CONFIG, runtime: { ...DEFAULT_CONFIG.runtime, mode: 'process', heartbeatMs: 1000, heartbeatTimeoutMs: 10000 } },
+    config: {
+      ...DEFAULT_CONFIG,
+      dataDir: tmp,
+      runtime: { ...DEFAULT_CONFIG.runtime, mode: 'process', heartbeatMs: 1000, heartbeatTimeoutMs: 10000 },
+      client: { ...DEFAULT_CONFIG.client, mirrors: fakeMojang.mirrors, onlineAfterMs: 1500, joinTimeoutMs: 60_000 },
+    },
     db: openDatabase(':memory:'),
     store,
     // Long reconnect backoff: sessions waiting for an agent must still start at once when it comes back.
     rules: { ...TEST_RULES, reconnect: { ...TEST_RULES.reconnect, baseDelaySec: 30, maxDelaySec: 60 } },
-    gameClient: null,
+    gameClient: { window: windows, closeTimeoutMs: 5000 },
     sessionOptions: { reconcileIntervalMs: 300 },
   });
   suite.repo.setSetting('backend.url', backendUrl);
@@ -88,6 +124,7 @@ afterAll(async () => {
   relay?.close();
   await new Promise((r) => backendServer?.close(r));
   await mc?.close();
+  await fakeMojang?.close();
   fs.rmSync(tmp, { recursive: true, force: true });
 }, 30_000);
 
@@ -184,6 +221,23 @@ describe('backend relay: manager and agent of the same account', () => {
       expect.arrayContaining([expect.stringMatching(/this PC/), expect.stringMatching(new RegExp(`agent #${agentId}`))]),
     );
   }, 90_000);
+
+  it('"Open game" for a session on an agent opens the game HERE; closing it hands the account back to the agent', async () => {
+    const sid = `${identityId}:${serverId}`;
+    await waitFor(() => suite.sessions.getState(sid).state === 'ONLINE' && !!suite.runtime.isRemoteSession?.(sid), 30_000, 'ONLINE on the agent');
+    await suite.sessions.openGame(sid);
+    // the game on this PC holds the account; the agent released it
+    await waitFor(() => suite.sessions.getState(sid).runtime === 'game' && suite.sessions.getState(sid).state === 'ONLINE', 90_000, 'game on this PC online');
+    await waitFor(() => agent.status.sessions.length === 0, 10_000, 'agent released the session');
+    expect(mc.players().filter((p) => p === 'Remote01')).toHaveLength(1);
+    const pid = suite.sessions.getState(sid).game!.pid!;
+    await waitFor(() => windows.calls.some(([c, p]) => c === 'show' && p === pid), 10_000, 'window shown here');
+    // Back to AFK: the agent takes the account again
+    await suite.sessions.closeGame(sid);
+    await waitFor(() => suite.sessions.getState(sid).state === 'ONLINE' && suite.sessions.getState(sid).runtime === 'lightweight' && !!suite.runtime.isRemoteSession?.(sid), 60_000, 'back on the agent');
+    await waitFor(() => agent.status.sessions.length === 1, 10_000, 'agent holds it again');
+    expect(mc.players().filter((p) => p === 'Remote01')).toHaveLength(1);
+  }, 180_000);
 
   it('a start that cannot happen says why in the session log (agent offline)', async () => {
     const sid = `${identityId}:${serverId}`;

@@ -698,8 +698,15 @@ export class SessionManager {
   private chooseRuntime(r: SessionRecord): 'lightweight' | 'game' {
     if (!this.game) return 'lightweight';
     const mode = this.gameSettings(r).mode;
-    if (mode === 'background') return 'game';
-    return r.wantGame && mode === 'handover' ? 'game' : 'lightweight';
+    const onAgent = this.placedOnAgent(r);
+    if (mode === 'background' && !onAgent) return 'game';
+    // An identity that runs on an agent is played on THIS PC with its own login while the game is open.
+    return r.wantGame && (mode === 'handover' || onAgent) ? 'game' : 'lightweight';
+  }
+
+  /** "Run on" of the identity is an agent (another PC). */
+  private placedOnAgent(r: SessionRecord): boolean {
+    return this.repo.getIdentity(r.identityId).settings.agentId != null;
   }
 
   private onRuntimeEvent(source: 'lightweight' | 'game', e: RuntimeEvent): void {
@@ -871,7 +878,7 @@ export class SessionManager {
         // The user closed the game window: back to AFK right away.
         r.wantGame = false;
         const a0 = this.repo.getAssignment(r.identityId, r.serverId);
-        if (a0?.enabled && a0.desiredState === 'ONLINE' && !this.stopped && this.gameSettings(r).mode === 'handover') {
+        if (a0?.enabled && a0.desiredState === 'ONLINE' && !this.stopped && (this.gameSettings(r).mode === 'handover' || this.placedOnAgent(r))) {
           r.consecutiveFailures = 0;
           r.onlineSince = null;
           r.nextAttemptAt = Date.now();
@@ -1008,7 +1015,10 @@ export class SessionManager {
     const r = this.get(sessionId);
     const a = this.repo.getAssignment(r.identityId, r.serverId);
     if (!a) throw new ValidationError('Identity is not assigned to this server');
-    if (this.repo.getIdentity(r.identityId).settings.agentId != null) return this.openGameOnAgent(r, a.desiredState);
+    const onAgent = this.placedOnAgent(r);
+    // The AFK session runs on an agent: the game opens HERE (where the button was clicked) with its own
+    // login – the agent hands the account over and takes it back when the game is closed.
+    if (onAgent && !this.game) return this.openGameOnAgent(r, a.desiredState);
     if (!this.game) throw new ValidationError('The game client is not available');
     r.wantGame = true;
     if (this.game.has(r.id) && r.takeover === 'none' && r.runtime === 'lightweight') {
@@ -1021,7 +1031,7 @@ export class SessionManager {
     }
     if (a.desiredState !== 'ONLINE') this.setDesired(r.identityId, r.serverId, 'ONLINE');
     this.audit.record(r.identityId, 'Game window opened', { server: r.serverName });
-    if (this.gameSettings(r).mode === 'takeover' && !r.takeoverBroken) {
+    if (this.gameSettings(r).mode === 'takeover' && !r.takeoverBroken && !onAgent) {
       if (r.state !== 'ONLINE' || r.runtime !== 'lightweight') await this.waitOnline(r);
       await this.withLock(r, async () => {
         if (this.game!.has(r.id)) return void (await this.game!.show(r.id));
