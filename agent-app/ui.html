@@ -5,25 +5,26 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:">
   <title>Hoelni Agent</title>
   <style>
-    :root { --bg:#f1eee7; --panel:#faf8f3; --line:#d9d3c6; --text:#22201c; --muted:#6e685d; --accent:#3f6b3a; --accent-ink:#f6f3ea; --ok:#3f7d3a; --warn:#9a6512; --err:#a63d28; --input:#fffdf8;
+    :root { --bg:#f1f5f9; --panel:#ffffff; --line:#e2e8f0; --text:#0f172a; --muted:#64748b; --accent:#3b82f6; --accent-ink:#ffffff; --ok:#16a34a; --warn:#d97706; --err:#dc2626; --input:#ffffff;
       --sans:'Segoe UI Variable Text','Segoe UI',system-ui,sans-serif; --mono:'Cascadia Mono',Consolas,monospace; }
-    @media (prefers-color-scheme: dark) { :root { --bg:#1b1a17; --panel:#22211d; --line:#37342d; --text:#e9e5da; --muted:#9c968a; --accent:#93b872; --accent-ink:#1b1a17; --ok:#93b872; --warn:#d9a441; --err:#e07b61; --input:#1f1e1a; color-scheme: dark; } }
+    @media (prefers-color-scheme: dark) { :root { --bg:#0b1220; --panel:#0f172a; --line:#1e293b; --text:#e2e8f0; --muted:#94a3b8; --accent:#3b82f6; --accent-ink:#ffffff; --ok:#4ade80; --warn:#fbbf24; --err:#f87171; --input:#0b1220; color-scheme: dark; } }
     * { box-sizing: border-box; }
     body { margin:0; background:var(--bg); color:var(--text); font:14px/1.45 var(--sans); }
     header { display:flex; align-items:center; gap:10px; padding:14px 18px; border-bottom:1px solid var(--line); background:var(--panel); }
-    header .mark { width:14px; height:14px; background:var(--accent); }
+    header .mark { width:32px; height:32px; border-radius:8px; background:#0b1220 url(mark.png) center / contain no-repeat; }
+    .hero { display:block; width:200px; margin:6px auto 14px; border-radius:16px; background:#0b1220; padding:14px 18px; box-sizing:content-box; }
     header strong { font-size:15px; }
     header small { color:var(--muted); margin-left:auto; font-family:var(--mono); }
     main { padding:16px 18px; }
-    section { background:var(--panel); border:1px solid var(--line); border-radius:3px; padding:14px 16px; margin-bottom:12px; }
+    section { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px 16px; margin-bottom:12px; }
     h2 { font-size:13px; text-transform:uppercase; letter-spacing:.06em; margin:0 0 10px; color:var(--muted); font-weight:600; }
     label { display:block; margin-bottom:8px; font-size:13px; color:var(--muted); }
-    input { display:block; width:100%; margin-top:3px; padding:7px 9px; border:1px solid var(--line); border-radius:3px; background:var(--input); color:var(--text); font:inherit; }
-    button { padding:7px 14px; border:1px solid var(--line); border-radius:3px; background:var(--panel); color:var(--text); font:inherit; cursor:pointer; }
+    input { display:block; width:100%; margin-top:3px; padding:7px 9px; border:1px solid var(--line); border-radius:10px; background:var(--input); color:var(--text); font:inherit; }
+    button { padding:7px 14px; border:1px solid var(--line); border-radius:10px; background:var(--panel); color:var(--text); font:inherit; cursor:pointer; }
     button.primary { background:var(--accent); border-color:var(--accent); color:var(--accent-ink); }
     button:disabled { opacity:.6; cursor:default; }
     .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
-    .state { display:inline-block; padding:2px 8px; border-radius:3px; font-weight:600; font-size:12px; border:1px solid currentColor; }
+    .state { display:inline-block; padding:2px 8px; border-radius:10px; font-weight:600; font-size:12px; border:1px solid currentColor; }
     .s-online { color:var(--ok); } .s-paused, .s-offline, .s-connecting { color:var(--warn); } .s-revoked { color:var(--err); }
     .kv { display:grid; grid-template-columns: 130px 1fr; gap:4px 10px; margin:10px 0; }
     .kv div:nth-child(odd) { color:var(--muted); }
@@ -42,6 +43,7 @@
   <main>
     <!-- not signed in -->
     <section id="login" hidden>
+      <img class="hero" src="logo.png" alt="Hoelni AFK Client">
       <h2>Anmelden</h2>
       <p class="muted">Melde dich mit dem Hoelni-Konto an, das du bekommen hast. Danach kann dieser PC AFK-Sessions für dieses Konto ausführen – du siehst hier jederzeit, was läuft, und kannst pausieren.</p>
       <label>Benutzername <input id="user" autocomplete="username"></label>

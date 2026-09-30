@@ -25,7 +25,8 @@
     "files": [
       "main.cjs",
       "build/icon.png",
-      "build/tray.png"
+      "build/tray.png",
+      "build/logo.png"
     ],
     "extraResources": [
       {

@@ -191,15 +191,27 @@ function logTail(lines = 25) {
 
 const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 
+let logoData = null;
+function logoUri() {
+  if (logoData === null) {
+    try {
+      logoData = `data:image/png;base64,${fs.readFileSync(path.join(__dirname, 'build', 'logo.png')).toString('base64')}`;
+    } catch {
+      logoData = '';
+    }
+  }
+  return logoData;
+}
+
 function statusPage(title, detail, { log = '', error = false } = {}) {
   return `<!doctype html><html><head><meta charset="utf-8"><title>Hoelni Client Suite</title><style>
-    body{margin:0;font:14px/1.5 'Segoe UI',system-ui,sans-serif;background:#1b1a17;color:#e9e5da;display:grid;place-items:center;min-height:100vh}
-    main{width:min(820px,92vw)} .mark{width:24px;height:24px;display:inline-block;vertical-align:middle;margin-right:10px;background:linear-gradient(#5f8f3e 0 33%,#7a5536 33%)}
-    h1{font-size:20px;margin:0 0 6px} p{color:#9c968a;margin:4px 0 14px} .err h1{color:#e07b61}
-    pre{background:#22211d;border:1px solid #37342d;padding:10px 12px;max-height:50vh;overflow:auto;font:12px/1.45 'Cascadia Mono',Consolas,monospace;white-space:pre-wrap}
-    .bar{height:3px;background:#37342d;overflow:hidden;margin:14px 0}.bar i{display:block;height:100%;width:30%;background:#93b872;animation:m 1.2s linear infinite}
-    @keyframes m{from{margin-left:-30%}to{margin-left:100%}} code{color:#93b872}</style></head>
-    <body><main class="${error ? 'err' : ''}"><h1><span class="mark"></span>${esc(title)}</h1><p>${esc(detail)}</p>
+    body{margin:0;font:14px/1.5 'Segoe UI',system-ui,sans-serif;background:#0b1220;color:#e2e8f0;display:grid;place-items:center;min-height:100vh}
+    main{width:min(820px,92vw)} .logo{display:block;width:220px;margin:0 auto 18px}
+    h1{font-size:20px;margin:0 0 6px} p{color:#94a3b8;margin:4px 0 14px} .err h1{color:#f87171}
+    pre{background:#0f172a;border:1px solid #1e293b;border-radius:10px;padding:10px 12px;max-height:50vh;overflow:auto;font:12px/1.45 'Cascadia Mono',Consolas,monospace;white-space:pre-wrap}
+    .bar{height:3px;border-radius:3px;background:#1e293b;overflow:hidden;margin:14px 0}.bar i{display:block;height:100%;width:30%;background:#3b82f6;animation:m 1.2s linear infinite}
+    @keyframes m{from{margin-left:-30%}to{margin-left:100%}} code{color:#60a5fa}</style></head>
+    <body><main class="${error ? 'err' : ''}">${logoUri() ? `<img class="logo" src="${logoUri()}" alt="Hoelni">` : ''}<h1>${esc(title)}</h1><p>${esc(detail)}</p>
     ${error ? '' : '<div class="bar"><i></i></div>'}
     ${log ? `<p>Last lines of <code>${esc(logFile())}</code>:</p><pre>${esc(log)}</pre>` : ''}
     ${error ? '<p>The window retries automatically. <b>F5</b> retries now, <b>Ctrl+Shift+I</b> opens the developer tools.</p>' : ''}

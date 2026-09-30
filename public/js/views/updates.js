@@ -32,6 +32,7 @@ export function updatesCard(st, rerender, backend = null) {
   const cur = st.current;
   return h('section', { class: 'card', id: 'updates-card' },
     h('h2', null, 'Updates'),
+    h('img', { class: 'logo-card updates-logo', src: '/static/img/logo-card.png', alt: 'Hoelni AFK Client' }),
     h('div', { class: 'kv' },
       h('div', null, 'Installed'), h('div', { class: 'mono' }, `${cur.version}${cur.build ? ` · build #${cur.build}` : ' · from source checkout'}${cur.commit ? ` · ${cur.commit.slice(0, 7)}` : ''}`),
       h('div', null, 'Update server'), h('div', { class: 'mono' }, s.url || '– not configured –'),

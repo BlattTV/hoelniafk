@@ -78,7 +78,7 @@ svg.i { width: 18px; height: 18px; flex: none; stroke: currentColor; fill: none;
 .brand strong { font-size: 17px; font-weight: 700; letter-spacing: -0.01em; }
 .brand small { display: block; color: var(--muted); font-size: 12px; }
 /* isometric block in primary blue */
-.brand-mark { width: 32px; height: 32px; flex: none; background: no-repeat center / contain url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 2 29 9.5v13L16 30 3 22.5v-13z' fill='%231d4ed8'/%3E%3Cpath d='M16 2 29 9.5 16 17 3 9.5z' fill='%2360a5fa'/%3E%3Cpath d='M16 17v13l13-7.5v-13z' fill='%232563eb'/%3E%3Cpath d='M16 9.2 22.5 13 16 16.8 9.5 13z' fill='%231e3a8a' opacity='.55'/%3E%3C/svg%3E"); }
+.brand-mark { width: 36px; height: 36px; flex: none; border-radius: 9px; background: #0b1220 no-repeat center / contain url("/static/img/mark.png"); box-shadow: 0 0 0 1px rgba(59, 130, 246, .25), 0 4px 14px rgba(59, 130, 246, .18); }
 .sidebar-foot { margin-top: auto; font-size: 12px; color: var(--muted); padding: 12px 8px 0; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .sidebar-foot + .sidebar-foot { margin-top: 4px; }
 #conn-state.live::before { content: ''; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--ok); margin-right: 6px; vertical-align: 0; box-shadow: 0 0 0 3px var(--tint-ok); }
@@ -361,6 +361,11 @@ button.link-button:hover { color: var(--text); background: none; }
 
 /* ---------------------------------------------------------------- restart overlay (update / rollback / suite restart) */
 .restart-overlay { position: fixed; inset: 0; z-index: 200; background: rgba(2, 6, 23, .7); backdrop-filter: blur(3px); display: grid; place-items: center; }
+.restart-logo { display: block; width: 180px; margin: 0 auto 14px; }
 .restart-box { background: var(--panel); border: 1px solid var(--line-strong); border-radius: var(--radius-lg); padding: 22px 28px; display: flex; gap: 14px; align-items: center; box-shadow: 0 24px 60px rgba(0, 0, 0, .45); font-weight: 500; }
 .spinner { width: 22px; height: 22px; border-radius: 50%; border: 3px solid var(--tint-info); border-top-color: var(--primary); animation: spin .8s linear infinite; flex: none; }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* ---------------------------------------------------------------- logo (always on the navy tile – reads the same in light and dark) */
+.logo-card { display: block; width: min(320px, 100%); height: auto; border-radius: 18px; box-shadow: 0 10px 34px rgba(2, 6, 23, .35); }
+.updates-logo { width: 160px; margin: 4px 0 14px; }

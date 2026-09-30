@@ -193,7 +193,7 @@ export async function dashboardView(root) {
                 h('td', { class: 'mono' }, String(r.stars), r.eligible ? h('span', { class: 'tag', title: 'eligible for rewards', style: { marginLeft: '6px' } }, 'eligible') : null),
                 h('td', null, badge(r.health, r.ready ? 'READY' : r.health)),
               ))
-          : h('tr', null, h('td', { colspan: 9, class: 'empty' }, rows.length ? 'No identity matches the filters.' : 'No identities yet – click “New identity”.'))));
+          : h('tr', null, h('td', { colspan: 9, class: 'empty' }, rows.length ? 'No identity matches the filters.' : h('div', null, h('img', { class: 'logo-card', src: '/static/img/logo-card.png', alt: 'Hoelni AFK Client', style: 'width:220px;margin:8px auto 14px' }), 'No identities yet – click “New identity”.')))));
     clear(tableWrap).appendChild(table);
   };
 

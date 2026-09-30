@@ -28,7 +28,9 @@
       "ui.html",
       "ui.js",
       "build/icon.png",
-      "build/tray.png"
+      "build/tray.png",
+      "logo.png",
+      "mark.png"
     ],
     "extraResources": [
       {

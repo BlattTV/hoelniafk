@@ -22,6 +22,11 @@ function showOverlay(message) {
   if (overlay) return;
   overlay = document.createElement('div');
   overlay.className = 'restart-overlay';
+  const wrap = document.createElement('div');
+  const logo = document.createElement('img');
+  logo.className = 'restart-logo logo-card';
+  logo.src = '/static/img/logo-card.png';
+  logo.alt = 'Hoelni';
   const box = document.createElement('div');
   box.className = 'restart-box';
   const spin = document.createElement('span');
@@ -29,7 +34,8 @@ function showOverlay(message) {
   const text = document.createElement('div');
   text.textContent = message;
   box.append(spin, text);
-  overlay.append(box);
+  wrap.append(logo, box);
+  overlay.append(wrap);
   document.body.append(overlay);
 }
 
