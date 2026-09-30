@@ -19,7 +19,11 @@ import path from 'node:path';
 export const UPDATE_DIR = '.update';
 export const RESTART_FOR_UPDATE = 75;
 /** Replaced by an update (config/rules.yaml is handled separately – user edits are kept). */
-export const UPDATE_ITEMS = ['dist', 'public', 'package.json', 'package-lock.json', 'build-info.json', 'config/app.example.yaml', 'desktop/main.cjs', 'desktop/package.json'];
+export const UPDATE_ITEMS = [
+  'dist', 'public', 'package.json', 'package-lock.json', 'build-info.json', 'config/app.example.yaml',
+  // the window programs (desktop/loader.cjs and agent-app/loader.cjs start these after an update)
+  'desktop/main.cjs', 'desktop/package.json', 'desktop/build', 'agent-app',
+];
 
 type Log = (msg: string) => void;
 

@@ -1177,5 +1177,9 @@ export default {
  "Add an IMAP mailbox (optional)": "IMAP-Postfach hinzufügen (optional)",
  "The suite is restarting – one moment…": "Die Suite startet neu – einen Moment…",
  "Installing the update – the suite restarts…": "Update wird installiert – die Suite startet neu…",
- "Restoring the previous version – the suite restarts…": "Vorherige Version wird wiederhergestellt – die Suite startet neu…"
+ "Restoring the previous version – the suite restarts…": "Vorherige Version wird wiederhergestellt – die Suite startet neu…",
+ "Installers for new PCs": "Installer für neue PCs",
+ "Suite and agent are ready to download – give this link to the other household. After installing, both update themselves.": "Suite und Agent liegen fertig zum Download bereit – gib diesen Link an den anderen Haushalt. Nach der Installation aktualisieren sich beide selbst.",
+ "Copy link": "Link kopieren",
+ "Link copied to clipboard": "Link in die Zwischenablage kopiert"
 };

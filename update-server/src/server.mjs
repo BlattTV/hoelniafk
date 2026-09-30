@@ -7,6 +7,8 @@
  *   GET  /api/channels/:channel/latest         signed envelope { manifest, signature, keyId }
  *   GET  /api/releases                         manifests (newest first)
  *   GET  /files/:build/:file                   bundle / installer
+ *   GET  /api/downloads                        latest Windows installers (suite, agent) for new PCs
+ *   GET  /downloads/:file                      installer download
  *   GET  /                                     status page
  * Admin (Authorization: Bearer <admin token>):
  *   POST /api/build            { channel?, ifChanged? }   build from git now
@@ -61,6 +63,7 @@ function statusPage(store, builder, publicKey) {
 <body><h1>Hoelni Client Suite – update server</h1>
 <p>Signing key fingerprint: <code>${esc(fingerprint(publicKey))}</code></p>
 <p class="muted">Builder: ${b ? `${esc(b.repo)} @ ${esc(b.branch)} · last commit <code>${esc((b.lastCommit ?? '–').slice(0, 7))}</code> · ${b.running ? 'building…' : b.last ? (b.last.ok ? (b.last.skipped ? 'up to date' : `built #${b.last.build}`) : `last build failed: ${esc(b.last.error.slice(-300))}`) : 'idle'}` : 'disabled'}</p>
+<p>Installers: ${Object.values(store.downloads.items).map((i) => `<a href="/downloads/${esc(i.file)}">${esc(i.file)}</a> (${(i.size / 1e6).toFixed(0)} MB)`).join(' · ') || '<span class="muted">none yet (built with the next release, or: hoelni-updates build-installers)</span>'}</p>
 <table><thead><tr><th>Build</th><th>Version</th><th>Created (UTC)</th><th>Files</th><th>Changes</th></tr></thead><tbody>${rows || '<tr><td colspan="5">No releases yet</td></tr>'}</tbody></table></body></html>`;
 }
 
@@ -86,6 +89,15 @@ export function createServer({ store, builder, publicKey, adminTokenHash }) {
         return env ? send(res, 200, env) : send(res, 404, { error: `No release in channel "${m[1]}"` });
       }
       if (req.method === 'GET' && p === '/api/releases') return send(res, 200, { channels: store.channels, releases: store.list() });
+      if (req.method === 'GET' && p === '/api/downloads') return send(res, 200, { items: store.downloads.items });
+      if (req.method === 'GET' && (m = /^\/downloads\/([^/]+)$/.exec(p))) {
+        const file = store.downloadPath(decodeURIComponent(m[1]));
+        if (!file) return send(res, 404, { error: 'Not found' });
+        const st = fs.statSync(file);
+        res.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Content-Length': st.size, 'Content-Disposition': `attachment; filename="${m[1]}"`, 'Cache-Control': 'no-cache' });
+        fs.createReadStream(file).pipe(res);
+        return;
+      }
       if (req.method === 'GET' && (m = /^\/files\/(\d+)\/([^/]+)$/.exec(p))) {
         const file = store.filePath(Number(m[1]), decodeURIComponent(m[2]));
         if (!file) return send(res, 404, { error: 'Not found' });

@@ -2,14 +2,13 @@
   "name": "hoelni-agent",
   "productName": "Hoelni Agent",
   "version": "0.4.0",
-  "description": "Hoelni Agent \u2013 lets this PC run AFK sessions for your Hoelni account (sign in, done)",
-  "main": "main.cjs",
+  "description": "Hoelni Agent – lets this PC run AFK sessions for your Hoelni account (sign in, done)",
+  "main": "loader.cjs",
   "private": true,
   "license": "UNLICENSED",
   "scripts": {
     "start": "electron .",
-    "prepare-runtime": "node prepare.cjs",
-    "dist": "node prepare.cjs && electron-builder --win --x64"
+    "dist": "node ../scripts/build-installers.mjs --only agent"
   },
   "devDependencies": {
     "electron": "^44.4.5",
@@ -23,6 +22,7 @@
       "buildResources": "build"
     },
     "files": [
+      "loader.cjs",
       "main.cjs",
       "preload.cjs",
       "ui.html",
@@ -30,7 +30,8 @@
       "build/icon.png",
       "build/tray.png",
       "logo.png",
-      "mark.png"
+      "mark.png",
+      "build/icon.ico"
     ],
     "extraResources": [
       {
@@ -45,7 +46,7 @@
       "target": [
         "nsis"
       ],
-      "icon": "build/icon.png"
+      "icon": "build/icon.ico"
     },
     "nsis": {
       "oneClick": true,

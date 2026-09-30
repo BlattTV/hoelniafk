@@ -7,13 +7,25 @@
  * e.g. better-sqlite3 for Windows) and reinstalls them only when package-lock.json changed.
  */
 import { execFileSync } from 'node:child_process';
+import crypto from 'node:crypto';
+import os from 'node:os';
 import fs from 'node:fs';
 import path from 'node:path';
 import { strToU8, zipSync } from 'fflate';
 import { sha256 } from './sign.mjs';
 
 const BUNDLE_DIRS = ['dist', 'public'];
-const BUNDLE_FILES = ['package.json', 'package-lock.json', 'config/rules.yaml', 'config/app.example.yaml', 'desktop/main.cjs', 'desktop/package.json'];
+const BUNDLE_FILES = [
+  'package.json', 'package-lock.json', 'config/rules.yaml', 'config/app.example.yaml',
+  // window programs – installed programs start the updated ones (desktop/loader.cjs, agent-app/loader.cjs);
+  // same list as SHELL_FILES in scripts/build-installers.mjs
+  'desktop/main.cjs', 'desktop/package.json', 'desktop/build/icon.png', 'desktop/build/tray.png', 'desktop/build/logo.png', 'desktop/build/icon.ico',
+  'agent-app/main.cjs', 'agent-app/preload.cjs', 'agent-app/ui.html', 'agent-app/ui.js', 'agent-app/logo.png', 'agent-app/mark.png', 'agent-app/package.json',
+  'agent-app/build/icon.png', 'agent-app/build/tray.png', 'agent-app/build/icon.ico',
+];
+
+/** Files that make a new installer necessary (Electron version, starter, build script, icons). */
+const INSTALLER_INPUTS = ['desktop/package.json', 'desktop/package-lock.json', 'desktop/loader.cjs', 'agent-app/package.json', 'agent-app/loader.cjs', 'scripts/build-installers.mjs', 'desktop/build/icon.ico', 'agent-app/build/icon.ico'];
 
 function run(cmd, args, cwd, env = {}) {
   return execFileSync(cmd, args, { cwd, env: { ...process.env, ...env }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 64 * 1024 * 1024 });
@@ -149,6 +161,61 @@ export class Builder {
     const manifest = this.store.publish({ bundle, version, commit, branch, notes, lockHash, channel });
     this.log(`published build ${manifest.build} (${manifest.version}) to "${channel}"`);
     if (this.opts.keep) this.store.prune(this.opts.keep);
-    return { skipped: false, build: manifest.build, version: manifest.version, commit };
+    let installers = null;
+    if (this.opts.installers !== false) installers = await this.buildInstallersLocked({ build: manifest.build });
+    return { skipped: false, build: manifest.build, version: manifest.version, commit, installers };
+  }
+
+  /** Inputs of the installers: they only need a rebuild when these change (the programs update themselves). */
+  installerInputsHash() {
+    const h = crypto.createHash('sha256').update(process.version);
+    for (const f of INSTALLER_INPUTS) {
+      const p = path.join(this.opts.workDir, f);
+      h.update(`${f}\0`);
+      if (fs.existsSync(p)) h.update(fs.readFileSync(p));
+    }
+    return h.digest('hex');
+  }
+
+  /**
+   * Windows installers of the suite and the agent (offered at <backend>/download for new PCs).
+   * Built on this Linux machine (scripts/build-installers.mjs, no Wine). Failures never block a release.
+   */
+  async buildInstallersLocked({ build = null, force = false } = {}) {
+    const workDir = this.opts.workDir;
+    const inputsHash = this.installerInputsHash();
+    const current = this.store.downloads;
+    const have = ['suite', 'agent'].every((k) => current.items[k] && this.store.downloadPath(current.items[k].file));
+    if (!force && have && current.inputsHash === inputsHash) return { skipped: true };
+    try {
+      this.log('building the Windows installers (suite + agent)');
+      run('npm', ['ci', '--no-audit', '--no-fund'], path.join(workDir, 'desktop'), { ELECTRON_SKIP_BINARY_DOWNLOAD: '1' });
+      const out = fs.mkdtempSync(path.join(os.tmpdir(), 'hoelni-installers-'));
+      try {
+        const text = run(process.execPath, [path.join(workDir, 'scripts', 'build-installers.mjs'), '--skip-build', '--out', out], workDir);
+        const result = JSON.parse(text.trim().split('\n').pop());
+        const d = this.store.setDownloads(result.installers, { build, inputsHash });
+        this.log(`installers ready: ${Object.values(d.items).map((i) => i.file).join(', ')}`);
+        return { skipped: false, files: Object.values(d.items).map((i) => i.file) };
+      } finally {
+        fs.rmSync(out, { recursive: true, force: true });
+        for (const d of ['desktop/release', 'desktop/bundle', 'agent-app/release', 'agent-app/bundle']) fs.rmSync(path.join(workDir, d), { recursive: true, force: true });
+      }
+    } catch (e) {
+      const error = String(e.stderr || e.message).slice(-1500);
+      this.log(`installer build failed (the release itself is published): ${error}`);
+      return { skipped: false, error };
+    }
+  }
+
+  /** Rebuilds the installers from the last built commit (hoelni-updates build-installers). */
+  async buildInstallers({ force = true } = {}) {
+    const unlock = this.lock();
+    try {
+      if (!fs.existsSync(path.join(this.opts.workDir, 'dist'))) throw new Error('Nothing built yet – run "hoelni-updates build" first');
+      return await this.buildInstallersLocked({ build: this.store.state.nextBuild - 1, force });
+    } finally {
+      unlock();
+    }
   }
 }

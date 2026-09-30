@@ -5,6 +5,7 @@
  *   <dataDir>/releases/<build>/<files>          backend bundle, optional Windows installer
  *   <dataDir>/channels.json                     { stable: <build>, beta: <build> }
  *   <dataDir>/state.json                        { nextBuild, lastCommit }
+ *   <dataDir>/downloads/                        latest Windows installers (suite + agent) + downloads.json
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -120,6 +121,36 @@ export class Store {
     const manifest = { ...env.manifest, installer: { file: name, sha256: sha256(bytes), size: bytes.length, desktopVersion: desktopVersion ?? null } };
     fs.writeFileSync(path.join(this.releaseDir(build), 'manifest.json'), JSON.stringify(signManifest(manifest, this.privatePem), null, 2));
     return manifest;
+  }
+
+  // ---------------------------------------------------------------- downloads (installers for new PCs)
+
+  get downloads() {
+    return this.readJson(path.join('downloads', 'downloads.json'), { items: {}, inputsHash: null });
+  }
+
+  /** Replaces the offered installers: entries { kind, path, file, size, sha256, version } from build-installers.mjs. */
+  setDownloads(entries, meta = {}) {
+    const dir = path.join(this.dataDir, 'downloads');
+    fs.mkdirSync(dir, { recursive: true });
+    const items = { ...this.downloads.items };
+    for (const e of entries) {
+      if (!SAFE_FILE.test(e.file) || !/\.exe$/i.test(e.file)) throw new Error(`Bad installer name ${e.file}`);
+      fs.copyFileSync(e.path, path.join(dir, `${e.file}.tmp`));
+      fs.renameSync(path.join(dir, `${e.file}.tmp`), path.join(dir, e.file));
+      items[e.kind] = { kind: e.kind, file: e.file, size: e.size, sha256: e.sha256, version: e.version, build: meta.build ?? null, builtAt: new Date().toISOString() };
+    }
+    const keep = new Set([...Object.values(items).map((i) => i.file), 'downloads.json']);
+    for (const f of fs.readdirSync(dir)) if (!keep.has(f)) fs.rmSync(path.join(dir, f), { force: true });
+    this.writeJson(path.join('downloads', 'downloads.json'), { items, inputsHash: meta.inputsHash ?? this.downloads.inputsHash });
+    return this.downloads;
+  }
+
+  downloadPath(name) {
+    if (!SAFE_FILE.test(name)) return null;
+    if (!Object.values(this.downloads.items).some((i) => i.file === name)) return null;
+    const p = path.join(this.dataDir, 'downloads', name);
+    return fs.existsSync(p) ? p : null;
   }
 
   promote(channel, build) {

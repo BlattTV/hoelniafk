@@ -349,7 +349,13 @@ export class GameClientRuntime {
       tries++;
       if (await this.window.hasWindow(pid)) {
         const res = await (en.info.visible ? this.window.show(pid) : this.window.minimize(pid));
-        this.update(en, { status: 'running', message: res === 'ok' ? null : `Window control failed (${res}) – use Alt-Tab` });
+        this.update(en, {
+          status: 'running',
+          message:
+            res === 'ok' ? null
+            : res.startsWith('ok+') ? `Window shown (${res.slice(3).split('+').join(', ')})${res.includes('notfront') ? ' – Windows kept it behind other windows: use Alt-Tab or the taskbar' : ''}`
+            : `Window control failed (${res}) – use Alt-Tab`,
+        });
         return;
       }
       if (tries < 180) en.timers.push(setTimeout(() => void tick(), 1000));

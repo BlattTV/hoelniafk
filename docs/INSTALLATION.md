@@ -32,81 +32,68 @@ Teil C brauchst du, sobald Agents oder mehrere Konten ins Spiel kommen.
 | Was | Warum |
 |---|---|
 | Windows 10 oder 11, 64 Bit | Zielsystem |
-| **Node.js 22 LTS (ab 22.13) oder 24** (x64) von <https://nodejs.org> | Laufzeit der Suite. Visual Studio oder andere Compiler sind **nicht** nötig. |
-| **Git** von <https://git-scm.com/download/win> | Code herunterladen |
-| ca. 3 GB freier Speicher | Suite, Minecraft-Dateien und Java (lädt „Open game“ beim ersten Mal herunter) |
+| ca. 3 GB freier Speicher | Suite, Minecraft-Dateien und Java (lädt „Spiel öffnen“ beim ersten Mal herunter) |
 | Grafikkarte mit aktuellem Treiber | für das echte Minecraft-Fenster |
+
+Node.js, Git oder Build-Werkzeuge brauchst du **nicht** – der Installer bringt alles mit.
 
 Die Suite läuft immer unter **dem Windows-Benutzer, der sie eingerichtet hat**. Der Tresor-Schlüssel
 ist per DPAPI an diesen Benutzer gebunden. Richte sie also unter dem Konto ein, das sie später auch
 nutzt.
 
-Prüfen in einer **neuen** PowerShell:
+### A2. Installer herunterladen
+
+Der Update-Server im LXC baut die Installer selbst (Teil B), das Backend bietet sie an:
+
+**<https://afk.hoelni.de/download>** – dort liegen **Hoelni Client Suite** und **Hoelni Agent**,
+jeweils mit Version und SHA-256-Prüfsumme.
+
+Solange dort „Noch nicht gebaut“ steht: im Update-Server-LXC `hoelni-updates build-installers`
+ausführen (dauert ca. 5 Minuten) und die Seite neu laden.
+
+### A3. Installieren
+
+1. `Hoelni-Client-Suite-Setup-….exe` starten. Den Installationsordner kannst du ändern; das Programm
+   wird nur für deinen Benutzer installiert und braucht keine Admin-Rechte.
+2. Windows SmartScreen meldet „Unbekannter Herausgeber“, weil der Installer nicht signiert ist.
+   Klicke auf *Weitere Informationen → Trotzdem ausführen*.
+3. Im Startmenü erscheint **Hoelni Client Suite**. Beim Start öffnet sich das Programmfenster, und
+   unten rechts erscheint das Tray-Symbol.
+
+**Danach nie wieder neu bauen oder installieren:** Die Suite holt sich jede neue Version selbst
+(*Einstellungen → Updates*). Das gilt auch für das Programmfenster, das Tray-Menü und die
+Minecraft-Fenstersteuerung – sie kommen mit jedem Update mit und sind nach dem nächsten Start der
+Suite aktiv. Einen neuen Installer brauchst du nur bei einem Electron-Wechsel; die Suite sagt dir
+dann Bescheid, und er liegt wieder unter `/download`.
+
+**Wichtig zum Verhalten:**
+
+* Das Fenster zu schließen beendet das Programm **nicht**. Die AFK-Sessions laufen im Tray weiter.
+* *Rechtsklick auf das Tray-Symbol → Sessions* zeigt alle Sessions mit **Spiel öffnen**,
+  **Zurück zu AFK** und **Start/Stop**.
+* *Tray → Mit Windows starten* startet das Programm bei der Anmeldung minimiert im Tray.
+* *Tray → Beenden* fährt alles sauber herunter. Die Sessions merken sich ihren Soll-Zustand und kommen
+  beim nächsten Start von selbst wieder.
+* Deine Daten (Datenbank, Tresor, Logs, Minecraft-Installation) liegen unter
+  `%APPDATA%\Hoelni Client Suite\data`. *Tray → Datenordner öffnen* öffnet den Ordner.
+
+<details><summary>Für Entwickler: aus dem Repository starten oder selbst bauen</summary>
+
+Voraussetzungen: Node.js 22 LTS (ab 22.13) oder 24 und Git.
 
 ```powershell
-node -v    # v22.x
-git --version
-```
-
-### A2. Code holen und bauen
-
-```powershell
-cd C:\
 git clone https://github.com/BlattTV/hoelniafk.git
 cd hoelniafk
 git checkout claude/practical-hopper-o4bpyw
 npm ci
 npm run build
-```
-
-Bei einem privaten Repository fragt Git nach Zugangsdaten. Melde dich mit deinem GitHub-Konto an
-oder verwende einen Token.
-
-**Falls `npm ci` mit `EPERM … rmdir` abbricht:** Ein Programm (Explorer, VS Code, Virenscanner) hält
-noch Dateien im Ordner fest. Fenster auf `C:\hoelniafk` schließen, dann neu anfangen:
-
-```powershell
-cd C:\hoelniafk
-Remove-Item -Recurse -Force node_modules
-npm ci
-npm run build
-```
-
-### A3. Das Programm (Installer) bauen und installieren
-
-```powershell
-cd C:\hoelniafk\desktop
+cd desktop
 npm install
-npm run dist
+npm start                                   # ohne Installer starten
+node ..\scripts\build-installers.mjs        # beide Installer → hoelniafk\release\
 ```
 
-Danach liegt in `C:\hoelniafk\desktop\release\` die Datei **`Hoelni Client Suite Setup 0.2.0.exe`**.
-
-1. Doppelklick und installieren. Den Installationsordner kannst du ändern; das Programm wird nur
-   für deinen Benutzer installiert und braucht keine Admin-Rechte.
-2. Windows SmartScreen meldet „Unbekannter Herausgeber“, weil der Installer nicht signiert ist.
-   Klicke auf *Weitere Informationen → Trotzdem ausführen*.
-3. Im Startmenü erscheint **Hoelni Client Suite**. Beim Start öffnet sich das Programmfenster, und
-   unten rechts erscheint das Tray-Symbol (Grasblock).
-
-**Wichtig zum Verhalten:**
-
-* Das Fenster zu schließen beendet das Programm **nicht**. Die AFK-Sessions laufen im Tray weiter.
-* *Rechtsklick auf das Tray-Symbol → Sessions* zeigt alle Sessions mit **Open game**,
-  **Back to AFK** und **Start/Stop**.
-* *Tray → Start with Windows* startet das Programm bei der Anmeldung minimiert im Tray.
-* *Tray → Quit* fährt alles sauber herunter. Die Sessions merken sich ihren Soll-Zustand und kommen
-  beim nächsten Start von selbst wieder.
-* Deine Daten (Datenbank, Tresor, Logs, Minecraft-Installation) liegen unter
-  `%APPDATA%\Hoelni Client Suite\data`. *Tray → Open data folder* öffnet den Ordner.
-
-**Ohne Installer**, direkt aus dem Repository:
-
-```powershell
-cd C:\hoelniafk\desktop
-npm install
-npm start
-```
+</details>
 
 ### A4. Erste Einrichtung im Programm
 
@@ -158,7 +145,7 @@ pveam download local debian-12-standard_12.7-1_amd64.tar.zst # Namen ggf. anpass
 pct create 210 local:vztmpl/debian-12-standard_12.7-1_amd64.tar.zst \
   --hostname hoelni-updates \
   --cores 2 --memory 2048 --swap 512 \
-  --rootfs local-lvm:8 \
+  --rootfs local-lvm:12 \
   --net0 name=eth0,bridge=vmbr0,ip=dhcp \
   --unprivileged 1 --features nesting=1 \
   --onboot 1
@@ -171,7 +158,7 @@ Anmerkungen zu den Werten:
   und deine Bridge an.
 * **Feste IP statt DHCP:** `ip=192.168.1.50/24,gw=192.168.1.1`. Alternativ im Router eine
   DHCP-Reservierung anlegen. Die Clients merken sich die URL, deshalb sollte die IP stabil bleiben.
-* **Per Oberfläche:** *Create CT* → Template Debian 12, 2 Kerne, 2048 MB RAM, 8 GB Disk,
+* **Per Oberfläche:** *Create CT* → Template Debian 12, 2 Kerne, 2048 MB RAM, 12 GB Disk,
   *Unprivileged* und *Nesting* an.
 
 ### B2. Update-Server mit einem Befehl installieren
@@ -265,7 +252,7 @@ Ab jetzt:
 | Releases und Kanäle anzeigen | `hoelni-updates list` |
 | Update-Server selbst aktualisieren | den Installationsbefehl aus B2 erneut ausführen |
 | Neues Admin-Token | `hoelni-updates rotate-token && systemctl restart hoelni-updates` |
-| Neuen Windows-Installer beilegen | Installer (Teil A3) in den Container kopieren, dann `hoelni-updates attach-installer <build> "<datei>.exe" 0.2.0`. Die Clients zeigen danach einen Download-Link. |
+| Windows-Installer | Baut der Update-Server selbst, sobald sich etwas daran ändert (Electron-Version, Starter, Icons). Sofort neu bauen: `hoelni-updates build-installers`. Angeboten unter `https://afk.hoelni.de/download`. |
 
 **Backup:** Sichere `/etc/hoelni-updates/` (enthält den **Signierschlüssel**) und
 `/var/lib/hoelni-updates/`, z. B. mit dem normalen Proxmox-Backup des Containers. Geht der Schlüssel
@@ -412,8 +399,9 @@ Er ist dort nur lokal erreichbar (`127.0.0.1:8787`). Das Backend gibt seine sign
 `https://afk.hoelni.de/updates` weiter, und zwar **nur an Geräte, die an deinem Backend angemeldet
 sind**. Eine weitere Portfreigabe oder einen weiteren Proxy-Host brauchst du nicht.
 
-1. Dem Container **2 GB RAM** geben, denn der Build (`npm ci` + TypeScript) braucht das:
-   `pct set 211 --memory 2048`. Die ID ersetzt du durch deine.
+1. Dem Container **2 GB RAM** und **12 GB Disk** geben, denn der Build (`npm ci` + TypeScript) und
+   die Windows-Installer brauchen das: auf dem Proxmox-Host `pct set 211 --memory 2048` und
+   `pct resize 211 rootfs 12G`. Die ID ersetzt du durch deine.
 2. Im Container den Installer erneut ausführen, mit `UPDATES=1` und deiner bisherigen Variante
    (hier `TLS=proxy` für Nginx Proxy Manager):
 
@@ -491,21 +479,13 @@ laufen soll, bekommt keinen oder einen Proxy.
 für die Dauer der Session das Minecraft-Zugangstoken im Arbeitsspeicher. Anders kann der Agent sich
 nicht am Server anmelden. Weise solche Identitäten deshalb nur Haushalten zu, denen du vertraust.
 
-### D1. Installer bauen (einmal, auf deinem Windows-PC)
+### D1. Installer holen
 
-Voraussetzungen wie in A1. Im Repository:
+Den Agent-Installer baut der Update-Server automatisch. Du gibst dem anderen Haushalt einfach den Link
+**<https://afk.hoelni.de/download>** (in der Suite unter *Erweitert → Agents* mit „Link kopieren“).
+Dort lädt er **Hoelni Agent** herunter. Ein Konto zum Anmelden bekommt er von dir (D2).
 
-```powershell
-cd agent-app
-npm install
-npm run dist
-```
-
-Ergebnis: `agent-app\release\Hoelni-Agent-Setup-0.4.0.exe`. Diese Datei gibst du weiter, z. B. per USB-Stick oder Cloud-Link.
-
-Den Installer baust du nur **einmal**. Neue Versionen holt sich der Agent danach selbst (siehe D5).
-Einen neuen Installer brauchst du nur, wenn sich das Agent-Fenster selbst ändert; das steht dann
-im Changelog.
+Nach der Installation aktualisiert sich der Agent selbst (D5), inklusive seines Fensters.
 
 ### D2. Beim anderen Haushalt installieren
 

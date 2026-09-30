@@ -12,7 +12,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-export type WindowResult = 'ok' | 'nowindow' | 'unsupported' | 'error';
+/** 'ok' may carry notes from Windows: ok+unhidden, ok+moved, ok+notfront. */
+export type WindowResult = 'ok' | `ok+${string}` | 'nowindow' | 'unsupported' | 'error';
 
 export interface WindowController {
   readonly name: string;
@@ -45,28 +46,47 @@ public static class HoelniWin {
   [DllImport("user32.dll")] public static extern bool BringWindowToTop(IntPtr h);
   [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr h, uint m, IntPtr w, IntPtr l);
   [DllImport("user32.dll")] public static extern void keybd_event(byte vk, byte scan, uint flags, UIntPtr extra);
+  [DllImport("user32.dll")] public static extern IntPtr MonitorFromWindow(IntPtr h, uint flags);
+  [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int cx, int cy, uint flags);
+  [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+  [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetClassName(IntPtr h, System.Text.StringBuilder s, int n);
+  static bool IsGame(IntPtr h) {
+    var sb = new System.Text.StringBuilder(64); GetClassName(h, sb, 64);
+    return sb.ToString().StartsWith("GLFW"); // the Minecraft (LWJGL/GLFW) window, even while hidden
+  }
   public static IntPtr Find(uint pid) {
-    IntPtr found = IntPtr.Zero;
+    IntPtr found = IntPtr.Zero; IntPtr hidden = IntPtr.Zero;
     EnumWindows(delegate(IntPtr h, IntPtr l) {
       uint p; GetWindowThreadProcessId(h, out p);
-      if (p == pid && IsWindowVisible(h) && GetWindowTextLength(h) > 0 && GetWindow(h, 4) == IntPtr.Zero) { found = h; return false; }
+      if (p != pid || GetWindow(h, 4) != IntPtr.Zero) return true;
+      if (IsWindowVisible(h) && GetWindowTextLength(h) > 0) { found = h; return false; }
+      if (hidden == IntPtr.Zero && IsGame(h)) hidden = h;
       return true;
     }, IntPtr.Zero);
-    return found;
+    return found != IntPtr.Zero ? found : hidden;
   }
   public static string Run(string action, uint pid) {
     IntPtr h = Find(pid);
     if (h == IntPtr.Zero) return "nowindow";
     switch (action) {
       case "has": return "ok";
-      case "show":
+      case "show": {
+        string note = "";
+        if (!IsWindowVisible(h)) { ShowWindow(h, 5); note += "+unhidden"; }
         if (IsIconic(h)) ShowWindow(h, 9); else ShowWindow(h, 5);
-        // Pressing ALT lifts the foreground lock Windows puts on background processes.
-        keybd_event(0x12, 0, 0, UIntPtr.Zero);
-        keybd_event(0x12, 0, 2, UIntPtr.Zero);
-        BringWindowToTop(h);
-        SetForegroundWindow(h);
-        return "ok";
+        // A window outside every monitor (e.g. a disconnected second screen) is moved onto the main one.
+        if (MonitorFromWindow(h, 0) == IntPtr.Zero) { SetWindowPos(h, IntPtr.Zero, 80, 80, 0, 0, 0x0001 | 0x0004 | 0x0040); note += "+moved"; }
+        for (int i = 0; i < 3 && GetForegroundWindow() != h; i++) {
+          // Pressing ALT lifts the foreground lock Windows puts on background processes.
+          keybd_event(0x12, 0, 0, UIntPtr.Zero);
+          keybd_event(0x12, 0, 2, UIntPtr.Zero);
+          BringWindowToTop(h);
+          SetForegroundWindow(h);
+          System.Threading.Thread.Sleep(150);
+        }
+        if (GetForegroundWindow() != h) note += "+notfront";
+        return "ok" + note;
+      }
       case "minimize": ShowWindow(h, 6); return "ok";
       case "close": PostMessage(h, 0x0010, IntPtr.Zero, IntPtr.Zero); return "ok";
     }
@@ -163,7 +183,7 @@ export class WindowsWindowController implements WindowController {
     return this.run('close', pid);
   }
   async hasWindow(pid: number) {
-    return (await this.run('has', pid)) === 'ok';
+    return (await this.run('has', pid)).startsWith('ok');
   }
   dispose(): void {
     this.proc?.stdin.end();

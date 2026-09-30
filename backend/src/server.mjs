@@ -12,6 +12,8 @@
  *   GET  /updates/api/public-key, /updates/api/channels/<ch>/latest, /updates/files/<build>/<file>
  *        read-only pass-through for signed-in managers/agents (Bearer device token); the update
  *        server's admin API is never exposed. Releases stay Ed25519-signed end to end.
+ * Downloads (public, with updatesUpstream): GET /download (page), GET /download/<installer>.exe –
+ *   the Windows installers of suite and agent that the update server built.
  * Admin API (Bearer token of a MANAGER signed in with an ADMIN account – the manager shows the
  * account administration only then):
  *   GET    /api/admin/overview            accounts, signed-in devices, activity
@@ -70,6 +72,58 @@ function proxyUpdates(target, res) {
   });
 }
 
+function upstreamJson(target) {
+  return new Promise((resolve) => {
+    const up = http.get(target, { timeout: 10_000 }, (r) => {
+      const chunks = [];
+      r.on('data', (c) => chunks.push(c));
+      r.on('end', () => {
+        try {
+          resolve(r.statusCode === 200 ? JSON.parse(Buffer.concat(chunks).toString('utf8')) : null);
+        } catch {
+          resolve(null);
+        }
+      });
+    });
+    up.on('timeout', () => up.destroy(new Error('timeout')));
+    up.on('error', () => resolve(null));
+  });
+}
+
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+
+let logoUri;
+function logo() {
+  if (logoUri === undefined) {
+    try {
+      logoUri = `data:image/png;base64,${fs.readFileSync(new URL('../../public/img/logo-card.png', import.meta.url)).toString('base64')}`;
+    } catch {
+      logoUri = '';
+    }
+  }
+  return logoUri;
+}
+
+/** Public download page for new PCs: the installers the update server built (no sign-in needed – they contain no secrets). */
+function downloadPage(items, publicUrl) {
+  const card = (it, title, text) =>
+    it
+      ? `<section><h2>${esc(title)}</h2><p>${text}</p><a class="btn" href="/download/${encodeURIComponent(it.file)}">Herunterladen</a>
+        <p class="meta">${esc(it.file)} · ${(it.size / 1e6).toFixed(0)} MB · Version ${esc(it.version)}${it.build ? ` · Build ${esc(it.build)}` : ''}<br>SHA-256 <code>${esc(it.sha256)}</code></p></section>`
+      : `<section><h2>${esc(title)}</h2><p class="meta">Noch nicht gebaut – er entsteht beim nächsten <code>hoelni-updates build</code>.</p></section>`;
+  return `<!doctype html><html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Hoelni – Download</title>
+<style>:root{color-scheme:dark}body{margin:0;background:#0b1220;color:#e2e8f0;font:15px/1.55 Inter,'Segoe UI',system-ui,sans-serif}main{max-width:760px;margin:0 auto;padding:32px 16px}
+.logo{display:block;width:240px;margin:0 auto 24px}h1{font-size:22px;text-align:center;margin:0 0 6px}.sub{text-align:center;color:#94a3b8;margin:0 0 26px}
+section{background:#0f172a;border:1px solid #1e293b;border-radius:16px;padding:18px 20px;margin-bottom:14px}h2{font-size:17px;margin:0 0 6px}p{margin:6px 0;color:#cbd5e1}
+.btn{display:inline-block;margin:8px 0 4px;padding:10px 18px;border-radius:10px;background:#3b82f6;color:#fff;text-decoration:none;font-weight:600}.btn:hover{background:#2563eb}
+.meta{font-size:12.5px;color:#94a3b8;word-break:break-all}code{font-family:'Cascadia Mono',Consolas,monospace;font-size:12px;color:#93c5fd}</style></head>
+<body><main>${logo() ? `<img class="logo" src="${logo()}" alt="Hoelni AFK Client">` : ''}<h1>Hoelni herunterladen</h1><p class="sub">Einmal installieren – danach aktualisieren sich die Programme selbst.</p>
+${card(items.suite, 'Hoelni Client Suite', 'Das Hauptprogramm für deinen PC: Identitäten, AFK-Sessions, Discord, Outlook und das Minecraft-Fenster.')}
+${card(items.agent, 'Hoelni Agent', `Für PCs in anderen Haushalten: installieren, mit dem Hoelni-Konto anmelden, fertig. Startet mit Windows im Hintergrund.${publicUrl ? ` Verbindet sich mit <code>${esc(publicUrl)}</code>.` : ''}`)}
+<p class="meta">Windows zeigt bei nicht signierten Programmen evtl. „Der Computer wurde durch Windows geschützt“ → <b>Weitere Informationen</b> → <b>Trotzdem ausführen</b>.</p>
+</main></body></html>`;
+}
+
 export function createBackendServer({ accounts, relay, config, version = '1.0.0', log = console }) {
   // Behind a reverse proxy the LAST X-Forwarded-For entry is the one the proxy added (earlier
   // entries come from the client and can be forged – they must not bypass the sign-in lockout).
@@ -98,6 +152,16 @@ export function createBackendServer({ accounts, relay, config, version = '1.0.0'
         if (!allowed) throw new HttpError(404, 'Not found');
         if (sub !== '/health' && !accounts.deviceByToken(bearer(req))) throw new HttpError(401, 'Sign in to the backend to receive updates');
         return proxyUpdates(`${config.updatesUpstream.replace(/\/+$/, '')}${sub}`, res);
+      }
+
+      // ------------------------------------------------------------ downloads for new PCs (public)
+      if (req.method === 'GET' && (p === '/download' || p === '/download/')) {
+        const data = config.updatesUpstream ? await upstreamJson(`${config.updatesUpstream.replace(/\/+$/, '')}/api/downloads`) : null;
+        return send(res, 200, downloadPage(data?.items ?? {}, config.publicUrl), { 'Content-Type': 'text/html; charset=utf-8', 'Content-Security-Policy': "default-src 'none'; img-src data:; style-src 'unsafe-inline'" });
+      }
+      if (req.method === 'GET' && /^\/download\/[A-Za-z0-9._-]{1,120}\.exe$/.test(p)) {
+        if (!config.updatesUpstream) throw new HttpError(404, 'Not found');
+        return proxyUpdates(`${config.updatesUpstream.replace(/\/+$/, '')}/downloads/${p.slice('/download/'.length)}`, res);
       }
 
       // ------------------------------------------------------------ app API

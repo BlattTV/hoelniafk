@@ -41,7 +41,7 @@ Options as environment variables before `bash`: `BRANCH=main`, `PORT=8787`, `AUT
 (0 = manual only), `CHANNEL=stable`, `RUN_TESTS=1` (unit tests before publishing), `NO_BUILD=1`.
 Running the command again upgrades the update server itself; config, key and releases stay.
 
-Proxmox: an unprivileged Debian 12 container with 1 vCPU, 1–2 GB RAM and 8 GB disk is enough
+Proxmox: an unprivileged Debian 12 container with 1–2 vCPU, 2 GB RAM and 12 GB disk is enough (installers included)
 (`npm ci` of the suite needs ~600 MB, releases are ~2–5 MB each, the newest 20 are kept).
 
 ## Connect the suite
@@ -59,6 +59,7 @@ hoelni-updates build --if-changed    # only if there is a new commit
 hoelni-updates list                  # releases, channels
 hoelni-updates promote stable 12     # point "stable" to build 12 (suites only ever move forward –
                                      # to undo an update on a PC use its "Roll back last update")
+hoelni-updates build-installers      # rebuild the Windows installers (suite + agent) now
 hoelni-updates attach-installer 12 "Hoelni Client Suite Setup 0.2.0.exe" 0.2.0
 hoelni-updates info                  # URL, fingerprint, repo, state
 hoelni-updates rotate-token          # new admin token (then: systemctl restart hoelni-updates)
@@ -87,9 +88,19 @@ Windows-specific on the suite side). If `package-lock.json` changed, the supervi
 A locally edited `config/rules.yaml` is kept; the shipped one is written next to it as
 `rules.yaml.new`. `config/app.yaml`, `data/` (database, vault, logs) are never touched.
 
-The desktop window program itself (`Hoelni Client Suite.exe`) only changes with a new installer:
-build it on Windows (`cd desktop && npm run dist`) and attach it to a release; the suite then offers
-a download link.
+The window programs (`desktop/main.cjs`, `agent-app/*`) are part of every bundle: the installed
+programs start them through a small starter (`desktop/loader.cjs`, `agent-app/loader.cjs`), so the
+window, tray and game-window handling update like everything else.
+
+## Windows installers
+
+After a release the update server also builds the Windows installers of the suite and the agent
+(`scripts/build-installers.mjs`: electron-builder/NSIS on Linux – no Wine, no Windows; Node for
+Windows from nodejs.org, SHA-256 checked). They are rebuilt only when their inputs change
+(Electron version, starters, icons, build script) and are offered at `GET /api/downloads` and
+`GET /downloads/<file>` – through the backend at the public page `https://<backend>/download`.
+A failed installer build never blocks the release. First build: ~5 minutes, ~1.5 GB of tools/caches
+in the data directory.
 
 ## Security
 

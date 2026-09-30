@@ -7,6 +7,7 @@
  *   hoelni-updates build [--if-changed] [--channel stable]         build a release from git now
  *   hoelni-updates list                                            releases and channels
  *   hoelni-updates promote <channel> <build>                       point a channel to a build (rollback)
+ *   hoelni-updates build-installers                 rebuild the Windows installers (suite + agent) now
  *   hoelni-updates attach-installer <build> <file.exe> [version]   add a Windows installer to a release
  *   hoelni-updates info                                            URL, key fingerprint, config path
  *   hoelni-updates rotate-token                                    new admin token
@@ -153,6 +154,15 @@ switch (cmd) {
     builder
       .build({ ifChanged: flag('if-changed', false) === true, channel: typeof flag('channel') === 'string' ? flag('channel') : undefined })
       .then((r) => console.log(r.skipped ? `up to date (${r.commit.slice(0, 7)})` : `published build ${r.build} (${r.version})`))
+      .catch((e) => die(String(e.stderr || e.message).slice(-2000)));
+    break;
+  }
+  case 'build-installers': {
+    const { builder } = open();
+    if (!builder) die('no repository configured');
+    builder
+      .buildInstallers({ force: true })
+      .then((r) => (r.error ? die(r.error) : console.log(`installers ready: ${r.files.join(', ')}`)))
       .catch((e) => die(String(e.stderr || e.message).slice(-2000)));
     break;
   }

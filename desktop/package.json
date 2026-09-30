@@ -1,19 +1,20 @@
 {
   "name": "hoelni-desktop",
   "productName": "Hoelni Client Suite",
-  "version": "0.2.0",
-  "description": "Hoelni Client Suite \u2013 desktop program (own window, tray, real Minecraft game windows)",
-  "main": "main.cjs",
+  "version": "0.3.0",
+  "description": "Hoelni Client Suite – desktop program (own window, tray, real Minecraft game windows)",
+  "main": "loader.cjs",
   "private": true,
   "license": "UNLICENSED",
   "scripts": {
     "start": "electron .",
-    "prepare-backend": "node prepare-backend.cjs",
-    "dist": "node prepare-backend.cjs && electron-builder --win --x64"
+    "dist": "node ../scripts/build-installers.mjs --only suite"
   },
   "devDependencies": {
     "electron": "^44.4.5",
-    "electron-builder": "^26.15.3"
+    "electron-builder": "^26.15.3",
+    "pe-library": "^2.0.1",
+    "resedit": "^3.1.0"
   },
   "build": {
     "appId": "net.hoelni.clientsuite",
@@ -23,10 +24,12 @@
       "buildResources": "build"
     },
     "files": [
+      "loader.cjs",
       "main.cjs",
       "build/icon.png",
       "build/tray.png",
-      "build/logo.png"
+      "build/logo.png",
+      "build/icon.ico"
     ],
     "extraResources": [
       {
@@ -41,7 +44,7 @@
       "target": [
         "nsis"
       ],
-      "icon": "build/icon.png"
+      "icon": "build/icon.ico"
     },
     "nsis": {
       "oneClick": false,

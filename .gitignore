@@ -14,3 +14,5 @@ desktop/release/
 agent-app/runtime/
 agent-app/bundle/
 agent-app/release/
+.installer-runtime/
+release/

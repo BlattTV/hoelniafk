@@ -54,7 +54,7 @@ beforeAll(async () => {
   const kp = generateKeyPair();
   publicKey = kp.publicB64;
   store = new Store(path.join(tmp, 'server-data'), kp.privatePem);
-  builder = new Builder(store, { repo: repoDir, branch: 'main', channel: 'stable', workDir: path.join(tmp, 'server-data', 'src'), log: () => undefined });
+  builder = new Builder(store, { repo: repoDir, branch: 'main', channel: 'stable', workDir: path.join(tmp, 'server-data', 'src'), installers: false, log: () => undefined });
   httpServer = server.createServer({ store, builder, publicKey, adminTokenHash: 'a'.repeat(64) });
   await new Promise<void>((r) => httpServer.listen(0, '127.0.0.1', () => r()));
   url = `http://127.0.0.1:${(httpServer.address() as any).port}`;
@@ -334,4 +334,46 @@ describe('updates through the backend (https://afk.hoelni.de/updates)', () => {
       await new Promise<void>((r) => backend.close(() => r()));
     }
   }, 60_000);
+
+  it('offers the Windows installers for new PCs: update server and a public download page on the backend', async () => {
+    const { Accounts } = await import('../backend/src/accounts.mjs' as string);
+    const { openDb } = await import('../backend/src/db.mjs' as string);
+    const { Relay } = await import('../backend/src/relay.mjs' as string);
+    const { createBackendServer } = await import('../backend/src/server.mjs' as string);
+    const crypto = await import('node:crypto');
+    const exe = path.join(tmp, 'Hoelni-Agent-Setup-9.9.9.exe');
+    const bytes = crypto.randomBytes(200_000);
+    fs.writeFileSync(exe, bytes);
+    const sha = crypto.createHash('sha256').update(bytes).digest('hex');
+    store.setDownloads([{ kind: 'agent', file: 'Hoelni-Agent-Setup-9.9.9.exe', path: exe, size: bytes.length, sha256: sha, version: '9.9.9' }], { build: 7, inputsHash: 'x' });
+    expect(() => store.setDownloads([{ kind: 'agent', file: '../evil.exe', path: exe, size: 1, sha256: '', version: '' }])).toThrow(/Bad installer name/);
+    // update server: list + file
+    const list = await (await fetch(`${url}/api/downloads`)).json();
+    expect(list.items.agent).toMatchObject({ file: 'Hoelni-Agent-Setup-9.9.9.exe', sha256: sha, build: 7 });
+    expect(Buffer.from(await (await fetch(`${url}/downloads/Hoelni-Agent-Setup-9.9.9.exe`)).arrayBuffer()).equals(bytes)).toBe(true);
+    expect((await fetch(`${url}/downloads/backend-1.zip`)).status).toBe(404); // only offered installers
+    // backend: public page (no sign-in – installers contain no secrets) + download pass-through
+    const accounts = new Accounts(openDb(path.join(tmp, 'backend-dl.db')));
+    const quiet = { info: () => undefined, error: () => undefined };
+    const relay = new Relay(accounts, quiet);
+    const backend = createBackendServer({ accounts, relay, config: { updatesUpstream: url, publicUrl: 'https://afk.example.org' }, log: quiet });
+    await new Promise<void>((r) => backend.listen(0, '127.0.0.1', () => r()));
+    const b = `http://127.0.0.1:${(backend.address() as any).port}`;
+    try {
+      const page = await fetch(`${b}/download`);
+      expect(page.status).toBe(200);
+      const html = await page.text();
+      expect(html).toContain('/download/Hoelni-Agent-Setup-9.9.9.exe');
+      expect(html).toContain(sha);
+      expect(html).toMatch(/Hoelni Client Suite[\s\S]*Noch nicht gebaut/); // suite installer not built yet
+      const dl = await fetch(`${b}/download/Hoelni-Agent-Setup-9.9.9.exe`);
+      expect(dl.status).toBe(200);
+      expect(Buffer.from(await dl.arrayBuffer()).equals(bytes)).toBe(true);
+      expect((await fetch(`${b}/download/backend-1.zip`)).status).toBe(404);
+      expect((await fetch(`${b}/download/..%2Fstate.json`)).status).toBe(404);
+    } finally {
+      relay.close();
+      await new Promise<void>((r) => backend.close(() => r()));
+    }
+  }, 30_000);
 });
