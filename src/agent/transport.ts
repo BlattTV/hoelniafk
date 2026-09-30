@@ -117,6 +117,44 @@ export async function requestJson<T>(url: string, method: string, body: unknown,
   });
 }
 
+/** Downloads a file (e.g. an update bundle) through the same connection rules; refuses more than maxBytes. */
+export async function requestBuffer(url: string, maxBytes: number, o: TransportOptions = {}, headers: Record<string, string> = {}): Promise<Buffer> {
+  const u = new URL(url);
+  const secure = u.protocol === 'https:';
+  return new Promise((resolve, reject) => {
+    const req = (secure ? https : http).request(
+      {
+        host: u.hostname,
+        port: u.port || (secure ? 443 : 80),
+        path: `${u.pathname}${u.search}`,
+        method: 'GET',
+        agent: proxyAgent(o.proxy, secure),
+        timeout: o.timeoutMs ?? 60_000,
+        headers,
+        ...(secure ? tlsOptions(o) : {}),
+      },
+      (res) => {
+        if ((res.statusCode ?? 500) >= 400) {
+          res.resume();
+          return reject(Object.assign(new Error(`HTTP ${res.statusCode}`), { status: res.statusCode }));
+        }
+        const chunks: Buffer[] = [];
+        let size = 0;
+        res.on('data', (c: Buffer) => {
+          size += c.length;
+          if (size > maxBytes) return req.destroy(new Error('Download larger than announced'));
+          chunks.push(c);
+        });
+        res.on('end', () => resolve(Buffer.concat(chunks)));
+        res.on('error', reject);
+      },
+    );
+    req.on('timeout', () => req.destroy(new Error('Download stalled (timeout)')));
+    req.on('error', reject);
+    req.end();
+  });
+}
+
 export function openWebSocket(url: string, token: string, o: TransportOptions = {}, path = '/relay'): WebSocket {
   const u = new URL(url);
   const secure = u.protocol === 'https:';

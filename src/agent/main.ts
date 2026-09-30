@@ -17,6 +17,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { AgentCore, type AgentStatus } from './agentCore.js';
+import { AgentUpdater } from './agentUpdater.js';
+import { appRoot, currentBuild } from '../ops/updater.js';
+import { RESTART_FOR_UPDATE } from '../ops/updateApply.js';
 import { DEFAULT_BACKEND, normalizeBackendUrl, probeCertificate, requestJson, type TransportOptions } from './transport.js';
 import { createKeyProvider } from '../vault/keyProviders.js';
 import { refs } from '../vault/refs.js';
@@ -34,6 +37,8 @@ interface Stored {
   /** Only without OS key protection; otherwise the proxy URL (may contain a password) is in the vault. */
   proxy?: string | null;
   proxyInVault?: boolean;
+  /** Update signing key of the backend (pinned on first contact, reset on a new sign-in). */
+  updatesKey?: string;
 }
 
 const dataDir = process.env.HOELNI_AGENT_DIR ?? (process.platform === 'win32' ? path.join(process.env.APPDATA ?? os.homedir(), 'Hoelni Agent') : path.join(os.homedir(), '.hoelni-agent'));
@@ -113,11 +118,8 @@ function fail(message: string, extra: Record<string, unknown> = {}, code = 1): n
 }
 
 function version(): string {
-  try {
-    return JSON.parse(fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../package.json'), 'utf8')).version;
-  } catch {
-    return '';
-  }
+  const b = currentBuild(appRoot());
+  return b.build ? `${b.version} (build ${b.build})` : b.version;
 }
 
 async function login(): Promise<void> {
@@ -144,7 +146,7 @@ async function login(): Promise<void> {
     await transport(s),
   ).catch((e) => fail((e as Error).message));
   await forgetToken(s);
-  save(await storeToken({ ...s, deviceId: r.deviceId, username: r.user.username, name }, r.token));
+  save(await storeToken({ ...s, deviceId: r.deviceId, username: r.user.username, name, updatesKey: undefined }, r.token));
   out({ ok: true, username: r.user.username, backendUrl: s.backendUrl }, `Signed in as ${r.user.username} at ${s.backendUrl}`);
 }
 
@@ -178,8 +180,9 @@ async function run(): Promise<void> {
   const s = load();
   const token = signedIn(s) ? await readToken(s) : null;
   if (!token || !s.deviceId) fail('not signed in – run "login" first', { needsLogin: true }, 3);
+  let updater: AgentUpdater | null = null;
   const report = (st: AgentStatus) => {
-    if (process.send) process.send({ type: 'status', status: { ...st, username: s.username } });
+    if (process.send) process.send({ type: 'status', status: { ...st, username: s.username, update: updater?.status() ?? null } });
     else if (!json) console.log(`${new Date().toISOString()} ${st.state}${st.managerOnline ? '' : ' (manager offline)'} – ${st.sessions.length} session(s)${st.lastError ? ` – ${st.lastError}` : ''}`);
   };
   const agent = new AgentCore(
@@ -187,6 +190,23 @@ async function run(): Promise<void> {
     report,
   );
   agent.start();
+  // Automatic updates: in the installed agent (bundled Node next to it), not in a development checkout.
+  const root = appRoot();
+  if (process.env.HOELNI_AGENT_UPDATES !== '0' && (fs.existsSync(path.join(root, 'node')) || process.env.HOELNI_AGENT_UPDATES === '1')) {
+    updater = new AgentUpdater({
+      backendUrl: s.backendUrl,
+      token: token!,
+      transport: await transport(s),
+      root,
+      getKey: () => load().updatesKey ?? null,
+      setKey: (key) => save({ ...load(), updatesKey: key }),
+      isIdle: () => agent.status.sessions.length === 0 && !agent.status.game,
+      gameOpen: () => !!agent.status.game,
+      restart: () => void agent.stop().then(() => process.exit(RESTART_FOR_UPDATE)),
+      log: (m) => console.log(`${new Date().toISOString()} ${m}`),
+    });
+    updater.start();
+  }
   process.on('message', (m: any) => {
     if (m?.cmd === 'pause') agent.pause();
     else if (m?.cmd === 'resume') agent.resume();

@@ -9,7 +9,7 @@
  * this Electron shell only shows the login/status window and the tray.
  */
 const { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, Notification } = require('electron');
-const { spawn, execFile } = require('node:child_process');
+const { spawn, execFile, execFileSync } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 
@@ -69,8 +69,55 @@ async function refreshInfo() {
   return info;
 }
 
+// ------------------------------------------------------------------ updates
+// The agent downloads and verifies updates itself (signed releases via the backend) and exits with
+// code 75 when it is a good moment. The staged files are installed here while it is NOT running;
+// if the new version does not keep running for 2 minutes, the previous one is restored.
+
+const RESTART_FOR_UPDATE = 75;
+const PROBATION_MS = 120_000;
+let probation = null; // { until, timer } after an installed update
+
+function updateCmd(args) {
+  const script = path.join(runtimeRoot(), 'dist', 'agent', 'update.js');
+  if (!fs.existsSync(script)) return null;
+  try {
+    const outText = execFileSync(nodeBinary(runtimeRoot()), [script, ...args], { cwd: runtimeRoot(), env: env(), windowsHide: true, timeout: 10 * 60_000 }).toString();
+    const r = JSON.parse(outText.trim().split('\n').pop());
+    for (const l of r.log ?? []) log(`update: ${l}`);
+    return r;
+  } catch (e) {
+    log(`update ${args[0]} failed: ${e.message}`);
+    return null;
+  }
+}
+
+function log(line) {
+  try {
+    const dir = path.join(dataDir(), 'logs');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.appendFileSync(path.join(dir, 'agent.log'), `${new Date().toISOString()} [app] ${line}\n`);
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Installs a staged update (before the agent starts). */
+function installPendingUpdate() {
+  const r = updateCmd(['apply']);
+  if (!r?.applied) return;
+  clearTimeout(probation?.timer);
+  const timer = setTimeout(() => {
+    probation = null;
+    updateCmd(['stable']);
+  }, PROBATION_MS);
+  probation = { until: Date.now() + PROBATION_MS, timer };
+  notify('Aktualisiert', `Update installiert (Build ${r.build}).`);
+}
+
 function startAgent() {
   if (agent || quitting || !info?.signedIn) return;
+  installPendingUpdate();
   const logDir = path.join(dataDir(), 'logs');
   fs.mkdirSync(logDir, { recursive: true });
   const out = fs.openSync(path.join(logDir, 'agent.log'), 'a');
@@ -87,6 +134,18 @@ function startAgent() {
   agent.on('exit', (code) => {
     agent = null;
     if (quitting) return;
+    if (code === RESTART_FOR_UPDATE) {
+      restartDelay = 2000;
+      setTimeout(startAgent, 500); // installs the staged update first
+      return;
+    }
+    if (probation && Date.now() < probation.until && code !== 0 && code !== 3) {
+      // The new version stopped right after the update: back to the previous one.
+      clearTimeout(probation.timer);
+      probation = null;
+      const r = updateCmd(['rollback', `exit code ${code} right after the update`]);
+      if (r?.rolledBack) notify('Update zurückgenommen', 'Die neue Version lief nicht – die vorherige ist wieder aktiv.');
+    }
     if (code === 3) {
       // not signed in (anymore)
       status = null;

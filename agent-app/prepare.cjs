@@ -29,5 +29,9 @@ run(npm, ['ci', '--omit=dev', '--no-audit', '--no-fund'], out);
 console.log(`› bundling Node ${process.version}`);
 fs.mkdirSync(path.join(out, 'node', 'bin'), { recursive: true });
 fs.copyFileSync(process.execPath, process.platform === 'win32' ? path.join(out, 'node', 'node.exe') : path.join(out, 'node', 'bin', 'node'));
+// npm next to it: an update that changes dependencies reinstalls them on the household PC
+const npmSrc = [path.join(path.dirname(process.execPath), 'node_modules', 'npm'), path.join(path.dirname(process.execPath), '..', 'lib', 'node_modules', 'npm')].find((p) => fs.existsSync(p));
+if (npmSrc) fs.cpSync(npmSrc, path.join(out, 'node', 'node_modules', 'npm'), { recursive: true });
+else console.warn('! npm not found next to node – updates that change dependencies will need a new agent installer');
 if (!fs.existsSync(path.join(out, 'node_modules', 'ws'))) throw new Error('node_modules missing after npm ci');
 console.log('✓ agent-app/bundle/runtime ready');

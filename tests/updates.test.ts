@@ -258,4 +258,80 @@ describe('updates through the backend (https://afk.hoelni.de/updates)', () => {
       await new Promise<void>((r) => backend.close(() => r()));
     }
   }, 60_000);
+
+  it('the agent updates itself through the backend: pinned key, verified bundle, installed only when idle', async () => {
+    const { Accounts } = await import('../backend/src/accounts.mjs' as string);
+    const { openDb } = await import('../backend/src/db.mjs' as string);
+    const { Relay } = await import('../backend/src/relay.mjs' as string);
+    const { createBackendServer } = await import('../backend/src/server.mjs' as string);
+    const { AgentUpdater } = await import('../src/agent/agentUpdater.js');
+    const accounts = new Accounts(openDb(path.join(tmp, 'backend-agent.db')));
+    const user = accounts.createUser('niklas', 'admin-password-1', 'admin');
+    const { token } = accounts.registerDevice(user, 'agent', 'living room');
+    const quiet = { info: () => undefined, error: () => undefined };
+    const relay = new Relay(accounts, quiet);
+    const backend = createBackendServer({ accounts, relay, config: { updatesUpstream: url }, log: quiet });
+    await new Promise<void>((r) => backend.listen(0, '127.0.0.1', () => r()));
+    const backendUrl = `http://127.0.0.1:${(backend.address() as any).port}`;
+    try {
+      const root = path.join(tmp, 'agent-install');
+      makeInstall(root);
+      let key: string | null = null;
+      let idle = false;
+      let game = false;
+      let restarts = 0;
+      const mk = (over: Record<string, unknown> = {}) =>
+        new AgentUpdater({
+          backendUrl,
+          token,
+          transport: {},
+          root,
+          getKey: () => key,
+          setKey: (k) => (key = k),
+          isIdle: () => idle,
+          gameOpen: () => game,
+          restart: () => restarts++,
+          ...over,
+        });
+      const up = mk();
+      expect(await up.check()).toBe(true);
+      expect(keyFingerprint(key!)).toBe(fingerprint(publicKey)); // pinned on first contact
+      expect(up.status().state).toBe('staged');
+      expect(fs.existsSync(path.join(root, '.update', 'pending.json'))).toBe(true);
+      // sessions running / game open: not now
+      expect(up.maybeInstall()).toBe(false);
+      idle = true;
+      game = true;
+      expect(up.maybeInstall()).toBe(false);
+      game = false;
+      expect(up.maybeInstall()).toBe(true);
+      expect(restarts).toBe(1);
+      // sessions all the time: installed anyway after the grace period (they reconnect)
+      const busy = mk({ forceAfterMs: 1000 });
+      idle = false;
+      expect(await busy.check()).toBe(true);
+      expect(busy.maybeInstall()).toBe(false);
+      expect(busy.maybeInstall(Date.now() + 2000)).toBe(true);
+      // the agent app installs it while the agent is not running
+      expect(applyPendingUpdate(root).applied).toBe(true);
+      expect(currentBuild(root).build).toBeGreaterThan(0);
+      expect(fs.readFileSync(path.join(root, 'dist', 'index.js'), 'utf8')).not.toContain('v0');
+      const after = mk();
+      expect(await after.check()).toBe(false); // up to date
+      expect(after.status().state).toBe('idle');
+
+      // a different key later (manipulated backend): refused, nothing staged
+      key = generateKeyPair().publicB64;
+      const other = mk();
+      expect(await other.check()).toBe(false);
+      expect(other.status().error).toMatch(/update key of the backend changed/);
+      // without sign-in nothing is served
+      const anon = mk({ token: 'nope', getKey: () => null });
+      expect(await anon.check()).toBe(false);
+      expect(anon.status().error).toMatch(/401|Sign in/);
+    } finally {
+      relay.close();
+      await new Promise<void>((r) => backend.close(() => r()));
+    }
+  }, 60_000);
 });

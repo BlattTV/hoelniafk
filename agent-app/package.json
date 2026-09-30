@@ -1,7 +1,7 @@
 {
   "name": "hoelni-agent",
   "productName": "Hoelni Agent",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Hoelni Agent \u2013 lets this PC run AFK sessions for your Hoelni account (sign in, done)",
   "main": "main.cjs",
   "private": true,

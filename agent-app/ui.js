@@ -45,12 +45,20 @@ function renderStatus(st) {
     list.appendChild(ul);
   }
   text($('game'), st.game ? `Minecraft-Fenster: ${st.game.status}` : '');
+  const u = st.update;
+  if (u) {
+    const upd = { staged: ' · Update bereit – wird installiert, sobald hier nichts läuft', downloading: ' · Update wird geladen…', restarting: ' · Update wird installiert…', error: '' }[u.state] ?? '';
+    text($('version'), `${appVersion ? `v${appVersion} · ` : ''}Build ${u.build || '–'}${upd}`);
+  }
   if (st.state === 'revoked') void load();
 }
+
+let appVersion = '';
 
 async function load() {
   const r = await window.agent.info();
   info = r.info;
+  appVersion = r.version || '';
   text($('version'), r.version ? `v${r.version}` : '');
   $('autostart').checked = !!r.autostart;
   renderInfo();

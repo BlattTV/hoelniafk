@@ -230,9 +230,7 @@ export class Updater {
       try {
         if (!s.publicKey) throw new Error('The update server key is not confirmed yet (Settings → Updates)');
         const env = await this.getJson<SignedEnvelope>(`${this.base()}/api/channels/${s.channel}/latest`);
-        if (!env?.manifest || !verifyEnvelope(env, s.publicKey)) throw new Error('Release signature is INVALID – update refused (wrong server or manipulated release)');
-        if (env.manifest.product !== 'hoelni-client-suite' || env.manifest.schema !== 1) throw new Error('Release is not for this product');
-        this.latest = env.manifest;
+        this.latest = verifiedManifest(env, s.publicKey);
         this.lastCheckAt = new Date().toISOString();
         this.state = fs.existsSync(path.join(this.root, UPDATE_DIR, 'pending.json')) ? 'staged' : 'idle';
       } catch (e) {
@@ -270,24 +268,7 @@ export class Updater {
           chunks.push(Buffer.from(c));
           this.progress = { done: size, total: m.backend.size };
         }
-        const data = Buffer.concat(chunks);
-        const hash = crypto.createHash('sha256').update(data).digest('hex');
-        if (data.length !== m.backend.size || hash !== m.backend.sha256) throw new Error('Checksum mismatch – download refused');
-        fs.rmSync(staging, { recursive: true, force: true });
-        fs.mkdirSync(staging, { recursive: true });
-        const entries = unzipSync(new Uint8Array(data));
-        for (const [name, bytes] of Object.entries(entries)) {
-          if (name.endsWith('/')) continue;
-          const target = path.resolve(staging, name);
-          if (!target.startsWith(staging + path.sep)) throw new Error(`Unsafe path in bundle: ${name}`);
-          fs.mkdirSync(path.dirname(target), { recursive: true });
-          fs.writeFileSync(target, bytes);
-        }
-        const info = JSON.parse(fs.readFileSync(path.join(staging, 'build-info.json'), 'utf8'));
-        if (Number(info.build) !== m.build) throw new Error('Bundle does not match the signed manifest');
-        const lockChanged = (m.lockHash ?? null) !== current.lockHash;
-        for (const f of fs.readdirSync(dir)) if (f.startsWith('staging-') && f !== `staging-${m.build}`) fs.rmSync(path.join(dir, f), { recursive: true, force: true });
-        fs.writeFileSync(path.join(dir, 'pending.json'), JSON.stringify({ build: m.build, version: m.version, dir: `staging-${m.build}`, lockChanged, fromBuild: current.build, stagedAt: new Date().toISOString() }, null, 2));
+        const { lockChanged } = stageBundle(this.root, m, Buffer.concat(chunks));
         this.state = 'staged';
         this.progress = null;
         log.info(`Update ${m.version} downloaded and verified – applied on the next restart${lockChanged ? ' (dependencies change)' : ''}`);
@@ -352,6 +333,46 @@ export class Updater {
   stop(): void {
     if (this.timer) clearInterval(this.timer);
   }
+}
+
+/** Verifies a release envelope with the pinned key; returns its manifest or throws. */
+export function verifiedManifest(env: SignedEnvelope | null | undefined, publicKey: string): ReleaseManifest {
+  if (!env?.manifest || !verifyEnvelope(env, publicKey)) throw new Error('Release signature is INVALID – update refused (wrong server or manipulated release)');
+  if (env.manifest.product !== 'hoelni-client-suite' || env.manifest.schema !== 1) throw new Error('Release is not for this product');
+  return env.manifest;
+}
+
+/**
+ * Checks a downloaded bundle against the signed manifest (size + SHA-256), extracts it into
+ * <root>/.update/staging-<build> and writes pending.json – applied by updateApply before the next start.
+ */
+export function stageBundle(root: string, m: ReleaseManifest, data: Buffer): { lockChanged: boolean } {
+  const current = currentBuild(root);
+  const dir = path.join(root, UPDATE_DIR);
+  const staging = path.join(dir, `staging-${m.build}`);
+  const hash = crypto.createHash('sha256').update(data).digest('hex');
+  if (data.length !== m.backend.size || hash !== m.backend.sha256) throw new Error('Checksum mismatch – download refused');
+  try {
+    fs.rmSync(staging, { recursive: true, force: true });
+    fs.mkdirSync(staging, { recursive: true });
+    const entries = unzipSync(new Uint8Array(data));
+    for (const [name, bytes] of Object.entries(entries)) {
+      if (name.endsWith('/')) continue;
+      const target = path.resolve(staging, name);
+      if (!target.startsWith(staging + path.sep)) throw new Error(`Unsafe path in bundle: ${name}`);
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      fs.writeFileSync(target, bytes);
+    }
+    const info = JSON.parse(fs.readFileSync(path.join(staging, 'build-info.json'), 'utf8'));
+    if (Number(info.build) !== m.build) throw new Error('Bundle does not match the signed manifest');
+  } catch (e) {
+    fs.rmSync(staging, { recursive: true, force: true });
+    throw e;
+  }
+  const lockChanged = (m.lockHash ?? null) !== current.lockHash;
+  for (const f of fs.readdirSync(dir)) if (f.startsWith('staging-') && f !== `staging-${m.build}`) fs.rmSync(path.join(dir, f), { recursive: true, force: true });
+  fs.writeFileSync(path.join(dir, 'pending.json'), JSON.stringify({ build: m.build, version: m.version, dir: `staging-${m.build}`, lockChanged, fromBuild: current.build, stagedAt: new Date().toISOString() }, null, 2));
+  return { lockChanged };
 }
 
 /** Update URLs that only work inside a LAN (private IPs, .local, single-label names, localhost). */

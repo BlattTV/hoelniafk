@@ -501,7 +501,11 @@ npm install
 npm run dist
 ```
 
-Ergebnis: `agent-app\release\Hoelni-Agent-Setup-0.3.0.exe`. Diese Datei gibst du weiter, z. B. per USB-Stick oder Cloud-Link.
+Ergebnis: `agent-app\release\Hoelni-Agent-Setup-0.4.0.exe`. Diese Datei gibst du weiter, z. B. per USB-Stick oder Cloud-Link.
+
+Den Installer baust du nur **einmal**. Neue Versionen holt sich der Agent danach selbst (siehe D5).
+Einen neuen Installer brauchst du nur, wenn sich das Agent-Fenster selbst ändert; das steht dann
+im Changelog.
 
 ### D2. Beim anderen Haushalt installieren
 
@@ -545,7 +549,27 @@ auf einem Agent läuft: Die Verbindung geht vom Agent-PC über den Proxy zum Min
 **Proxy für die Verbindung des Agents zum Backend** (z. B. in Firmennetzen): im Agent unter
 *Einstellungen → Proxy für die Verbindung zum Server*.
 
-### D5. Wenn etwas nicht klappt
+### D5. Updates
+
+Der Agent aktualisiert sich selbst, über dieselben signierten Releases wie die Suite:
+
+1. Voraussetzung: Das Backend verteilt Updates. `hoelni-backend info` zeigt dann
+   `Updates: https://afk.hoelni.de/updates → http://127.0.0.1:8787`. Falls dort *not distributed*
+   steht und der Update-Server im selben LXC läuft:
+   `hoelni-backend config set updatesUpstream http://127.0.0.1:8787` und
+   `systemctl restart hoelni-backend`.
+2. Du baust wie gewohnt mit `hoelni-updates build`.
+3. Der Agent prüft alle 6 Stunden, eine Minute nach dem Start auch sofort. Er lädt das Update,
+   prüft Signatur und Prüfsumme und installiert es, **sobald auf dem PC nichts läuft**. Laufen dort
+   ständig Sessions, installiert er es spätestens nach 6 Stunden trotzdem; die Sessions verbinden
+   sich dann nach wenigen Sekunden neu. Solange das Minecraft-Fenster offen ist, installiert er nie.
+4. Startet die neue Version nicht, stellt das Agent-Fenster automatisch die vorherige wieder her.
+
+Im Agent-Fenster steht unten die Build-Nummer, z. B. `v0.4.0 · Build 57`, und ob ein Update wartet.
+Den Signaturschlüssel übernimmt der Agent bei der ersten Prüfung über die geschützte Verbindung
+zum Backend. Ändert er sich später, lehnt der Agent Updates ab, bis er neu angemeldet wird.
+
+### D6. Wenn etwas nicht klappt
 
 | Problem | Lösung |
 |---|---|
@@ -557,6 +581,7 @@ auf einem Agent läuft: Die Verbindung geht vom Agent-PC über den Proxy zum Min
 | Suite: „Agent refused: … local/private address“ | Server oder Proxy der Identität liegt in einem privaten Netz. Agents verbinden nur zu öffentlichen Adressen. |
 | Suite: „Agent refused: Bind-IP network profiles …“ | Der Identität statt der Bind-IP einen Proxy oder kein Netzwerkprofil geben |
 | Session auf dem Agent: Proxy-Fehler | *Proxy pool → Test* für diesen Proxy; ggf. *Release* und neu zuweisen |
+| Agent-Fenster zeigt keine neue Build-Nummer | `hoelni-backend info` → Zeile *Updates* prüfen (D5); Log: `%APPDATA%\Hoelni Agent\logs\agent.log` |
 
 ---
 
