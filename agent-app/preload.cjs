@@ -10,4 +10,5 @@ contextBridge.exposeInMainWorld('agent', {
   setProxy: (proxy) => ipcRenderer.invoke('set-proxy', { proxy }),
   setAutostart: (on) => ipcRenderer.invoke('autostart', { on }),
   onStatus: (fn) => ipcRenderer.on('status', (_e, s) => fn(s)),
+  onAutostart: (fn) => ipcRenderer.on('autostart', (_e, on) => fn(on)),
 });

@@ -11,6 +11,17 @@
  * are restored on the next start).
  */
 const { app, BrowserWindow, Tray, Menu, shell, nativeImage, dialog, Notification } = require('electron');
+
+// ------------------------------------------------------------------ start with Windows
+// The entry starts the program hidden in the tray (--hidden). Windows only reports it as set when it is
+// queried with the same arguments – without them the checkbox always read "off" and jumped back.
+const LOGIN_ITEM = { args: ['--hidden'] };
+function autostartOn() {
+  return app.getLoginItemSettings(LOGIN_ITEM).openAtLogin;
+}
+function setAutostart(on) {
+  app.setLoginItemSettings({ ...LOGIN_ITEM, openAtLogin: !!on });
+}
 const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -388,8 +399,8 @@ function trayMenu() {
       {
         label: L('Start with Windows (in the tray)'),
         type: 'checkbox',
-        checked: app.getLoginItemSettings().openAtLogin,
-        click: (item) => app.setLoginItemSettings({ openAtLogin: item.checked, args: ['--hidden'] }),
+        checked: autostartOn(),
+        click: (item) => setAutostart(item.checked),
       },
       { label: L('Open data folder'), click: () => shell.openPath(dataDir()) },
       { type: 'separator' },

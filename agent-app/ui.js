@@ -132,6 +132,7 @@ $('change-btn').addEventListener('click', () => busy($('change-btn'), async () =
 }));
 
 window.agent.onStatus(renderStatus);
+window.agent.onAutostart?.((on) => ($('autostart').checked = !!on)); // changed in the tray menu
 void load().then(() => {
   if (info?.proxy) $('proxy').placeholder = 'Proxy gesetzt (leer speichern = entfernen)';
 });

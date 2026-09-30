@@ -9,6 +9,17 @@
  * this Electron shell only shows the login/status window and the tray.
  */
 const { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, Notification } = require('electron');
+
+// ------------------------------------------------------------------ start with Windows
+// The entry starts the program hidden in the tray (--hidden). Windows only reports it as set when it is
+// queried with the same arguments – without them the checkbox always read "off" and jumped back.
+const LOGIN_ITEM = { args: ['--hidden'] };
+function autostartOn() {
+  return app.getLoginItemSettings(LOGIN_ITEM).openAtLogin;
+}
+function setAutostart(on) {
+  app.setLoginItemSettings({ ...LOGIN_ITEM, openAtLogin: !!on });
+}
 const { spawn, execFile, execFileSync } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -102,10 +113,47 @@ function log(line) {
   }
 }
 
+/** Fingerprint of the window program files that are running now (see loader.cjs). */
+function shellFingerprint() {
+  const dir = path.join(runtimeRoot(), 'agent-app');
+  try {
+    const h = require('node:crypto').createHash('sha256');
+    for (const f of fs.readdirSync(dir).filter((x) => /\.(cjs|js|html)$/.test(x)).sort()) h.update(f).update(fs.readFileSync(path.join(dir, f)));
+    return h.digest('hex');
+  } catch {
+    return '';
+  }
+}
+const startedShell = app.isPackaged ? shellFingerprint() : '';
+
+/** Keeps watching an update that was applied just before a restart of this app (rollback if it fails). */
+function resumeProbation() {
+  try {
+    const a = JSON.parse(fs.readFileSync(path.join(runtimeRoot(), '.update', 'applied.json'), 'utf8'));
+    const age = Date.now() - Date.parse(a.at);
+    if (a.stable || !(age >= 0 && age < PROBATION_MS)) return;
+    const timer = setTimeout(() => {
+      probation = null;
+      updateCmd(['stable']);
+    }, PROBATION_MS - age);
+    probation = { until: Date.now() + PROBATION_MS - age, timer };
+  } catch {
+    /* no update applied */
+  }
+}
+
 /** Installs a staged update (before the agent starts). */
 function installPendingUpdate() {
   const r = updateCmd(['apply']);
   if (!r?.applied) return;
+  if (app.isPackaged && shellFingerprint() !== startedShell) {
+    // The update brings a new agent window/tray: restart the program so it takes effect now.
+    log(`update ${r.build}: new window program – restarting the agent app`);
+    quitting = true;
+    app.relaunch({ args: ['--hidden'] });
+    app.exit(0);
+    return;
+  }
   clearTimeout(probation?.timer);
   const timer = setTimeout(() => {
     probation = null;
@@ -219,7 +267,7 @@ function updateTray() {
   const st = status;
   const line = !info?.signedIn ? 'Nicht angemeldet' : st ? `${STATE_DE[st.state] ?? st.state}${st.sessions?.length ? ` · ${st.sessions.length} Session(s)` : ''}` : 'startet…';
   tray.setToolTip(`Hoelni Agent – ${line}`);
-  const autostart = app.getLoginItemSettings().openAtLogin;
+  const autostart = autostartOn();
   tray.setContextMenu(
     Menu.buildFromTemplate([
       { label: `Hoelni Agent – ${line}`, enabled: false },
@@ -228,7 +276,7 @@ function updateTray() {
       st && st.state !== 'paused' && st.state !== 'revoked' ? { label: 'Pausieren', click: () => agent?.send({ cmd: 'pause' }) } : null,
       st?.state === 'paused' ? { label: 'Fortsetzen', click: () => agent?.send({ cmd: 'resume' }) } : null,
       { type: 'separator' },
-      { label: 'Mit Windows starten', type: 'checkbox', checked: autostart, click: (item) => app.setLoginItemSettings({ openAtLogin: item.checked, args: ['--hidden'] }) },
+      { label: 'Mit Windows starten', type: 'checkbox', checked: autostart, click: (item) => { setAutostart(item.checked); updateTray(); send('autostart', autostartOn()); } },
       { label: 'Beenden', click: () => void quit() },
     ].filter(Boolean)),
   );
@@ -242,7 +290,7 @@ async function quit() {
 
 // ------------------------------------------------------------------ IPC from the window
 
-ipcMain.handle('info', async () => ({ info: await refreshInfo(), status, autostart: app.getLoginItemSettings().openAtLogin, version: app.getVersion() }));
+ipcMain.handle('info', async () => ({ info: await refreshInfo(), status, autostart: autostartOn(), version: app.getVersion() }));
 
 ipcMain.handle('login', async (_e, { username, password, name, trustFingerprint }) => {
   const args = ['login', '--user', String(username || '')];
@@ -252,7 +300,7 @@ ipcMain.handle('login', async (_e, { username, password, name, trustFingerprint 
   const r = await cli(args, { HOELNI_AGENT_PASSWORD: String(password || '') });
   if (r.ok) {
     await refreshInfo();
-    if (!app.getLoginItemSettings().openAtLogin && app.isPackaged) app.setLoginItemSettings({ openAtLogin: true, args: ['--hidden'] });
+    if (!autostartOn() && app.isPackaged) setAutostart(true);
     startAgent();
     updateTray();
   }
@@ -300,9 +348,9 @@ ipcMain.handle('set-proxy', async (_e, { proxy }) => {
 });
 
 ipcMain.handle('autostart', (_e, { on }) => {
-  app.setLoginItemSettings({ openAtLogin: !!on, args: ['--hidden'] });
+  setAutostart(!!on);
   updateTray();
-  return app.getLoginItemSettings().openAtLogin;
+  return autostartOn();
 });
 
 // ------------------------------------------------------------------ lifecycle
@@ -314,6 +362,7 @@ app.on('before-quit', () => {
 });
 
 app.whenReady().then(async () => {
+  if (app.isPackaged) resumeProbation();
   app.setAppUserModelId('net.hoelni.agent');
   tray = new Tray(icon('tray.png'));
   tray.on('click', showWindow);
