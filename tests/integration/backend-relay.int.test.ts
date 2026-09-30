@@ -164,6 +164,41 @@ describe('backend relay: manager and agent of the same account', () => {
     await waitFor(() => suite.sessions.getState(sid).state === 'ONLINE', 10_000, 'back ONLINE right after resume (no backoff wait)');
   }, 60_000);
 
+  it('"Run on" changed while running: the session moves (this PC ↔ agent) without two logins at once', async () => {
+    const sid = `${identityId}:${serverId}`;
+    const joins = () => mc.joins.filter((j) => j.username === 'Remote01').length;
+    // to this PC
+    suite.repo.updateIdentity(identityId, { settings: { agentId: null } });
+    await suite.sessions.placementChanged(identityId);
+    await waitFor(() => suite.sessions.getState(sid).state === 'ONLINE' && !suite.runtime.isRemoteSession?.(sid), 30_000, 'ONLINE on this PC');
+    await waitFor(() => agent.status.sessions.length === 0, 5000, 'agent released it');
+    expect(mc.players().filter((p) => p === 'Remote01')).toHaveLength(1);
+    // and back to the agent
+    const before = joins();
+    suite.repo.updateIdentity(identityId, { settings: { agentId } });
+    await suite.sessions.placementChanged(identityId);
+    await waitFor(() => suite.sessions.getState(sid).state === 'ONLINE' && !!suite.runtime.isRemoteSession?.(sid), 30_000, 'ONLINE on the agent');
+    expect(joins()).toBe(before + 1);
+    expect(mc.players().filter((p) => p === 'Remote01')).toHaveLength(1);
+    expect(suite.repo.sessionEvents({ sessionId: sid }).filter((e) => e.kind === 'move').map((e) => e.detail)).toEqual(
+      expect.arrayContaining([expect.stringMatching(/this PC/), expect.stringMatching(new RegExp(`agent #${agentId}`))]),
+    );
+  }, 90_000);
+
+  it('a start that cannot happen says why in the session log (agent offline)', async () => {
+    const sid = `${identityId}:${serverId}`;
+    const other = suite.identities.create({ label: 'Remote02' }).identity.id;
+    suite.repo.upsertMinecraft(other, { username: 'Remote02', authType: 'offline' });
+    suite.repo.assignServer(other, { serverId });
+    suite.repo.updateIdentity(other, { settings: { agentId: 99999 } });
+    await suite.sessions.startSession(other, serverId);
+    const osid = `${other}:${serverId}`;
+    await waitFor(() => suite.repo.sessionEvents({ sessionId: osid }).some((e) => e.kind === 'start-failed' && /Agent #99999 is offline/.test(e.detail)), 10_000, 'reason logged');
+    expect(suite.sessions.getState(osid).state).toBe('RECONNECTING');
+    await suite.sessions.stopSession(osid);
+    expect(suite.sessions.getState(sid).state).toBe('ONLINE');
+  }, 30_000);
+
   it('admin API is only available to admins signed in to a manager', async () => {
     const friend = await requestJson<{ token: string }>(`${backendUrl}/api/login`, 'POST', { username: 'friend', password: USER_PW, client: 'manager', name: 'friend PC' });
     await expect(requestJson(`${backendUrl}/api/admin/overview`, 'GET', undefined, {}, { Authorization: `Bearer ${friend.token}` })).rejects.toThrow(/admin/i);

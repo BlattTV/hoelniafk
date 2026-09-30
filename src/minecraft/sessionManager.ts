@@ -88,6 +88,8 @@ export class SessionRecord {
   lastChatAt = 0;
   /** Last incoming chat line (diagnosis). */
   lastChatInAt = 0;
+  /** Last start failure written to the session log (logged once per distinct reason). */
+  lastFailLogged: string | null = null;
   /** Live takeover failed for this session (reason) – the game opens with its own login instead. */
   takeoverBroken: string | null = null;
   uuid: string | null = null;
@@ -241,6 +243,33 @@ export class SessionManager {
     const r = this.records.get(sessionId);
     if (!r) throw new NotFoundError(`Session ${sessionId} not found`);
     return r;
+  }
+
+  /**
+   * "Run on" of an identity changed (this PC ↔ agent): running sessions move there now – stopped here
+   * first (never two logins at once), then started at the new place. Waiting ones retry right away.
+   */
+  async placementChanged(identityId: number): Promise<void> {
+    const agentId = this.repo.getIdentity(identityId).settings.agentId ?? null;
+    let where = 'this PC';
+    if (agentId !== null) where = `agent #${agentId}`;
+    for (const r of [...this.records.values()].filter((x) => x.identityId === identityId)) {
+      const a = this.repo.getAssignment(r.identityId, r.serverId);
+      if (!a?.enabled || a.desiredState !== 'ONLINE') continue;
+      const onAgent = !!this.runtime.isRemoteSession?.(r.id);
+      const active = ACTIVE.includes(r.state) && r.state !== 'STOPPING';
+      if (active && onAgent === (agentId !== null)) continue; // already there
+      this.repo.addSessionEvent(r.identityId, r.serverId, r.id, 'move', `Moving the session to ${where}`);
+      await this.withLock(r, async () => {
+        if (r.takeover !== 'none') await this.closeGame(r.id).catch(() => undefined);
+        if (ACTIVE.includes(r.state)) await this.halt(r, `Moving to ${where}`, true);
+        r.consecutiveFailures = 0;
+        r.nextAttemptAt = Date.now();
+        r.lastFailLogged = null;
+        if (r.state === 'BLOCKED') this.setState(r, 'STOPPED');
+      });
+    }
+    void this.reconcile();
   }
 
   /** An agent came online or was resumed: sessions waiting for it retry right away instead of after their backoff. */
@@ -625,6 +654,11 @@ export class SessionManager {
 
   private fail(r: SessionRecord, message: string, kind: 'retry' | 'block'): void {
     r.lastError = message.slice(0, 500);
+    // Why a start does not happen (agent offline/paused, missing account …) – once per distinct reason.
+    if (r.lastFailLogged !== r.lastError) {
+      r.lastFailLogged = r.lastError;
+      this.repo.addSessionEvent(r.identityId, r.serverId, r.id, 'start-failed', r.lastError);
+    }
     if (kind === 'block') {
       this.setState(r, 'BLOCKED', r.lastError);
       return;
@@ -732,6 +766,7 @@ export class SessionManager {
         if (r.state === 'STOPPING') return;
         if (e.phase === 'ONLINE') {
           r.onlineSince = Date.now();
+          r.lastFailLogged = null;
           r.releaseStart?.();
           this.setState(r, 'ONLINE', null);
         } else this.setState(r, e.phase);

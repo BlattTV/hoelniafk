@@ -326,8 +326,11 @@ export async function buildServer(suite: Suite, opts: ServerOptions = {}): Promi
       if (gc.memoryMb !== undefined && (!Number.isInteger(gc.memoryMb) || gc.memoryMb < 1024 || gc.memoryMb > 32768)) throw new ValidationError('gameClient.memoryMb must be 1024–32768');
     }
     if (settings && settings.agentId !== undefined && settings.agentId !== null && !(Number.isInteger(settings.agentId) && settings.agentId > 0)) throw new ValidationError('agentId must be an agent id or null (this PC)');
+    const placedBefore = suite.repo.getIdentity(id).settings.agentId ?? null;
     const updated = suite.repo.updateIdentity(id, { label, settings, networkProfileId });
     suite.bus.emit({ type: 'identity.changed', identityId: id });
+    // "Run on" changed: move running sessions to the new place right away
+    if ((updated.settings.agentId ?? null) !== placedBefore) void suite.sessions.placementChanged(id).catch(() => undefined);
     return updated;
   });
   app.delete('/api/identities/:id', async (req: Req) => {
