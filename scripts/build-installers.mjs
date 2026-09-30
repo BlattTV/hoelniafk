@@ -31,6 +31,12 @@ const opt = (n) => {
 const only = opt('only');
 const outDir = path.resolve(opt('out') ?? path.join(repo, 'release'));
 const isWin = process.platform === 'win32';
+// makensis (NSIS) on Linux aborts with "main argv conversion failed" without a UTF-8 locale – e.g. under
+// systemd, where LANG is not set – as soon as an argument contains a non-ASCII character ("–", "ü").
+if (!isWin && !/utf-?8/i.test(`${process.env.LC_ALL ?? ''}${process.env.LC_CTYPE ?? ''}${process.env.LANG ?? ''}`)) {
+  process.env.LANG = 'C.UTF-8';
+  process.env.LC_ALL = 'C.UTF-8';
+}
 const npm = isWin ? 'npm.cmd' : 'npm';
 const say = (m) => process.stderr.write(`› ${m}\n`);
 const run = (cmd, args, cwd, env = {}) => execFileSync(cmd, args, { cwd, stdio: ['ignore', 'pipe', 'inherit'], shell: isWin, env: { ...process.env, ...env }, maxBuffer: 256 * 1024 * 1024 });

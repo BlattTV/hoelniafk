@@ -108,6 +108,7 @@ Wants=network-online.target
 User=$SVC_USER
 Environment=HOELNI_UPDATES_CONFIG=$CONF_DIR/config.json
 Environment=HOME=$DATA_DIR
+Environment=LANG=C.UTF-8
 WorkingDirectory=$DATA_DIR
 ExecStart=/usr/bin/env node $APP_DIR/repo/update-server/src/cli.mjs serve
 Restart=always

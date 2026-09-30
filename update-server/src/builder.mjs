@@ -192,7 +192,7 @@ export class Builder {
       run('npm', ['ci', '--no-audit', '--no-fund'], path.join(workDir, 'desktop'), { ELECTRON_SKIP_BINARY_DOWNLOAD: '1' });
       const out = fs.mkdtempSync(path.join(os.tmpdir(), 'hoelni-installers-'));
       try {
-        const text = run(process.execPath, [path.join(workDir, 'scripts', 'build-installers.mjs'), '--skip-build', '--out', out], workDir);
+        const text = run(process.execPath, [path.join(workDir, 'scripts', 'build-installers.mjs'), '--skip-build', '--out', out], workDir, { LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8' });
         const result = JSON.parse(text.trim().split('\n').pop());
         const d = this.store.setDownloads(result.installers, { build, inputsHash });
         this.log(`installers ready: ${Object.values(d.items).map((i) => i.file).join(', ')}`);
