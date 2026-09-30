@@ -311,7 +311,7 @@ export async function macrosView(root) {
   };
 
   const renderHead = () => mount(headEl, h('div', { class: 'page-head' },
-    h('div', null, h('h1', null, 'Macro builder'), h('div', { class: 'muted' }, 'Blocks like in Scratch – for your Minecraft sessions. While you play in the game window, macros keep chatting and running commands; movement is up to you.')),
+    h('div', null, h('h1', null, 'Macro builder'), h('div', { class: 'muted' }, 'Blocks like in Scratch. With the game open, macros still chat and run commands.')),
     dirty ? h('span', { class: 'badge warn' }, 'unsaved changes') : null));
 
   const renderAll = () => {
