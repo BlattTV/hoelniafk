@@ -2,6 +2,9 @@
  * Account library: Microsoft and Discord accounts added on their own and linked to identities by
  * hand. Linking moves an account (and its Minecraft login) – never two identities on one login.
  */
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { openDatabase, SCHEMA_VERSION } from '../src/core/db.js';
 import { buildServer } from '../src/web/server.js';
@@ -107,24 +110,22 @@ describe('account library', () => {
     expect(s.repo.accountOf(other, 'discord')?.id).toBe(w2.id);
   });
 
-  it('migration: existing Microsoft and Discord logins become library entries with their browser profiles', () => {
-    const db = openDatabase(':memory:');
-    expect(SCHEMA_VERSION).toBeGreaterThanOrEqual(6);
-    const rows = db.prepare('SELECT count(*) AS n FROM accounts').get() as { n: number };
-    expect(rows.n).toBe(0);
-    // simulate a v5 database with data: run the v6 inserts on fresh rows
+  it('migration v6 on a real v5 database: existing logins become library entries with their browser profiles', () => {
+    const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'hoelni-mig6-')), 'hoelni.db');
+    let db: any = openDatabase(file);
+    db.exec('DROP TABLE accounts; UPDATE schema_version SET version = 5'); // a database of the previous version
     const ts = new Date().toISOString();
-    db.prepare("INSERT INTO identities (id, number, label, settings_json, created_at, updated_at) VALUES (1, 1, 'Old', '{}', ?, ?)").run(ts, ts);
-    db.prepare("INSERT INTO minecraft_identities (identity_id, username, auth_type, auth_status, msa_account) VALUES (1, 'OldPlayer', 'microsoft', 'AUTHENTICATED', 'old@outlook.com')").run();
-    db.prepare("INSERT INTO discord_identities (identity_id, username, oauth_state) VALUES (1, 'old_dc', 'CONNECTED')").run();
-    db.exec(`INSERT INTO accounts (kind, label, email, username, partition, ready, identity_id, created_at, updated_at)
-      SELECT 'microsoft', '', msa_account, username, 'persist:hoelni-ms-' || identity_id, 1, identity_id, 'x', 'x' FROM minecraft_identities WHERE auth_type = 'microsoft' AND msa_account IS NOT NULL;
-      INSERT INTO accounts (kind, label, email, username, partition, ready, identity_id, created_at, updated_at)
-      SELECT 'discord', '', NULL, username, 'persist:hoelni-discord-' || identity_id, 1, identity_id, 'x', 'x' FROM discord_identities WHERE oauth_state = 'CONNECTED';`);
-    const list = db.prepare('SELECT kind, email, username, partition, identity_id FROM accounts ORDER BY kind').all();
-    expect(list).toEqual([
-      { kind: 'discord', email: null, username: 'old_dc', partition: 'persist:hoelni-discord-1', identity_id: 1 },
-      { kind: 'microsoft', email: 'old@outlook.com', username: 'OldPlayer', partition: 'persist:hoelni-ms-1', identity_id: 1 },
+    db.prepare("INSERT INTO identities (id, number, label, settings_json, created_at, updated_at) VALUES (1,1,'A','{}',?,?),(2,2,'B','{}',?,?)").run(ts, ts, ts, ts);
+    db.prepare("INSERT INTO minecraft_identities (identity_id, username, auth_type, auth_status, msa_account) VALUES (1,'P1','microsoft','AUTHENTICATED','a@outlook.com'),(2,'Pending_2','microsoft','PENDING','b@outlook.com')").run();
+    db.prepare("INSERT INTO discord_identities (identity_id, username, oauth_state) VALUES (1,'dc1','CONNECTED'),(2,NULL,'NONE')").run();
+    db.raw.close();
+    db = openDatabase(file);
+    expect((db.prepare('SELECT version FROM schema_version').get() as any).version).toBe(SCHEMA_VERSION);
+    expect(db.prepare('SELECT kind, email, username, partition, ready, identity_id FROM accounts ORDER BY kind, identity_id').all()).toEqual([
+      { kind: 'discord', email: null, username: 'dc1', partition: 'persist:hoelni-discord-1', ready: 1, identity_id: 1 },
+      { kind: 'microsoft', email: 'a@outlook.com', username: 'P1', partition: 'persist:hoelni-ms-1', ready: 1, identity_id: 1 },
+      { kind: 'microsoft', email: 'b@outlook.com', username: null, partition: 'persist:hoelni-ms-2', ready: 0, identity_id: 2 },
     ]);
+    db.raw.close();
   });
 });

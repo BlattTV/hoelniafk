@@ -54,7 +54,7 @@ export function recoverAfterRestart({ expectRestart = false, message = 'The suit
       await new Promise((r) => setTimeout(r, 1000));
       let status = 0;
       try {
-        status = (await fetch('/api/status', { headers: { 'x-hoelni-token': token }, cache: 'no-store' })).status;
+        status = (await fetch('/api/status', { headers: { 'x-hoelni-token': token }, cache: 'no-store', signal: AbortSignal.timeout(4000) })).status;
       } catch {
         continue; // still down
       }

@@ -397,7 +397,7 @@ const MIGRATIONS: string[] = [
   CREATE UNIQUE INDEX accounts_identity ON accounts(kind, identity_id) WHERE identity_id IS NOT NULL;
   CREATE UNIQUE INDEX accounts_email ON accounts(kind, email) WHERE email IS NOT NULL;
   INSERT INTO accounts (kind, label, email, username, partition, ready, identity_id, created_at, updated_at)
-    SELECT 'microsoft', '', msa_account, CASE WHEN username LIKE 'Pending\_%' ESCAPE '\' THEN NULL ELSE username END,
+    SELECT 'microsoft', '', msa_account, CASE WHEN substr(username, 1, 8) = 'Pending_' THEN NULL ELSE username END,
            'persist:hoelni-ms-' || identity_id, CASE WHEN auth_status = 'AUTHENTICATED' THEN 1 ELSE 0 END, identity_id,
            strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
     FROM minecraft_identities WHERE auth_type = 'microsoft' AND msa_account IS NOT NULL;
