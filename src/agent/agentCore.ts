@@ -30,6 +30,8 @@ export interface AgentConfig {
   version?: string;
   /** Allow servers/proxies on private addresses (only for local tests – never in households). */
   allowPrivateTargets?: boolean;
+  /** No Minecraft game on this device (Android app): "Open game" is answered with a clear message. */
+  noGame?: boolean;
 }
 
 export type AgentState = 'connecting' | 'online' | 'offline' | 'paused' | 'revoked';
@@ -249,6 +251,10 @@ export class AgentCore {
   }
 
   private async openGame(m: Extract<MainToHost, { cmd: 'game.open' }>): Promise<void> {
+    if (this.cfg.noGame) {
+      this.emitRuntime({ type: 'takeover', sessionId: m.sessionId, status: 'error', message: 'This agent is a phone – the game can only be opened on a PC' });
+      return;
+    }
     const game = this.gameRuntime();
     if (game.has(m.sessionId)) return void game.show(m.sessionId).catch(() => undefined);
     const port = await new Promise<number>((resolve, reject) => {

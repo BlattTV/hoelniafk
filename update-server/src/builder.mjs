@@ -162,8 +162,12 @@ export class Builder {
     this.log(`published build ${manifest.build} (${manifest.version}) to "${channel}"`);
     if (this.opts.keep) this.store.prune(this.opts.keep);
     let installers = null;
-    if (this.opts.installers !== false) installers = await this.buildInstallersLocked({ build: manifest.build });
-    return { skipped: false, build: manifest.build, version: manifest.version, commit, installers };
+    let android = null;
+    if (this.opts.installers !== false) {
+      installers = await this.buildInstallersLocked({ build: manifest.build });
+      android = await this.buildAndroidLocked({ build: manifest.build });
+    }
+    return { skipped: false, build: manifest.build, version: manifest.version, commit, installers, android };
   }
 
   /** Inputs of the installers: they only need a rebuild when these change (the programs update themselves). */
@@ -208,12 +212,52 @@ export class Builder {
     }
   }
 
-  /** Rebuilds the installers from the last built commit (hoelni-updates build-installers). */
+  /**
+   * Android app of the agent (APK, offered at <backend>/download). It carries the agent itself, so it
+   * is built with every release (scripts/build-android.mjs). The signing key stays in the data
+   * directory (android/release.p12) – Android installs updates only over the same key. Missing build
+   * tools or a failure never block a release.
+   */
+  async buildAndroidLocked({ build = null } = {}) {
+    const workDir = this.opts.workDir;
+    const dir = path.join(this.store.dataDir, 'android');
+    const out = fs.mkdtempSync(path.join(os.tmpdir(), 'hoelni-apk-'));
+    try {
+      this.log('building the Android app (agent)');
+      let text;
+      try {
+        text = run(process.execPath, [path.join(workDir, 'scripts', 'build-android.mjs'), '--skip-build', '--out', out, '--cache', path.join(dir, 'cache'), '--keystore', path.join(dir, 'release.p12'), ...(build ? ['--build', String(build)] : [])], workDir);
+      } catch (e) {
+        const result = String(e.stdout ?? '').trim().split('\n').pop();
+        if (result.startsWith('{') && JSON.parse(result).missing) {
+          const error = JSON.parse(result).error;
+          this.log(`Android app skipped – ${error}`);
+          return { skipped: true, error };
+        }
+        throw e;
+      }
+      const result = JSON.parse(text.trim().split('\n').pop());
+      this.store.setDownloads([result], { build });
+      this.log(`Android app ready: ${result.file}`);
+      return { skipped: false, file: result.file };
+    } catch (e) {
+      const error = String(e.stderr || e.message).slice(-1500);
+      this.log(`Android build failed (the release itself is published): ${error}`);
+      return { skipped: false, error };
+    } finally {
+      fs.rmSync(out, { recursive: true, force: true });
+    }
+  }
+
+  /** Rebuilds the installers (and the Android app) from the last built commit (hoelni-updates build-installers). */
   async buildInstallers({ force = true } = {}) {
     const unlock = this.lock();
     try {
       if (!fs.existsSync(path.join(this.opts.workDir, 'dist'))) throw new Error('Nothing built yet – run "hoelni-updates build" first');
-      return await this.buildInstallersLocked({ build: this.store.state.nextBuild - 1, force });
+      const build = this.store.state.nextBuild - 1;
+      const installers = await this.buildInstallersLocked({ build, force });
+      const android = await this.buildAndroidLocked({ build });
+      return { ...installers, android };
     } finally {
       unlock();
     }

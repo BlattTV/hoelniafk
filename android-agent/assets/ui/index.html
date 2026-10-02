@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Hoelni Agent</title>
+<style>
+  :root { color-scheme: dark; --bg: #0b1220; --card: #0f172a; --line: #1e293b; --text: #e2e8f0; --muted: #94a3b8; --blue: #3b82f6; --blue2: #2563eb; --ok: #22c55e; --warn: #f59e0b; --err: #ef4444; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 Inter, 'Segoe UI', Roboto, system-ui, sans-serif; -webkit-tap-highlight-color: transparent; }
+  main { max-width: 560px; margin: 0 auto; padding: 18px 16px 40px; }
+  .logo { display: block; width: 150px; margin: 6px auto 4px; }
+  h1 { font-size: 20px; text-align: center; margin: 0 0 18px; font-weight: 700; }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 16px; margin-bottom: 12px; }
+  h2 { font-size: 15px; margin: 0 0 10px; }
+  label { display: block; font-size: 13px; color: var(--muted); margin: 10px 0 4px; }
+  input { width: 100%; padding: 11px 12px; border-radius: 10px; border: 1px solid var(--line); background: #0b1324; color: var(--text); font: inherit; }
+  input:focus { outline: none; border-color: var(--blue); }
+  button { font: inherit; font-weight: 600; border: 0; border-radius: 999px; padding: 11px 18px; background: #1e293b; color: var(--text); cursor: pointer; }
+  button.primary { background: var(--blue); color: #fff; }
+  button.primary:active { background: var(--blue2); }
+  button.danger { background: transparent; color: #fca5a5; border: 1px solid #7f1d1d; }
+  button.wide { width: 100%; margin-top: 14px; }
+  button:disabled { opacity: .55; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+  .state { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 17px; }
+  .dot { width: 12px; height: 12px; border-radius: 50%; background: var(--muted); flex: none; }
+  .dot.ok { background: var(--ok); box-shadow: 0 0 10px #22c55e88; } .dot.warn { background: var(--warn); } .dot.err { background: var(--err); }
+  .muted { color: var(--muted); font-size: 13px; }
+  .err { color: #fca5a5; font-size: 13.5px; margin-top: 10px; }
+  .box { border-radius: 12px; padding: 12px; margin-top: 12px; font-size: 13.5px; }
+  .box.warn { background: #451a0333; border: 1px solid #92400e; } .box.info { background: #1e3a8a33; border: 1px solid #1e40af; }
+  .sess { display: flex; justify-content: space-between; gap: 8px; padding: 9px 0; border-top: 1px solid var(--line); font-size: 14px; }
+  .sess:first-child { border-top: 0; }
+  .pill { font-size: 12px; padding: 2px 9px; border-radius: 999px; background: #1e293b; color: var(--muted); white-space: nowrap; }
+  .pill.ok { background: #14532d; color: #bbf7d0; }
+  code { font-family: ui-monospace, 'Cascadia Mono', monospace; font-size: 12px; color: #93c5fd; word-break: break-all; }
+  pre { white-space: pre-wrap; word-break: break-word; font-size: 11.5px; color: var(--muted); margin: 8px 0 0; max-height: 280px; overflow: auto; }
+  details summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+  .switch { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+  .toggle { position: relative; width: 52px; height: 30px; border-radius: 999px; background: #334155; flex: none; transition: background .15s; }
+  .toggle::after { content: ''; position: absolute; top: 3px; left: 3px; width: 24px; height: 24px; border-radius: 50%; background: #fff; transition: left .15s; }
+  .toggle.on { background: var(--blue); } .toggle.on::after { left: 25px; }
+</style>
+</head>
+<body>
+<main>
+  <img class="logo" src="logo.png" alt="Hoelni">
+  <h1>Hoelni Agent</h1>
+  <div id="app"><section><p class="muted">Agent startet …</p></section></div>
+</main>
+<script>
+'use strict';
+const app = window.HoelniApp; // bridge of the Android app
+const $ = (sel) => document.querySelector(sel);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+let ctl = null;
+let last = null;
+let busy = false;
+let typing = false;
+let trust = null; // certificate to confirm { fingerprint, subject }
+let moreOpen = false; // "Protokoll & Einstellungen" stays open across refreshes
+
+function control() {
+  try {
+    const c = JSON.parse(app.control() || 'null');
+    return c && c.port && c.token ? c : null;
+  } catch { return null; }
+}
+
+async function call(path, body) {
+  ctl = ctl || control();
+  if (!ctl) throw new Error('Agent läuft noch nicht');
+  let r;
+  try {
+    r = await fetch(`http://127.0.0.1:${ctl.port}${path}`, { method: body ? 'POST' : 'GET', headers: { 'x-token': ctl.token, 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+  } catch (e) {
+    ctl = null; // agent restarted – new port / token
+    throw new Error('Agent nicht erreichbar');
+  }
+  const data = await r.json().catch(() => ({}));
+  if (r.status === 401) ctl = null;
+  if (!r.ok || data.ok === false) { const err = new Error(data.error || `Fehler ${r.status}`); err.data = data; throw err; }
+  return data;
+}
+
+const STATE = {
+  online: ['ok', 'Verbunden – bereit für AFK-Sessions'],
+  connecting: ['warn', 'Verbinde mit dem Backend …'],
+  offline: ['err', 'Keine Verbindung – neuer Versuch läuft'],
+  paused: ['warn', 'Pausiert – hier laufen gerade keine Sessions'],
+  revoked: ['err', 'Gerät wurde im Backend abgemeldet'],
+};
+
+function render(st, error) {
+  const enabled = app.isEnabled();
+  const root = $('#app');
+  if (!enabled) {
+    root.innerHTML = `<section><div class="switch"><div><div class="state"><span class="dot"></span>Ausgeschaltet</div><p class="muted">Der Agent läuft nicht – auf diesem Handy starten keine AFK-Sessions.</p></div><div class="toggle" id="power"></div></div></section>`;
+    $('#power').onclick = () => { app.setEnabled(true); ctl = null; render(null); };
+    return;
+  }
+  if (!st) {
+    root.innerHTML = `<section><div class="switch"><div><div class="state"><span class="dot warn"></span>Agent startet …</div><p class="muted">${error ? esc(error) : 'Einen Moment.'}</p></div><div class="toggle on" id="power"></div></div></section>`;
+    $('#power').onclick = () => { app.setEnabled(false); ctl = null; render(null); };
+    return;
+  }
+  if (!st.signedIn) return renderLogin(st);
+  if (typing) return;
+  const a = st.agent || { state: 'connecting', sessions: [], managerOnline: false };
+  const [cls, text] = STATE[a.state] || ['warn', a.state];
+  const sessions = a.sessions || [];
+  const battery = app.batteryRestricted();
+  root.innerHTML = `
+    ${st.update ? `<section class="box info"><b>Neue Version verfügbar</b> (${esc(st.update.version)}${st.update.build ? `, Build ${esc(st.update.build)}` : ''}).<div class="row"><button class="primary" id="upd">Herunterladen &amp; installieren</button></div></section>` : ''}
+    <section>
+      <div class="switch"><div class="state"><span class="dot ${cls}"></span>${esc(text)}</div><div class="toggle on" id="power" title="Agent ausschalten"></div></div>
+      <p class="muted">${esc(st.username)} · ${esc(st.name)} · <code>${esc(st.backendUrl)}</code></p>
+      ${a.state === 'online' && !a.managerOnline ? '<p class="muted">Die Suite des Kontos ist gerade nicht verbunden – Sessions starten, sobald sie wieder online ist.</p>' : ''}
+      ${a.lastError && a.state !== 'online' ? `<p class="err">${esc(a.lastError)}</p>` : ''}
+      ${battery ? `<div class="box warn"><b>Akku-Optimierung ist an.</b> Android kann den Agent dann bei ausgeschaltetem Bildschirm anhalten.<div class="row"><button class="primary" id="bat">Im Hintergrund erlauben</button></div></div>` : ''}
+      <div class="row">${a.state === 'paused' ? '<button class="primary" id="resume">Fortsetzen</button>' : '<button id="pause">Pausieren</button>'}</div>
+    </section>
+    <section>
+      <h2>AFK-Sessions auf diesem Handy (${sessions.length})</h2>
+      ${sessions.length ? sessions.map((s) => `<div class="sess"><span>${esc(s.username)} <span class="muted">· ${esc(s.server)}</span></span><span class="pill ${s.phase === 'ONLINE' ? 'ok' : ''}">${esc(s.phase)}</span></div>`).join('') : '<p class="muted">Keine – in der Suite bei einer Identität „Läuft auf“ → dieses Handy wählen.</p>'}
+    </section>
+    <section>
+      <details id="more" ${moreOpen ? 'open' : ''}><summary>Protokoll &amp; Einstellungen</summary>
+        <pre>${esc((st.log || []).join('\n'))}</pre>
+        <label>Proxy für die Verbindung zum Backend (leer = keiner)</label>
+        <input id="proxy" placeholder="socks5://user:pass@host:1080" autocomplete="off">
+        <div class="row"><button id="saveProxy">Proxy speichern</button><button class="danger" id="logout">Abmelden</button></div>
+        <p class="muted">Agent ${esc(st.version)} · App ${esc(app.appVersion())} ${st.proxy ? '· Proxy aktiv' : ''}</p>
+      </details>
+    </section>`;
+  $('#power').onclick = () => { if (confirm('Agent ausschalten? Die AFK-Sessions auf diesem Handy werden beendet.')) { app.setEnabled(false); ctl = null; render(null); } };
+  if ($('#upd')) $('#upd').onclick = () => app.openUrl(st.update.url);
+  if ($('#bat')) $('#bat').onclick = () => app.allowBackground();
+  if ($('#pause')) $('#pause').onclick = () => act('/pause');
+  if ($('#resume')) $('#resume').onclick = () => act('/resume');
+  $('#logout').onclick = () => { if (confirm('Dieses Handy abmelden?')) act('/logout'); };
+  $('#saveProxy').onclick = () => act('/proxy', { proxy: $('#proxy').value.trim() });
+  $('#more').ontoggle = () => { moreOpen = $('#more').open; };
+  $('#proxy').onfocus = () => { typing = true; };
+  $('#proxy').onblur = () => { typing = false; };
+  const pre = root.querySelector('pre');
+  if (pre) pre.scrollTop = pre.scrollHeight;
+}
+
+function renderLogin(st, error) {
+  const root = $('#app');
+  if (root.querySelector('#login') && !error && !trust) return; // keep what is being typed
+  const keep = (id) => root.querySelector('#' + id)?.value;
+  const v = { user: keep('user') ?? '', name: keep('name') ?? app.deviceName(), backend: keep('backend') ?? st.backendUrl };
+  root.innerHTML = `
+    <section id="login">
+      <h2>Mit dem Hoelni-Konto anmelden</h2>
+      <p class="muted">Danach startet die Suite des Kontos AFK-Sessions auf diesem Handy – über dessen Internetverbindung. Am besten am Ladekabel und im WLAN.</p>
+      <label for="user">Benutzername</label><input id="user" autocomplete="username" autocapitalize="none" value="${esc(v.user)}">
+      <label for="pw">Passwort</label><input id="pw" type="password" autocomplete="current-password">
+      <label for="name">Name dieses Geräts</label><input id="name" value="${esc(v.name)}">
+      <details ${v.backend !== st.backendUrl ? 'open' : ''}><summary>Backend-Adresse</summary><label for="backend">Adresse</label><input id="backend" autocapitalize="none" value="${esc(v.backend)}"></details>
+      ${trust ? `<div class="box warn"><b>Zertifikat bestätigen</b><br>Das Backend nutzt ein nicht öffentlich vertrauenswürdiges Zertifikat (${esc(trust.subject || '')}). Nur bestätigen, wenn der Fingerabdruck mit dem auf dem Server übereinstimmt:<br><code>${esc(trust.fingerprint)}</code></div>` : ''}
+      ${error ? `<p class="err">${esc(error)}</p>` : ''}
+      <button class="primary wide" id="go">${trust ? 'Fingerabdruck bestätigen &amp; anmelden' : 'Anmelden'}</button>
+    </section>`;
+  $('#go').onclick = async () => {
+    const body = { user: $('#user').value.trim(), password: $('#pw').value, name: $('#name').value.trim(), backend: $('#backend').value.trim() || undefined };
+    if (trust) body.trustCert = trust.fingerprint;
+    if (!body.user || !body.password) return renderLogin(st, 'Benutzername und Passwort eingeben.');
+    $('#go').disabled = true;
+    try {
+      const r = await call('/login', body);
+      trust = null;
+      last = r;
+      render(r);
+    } catch (e) {
+      if (e.data && e.data.needsTrust) trust = { fingerprint: e.data.fingerprint, subject: e.data.subject };
+      renderLogin(st, e.message);
+    }
+  };
+}
+
+async function act(path, body) {
+  if (busy) return;
+  busy = true;
+  try { last = await call(path, body || {}); render(last); }
+  catch (e) { alert(e.message); }
+  finally { busy = false; }
+}
+
+async function tick() {
+  if (!app.isEnabled()) return render(null);
+  try { last = await call('/status'); render(last); }
+  catch (e) { last = null; render(null, e.message === 'Agent läuft noch nicht' ? null : e.message); }
+}
+tick();
+setInterval(tick, 2000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) tick(); });
+</script>
+</body>
+</html>

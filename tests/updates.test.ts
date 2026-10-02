@@ -335,7 +335,7 @@ describe('updates through the backend (https://afk.hoelni.de/updates)', () => {
     }
   }, 60_000);
 
-  it('offers the Windows installers for new PCs: update server and a public download page on the backend', async () => {
+  it('offers the Windows installers and the Android app: update server and a public download page on the backend', async () => {
     const { Accounts } = await import('../backend/src/accounts.mjs' as string);
     const { openDb } = await import('../backend/src/db.mjs' as string);
     const { Relay } = await import('../backend/src/relay.mjs' as string);
@@ -347,6 +347,12 @@ describe('updates through the backend (https://afk.hoelni.de/updates)', () => {
     const sha = crypto.createHash('sha256').update(bytes).digest('hex');
     store.setDownloads([{ kind: 'agent', file: 'Hoelni-Agent-Setup-9.9.9.exe', path: exe, size: bytes.length, sha256: sha, version: '9.9.9' }], { build: 7, inputsHash: 'x' });
     expect(() => store.setDownloads([{ kind: 'agent', file: '../evil.exe', path: exe, size: 1, sha256: '', version: '' }])).toThrow(/Bad installer name/);
+    // the Android app (APK) is offered next to the Windows installers
+    const apk = path.join(tmp, 'Hoelni-Agent-Android-9.9.9-8.apk');
+    fs.writeFileSync(apk, bytes.subarray(0, 1000));
+    store.setDownloads([{ kind: 'android', file: 'Hoelni-Agent-Android-9.9.9-8.apk', path: apk, size: 1000, sha256: 'a'.repeat(64), version: '9.9.9-8' }], { build: 8 });
+    expect(store.downloads.items.agent.file).toBe('Hoelni-Agent-Setup-9.9.9.exe'); // still offered
+    expect((await fetch(`${url}/downloads/Hoelni-Agent-Android-9.9.9-8.apk`)).headers.get('content-type')).toBe('application/vnd.android.package-archive');
     // update server: list + file
     const list = await (await fetch(`${url}/api/downloads`)).json();
     expect(list.items.agent).toMatchObject({ file: 'Hoelni-Agent-Setup-9.9.9.exe', sha256: sha, build: 7 });
@@ -371,6 +377,14 @@ describe('updates through the backend (https://afk.hoelni.de/updates)', () => {
       expect(Buffer.from(await dl.arrayBuffer()).equals(bytes)).toBe(true);
       expect((await fetch(`${b}/download/backend-1.zip`)).status).toBe(404);
       expect((await fetch(`${b}/download/..%2Fstate.json`)).status).toBe(404);
+      // Android: on the page, downloadable, and the list the app checks for a newer version of itself
+      expect(html).toContain('Hoelni Agent für Android');
+      expect(html).toContain('/download/Hoelni-Agent-Android-9.9.9-8.apk');
+      const apkDl = await fetch(`${b}/download/Hoelni-Agent-Android-9.9.9-8.apk`);
+      expect(apkDl.headers.get('content-type')).toBe('application/vnd.android.package-archive');
+      expect((await apkDl.arrayBuffer()).byteLength).toBe(1000);
+      const json = await (await fetch(`${b}/download.json`)).json();
+      expect(json.items.android).toEqual({ file: 'Hoelni-Agent-Android-9.9.9-8.apk', version: '9.9.9-8', build: 8, size: 1000, sha256: 'a'.repeat(64) });
     } finally {
       relay.close();
       await new Promise<void>((r) => backend.close(() => r()));

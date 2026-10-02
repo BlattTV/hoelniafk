@@ -7,7 +7,7 @@
  *   GET  /api/channels/:channel/latest         signed envelope { manifest, signature, keyId }
  *   GET  /api/releases                         manifests (newest first)
  *   GET  /files/:build/:file                   bundle / installer
- *   GET  /api/downloads                        latest Windows installers (suite, agent) for new PCs
+ *   GET  /api/downloads                        latest installers (Windows suite + agent, Android agent app) for new devices
  *   GET  /downloads/:file                      installer download
  *   GET  /                                     status page
  * Admin (Authorization: Bearer <admin token>):
@@ -94,7 +94,8 @@ export function createServer({ store, builder, publicKey, adminTokenHash }) {
         const file = store.downloadPath(decodeURIComponent(m[1]));
         if (!file) return send(res, 404, { error: 'Not found' });
         const st = fs.statSync(file);
-        res.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Content-Length': st.size, 'Content-Disposition': `attachment; filename="${m[1]}"`, 'Cache-Control': 'no-cache' });
+        const type = /\.apk$/i.test(file) ? 'application/vnd.android.package-archive' : 'application/octet-stream'; // phones offer to install it
+        res.writeHead(200, { 'Content-Type': type, 'Content-Length': st.size, 'Content-Disposition': `attachment; filename="${m[1]}"`, 'Cache-Control': 'no-cache' });
         fs.createReadStream(file).pipe(res);
         return;
       }

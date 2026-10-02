@@ -563,6 +563,54 @@ zum Backend. Ändert er sich später, lehnt der Agent Updates ab, bis er neu ang
 | Session auf dem Agent: Proxy-Fehler | *Proxy pool → Test* für diesen Proxy; ggf. *Release* und neu zuweisen |
 | Agent-Fenster zeigt keine neue Build-Nummer | `hoelni-backend info` → Zeile *Updates* prüfen (D5); Log: `%APPDATA%\Hoelni Agent\logs\agent.log` |
 
+### D7. Agent als Android-App (Handy)
+
+Ein Android-Handy kann ebenfalls Agent sein. Die App enthält denselben Agent wie das Windows-Programm,
+mit eigenem Node.js, und lässt die AFK-Sessions im Hintergrund laufen, auch bei ausgeschaltetem
+Bildschirm.
+
+**Einmalig auf dem Update-Server** (LXC aus Teil B; neu installierte Container haben das schon):
+
+```bash
+apt-get install -y default-jdk-headless aapt zipalign apksigner dalvik-exchange clang lld zip unzip
+hoelni-updates build-installers      # baut die APK sofort, sonst mit dem nächsten "hoelni-updates build"
+```
+
+Ab dann baut der Update-Server die APK bei jedem Release mit. Die Downloadseite
+**<https://afk.hoelni.de/download>** bietet sie als **Hoelni Agent für Android** an. Beim ersten Bau
+entsteht der Signaturschlüssel `/var/lib/hoelni-updates/android/release.p12` (+ `.pass`). **Sichere
+beide Dateien.** Android installiert neue Versionen nur über eine App mit demselben Schlüssel. Ohne
+den Schlüssel müsste jede Person die App erst deinstallieren und sich neu anmelden.
+
+**Auf dem Handy:**
+
+1. <https://afk.hoelni.de/download> im Handy-Browser öffnen → *Hoelni Agent für Android* → **Herunterladen**.
+2. Die APK öffnen. Android fragt einmal, ob der Browser Apps installieren darf → **erlauben** → **Installieren**.
+   Play Protect warnt evtl., weil die App nicht aus dem Play Store kommt → *Trotzdem installieren*.
+3. App öffnen, **Benachrichtigungen erlauben**. Die dauerhafte Meldung „Hoelni Agent läuft“ hält den Agent am Leben.
+4. Mit **Benutzername** und **Passwort** des Kontos anmelden (wie D2) und einen Gerätenamen vergeben.
+5. Erscheint der Hinweis *Akku-Optimierung ist an* → **Im Hintergrund erlauben** → *Zulassen*.
+6. In der Suite erscheint das Handy wie ein PC unter **Agents**. Bei einer Identität bzw. pro Server
+   **Läuft auf → „Agent: <Gerätename>“** wählen.
+
+**Gut zu wissen:**
+
+- Am besten **am Ladekabel und im WLAN**. Eine AFK-Session braucht wenig Daten, aber dauerhaft.
+- Manche Hersteller (Xiaomi, Huawei, Samsung, OnePlus …) beenden Hintergrund-Apps zusätzlich. Dort in
+  den App-Einstellungen *Autostart* erlauben bzw. Akku auf *Nicht optimiert/Uneingeschränkt* stellen.
+  Anleitungen je Hersteller: <https://dontkillmyapp.com>.
+- Nach einem Neustart des Handys startet der Agent von selbst. Der Schalter oben in der App schaltet
+  ihn ganz aus; *Pausieren* hält nur die Sessions an (wie D3).
+- **„Spiel öffnen“ geht auf dem Handy nicht.** Die Suite meldet dann „only be opened on a PC“, die
+  AFK-Session läuft weiter.
+- Voraussetzung: Android 7 oder neuer auf einem 64-Bit-Handy (arm64). Das sind praktisch alle Geräte
+  seit etwa 2017.
+- **Updates:** Gibt es eine neue Version, zeigt die App oben *Neue Version verfügbar* →
+  **Herunterladen & installieren**. Die Anmeldung bleibt erhalten.
+- Das Geräte-Token liegt verschlüsselt in der App. Der Schlüssel dafür steckt im Android-Keystore
+  des Handys.
+- Protokoll: in der App unter *Protokoll & Einstellungen*.
+
 ---
 
 ## Teil E – Neue Identität in drei Schritten (Microsoft + Discord)

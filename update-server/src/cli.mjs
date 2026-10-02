@@ -7,7 +7,7 @@
  *   hoelni-updates build [--if-changed] [--channel stable]         build a release from git now
  *   hoelni-updates list                                            releases and channels
  *   hoelni-updates promote <channel> <build>                       point a channel to a build (rollback)
- *   hoelni-updates build-installers                 rebuild the Windows installers (suite + agent) now
+ *   hoelni-updates build-installers                 rebuild the Windows installers (suite + agent) and the Android app now
  *   hoelni-updates attach-installer <build> <file.exe> [version]   add a Windows installer to a release
  *   hoelni-updates info                                            URL, key fingerprint, config path
  *   hoelni-updates rotate-token                                    new admin token
@@ -162,7 +162,12 @@ switch (cmd) {
     if (!builder) die('no repository configured');
     builder
       .buildInstallers({ force: true })
-      .then((r) => (r.error ? die(r.error) : console.log(`installers ready: ${r.files.join(', ')}`)))
+      .then((r) => {
+        if (r.android?.file) console.log(`Android app ready: ${r.android.file}`);
+        else if (r.android?.error) console.log(`Android app: ${r.android.error}`);
+        if (r.error) die(r.error);
+        console.log(`installers ready: ${(r.files ?? []).join(', ') || 'unchanged'}`);
+      })
       .catch((e) => die(String(e.stderr || e.message).slice(-2000)));
     break;
   }

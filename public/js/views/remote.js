@@ -99,13 +99,13 @@ export function backendCard(st, rerender) {
     h('p', { class: 'muted' }, 'Accounts live on the backend. Sign in here and in the Hoelni Agent on other PCs with the same account – those PCs then appear under Agents and can run sessions of your identities ("Run on" in the identity settings). Passwords are never stored; the manager keeps only a device token in the vault.'));
 }
 
-/** Link to the backend's download page (installers of suite and agent, built by the update server). */
+/** Link to the backend's download page (installers of suite and agent, Android app – built by the update server). */
 export function downloadHint(st) {
   if (!st?.url) return null;
   const link = `${st.url.replace(/\/+$/, '')}/download`;
   return h('section', { class: 'card' },
-    h('h2', null, 'Installers for new PCs'),
-    h('p', { class: 'muted' }, 'Suite and agent are ready to download – give this link to the other household. After installing, both update themselves.'),
+    h('h2', null, 'Installers for new PCs and phones'),
+    h('p', { class: 'muted' }, 'Suite and agent (Windows, and as an Android app for phones) are ready to download – give this link to the other household. After installing, they update themselves (the Android app announces new versions).'),
     h('div', { class: 'row' },
       h('a', { class: 'mono', href: link, target: '_blank', rel: 'noopener' }, link),
       h('button', { onclick: () => copy(link, 'Link copied') }, 'Copy link')));
