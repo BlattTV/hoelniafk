@@ -237,9 +237,11 @@ export class RuntimeHostCore {
     if (spec.takeover && bot._client) {
       const cache = new StateCache();
       s.cache = cache;
-      bot._client.on('packet', (data: any, meta: any, raw: Buffer) => {
+      // fullBuffer: the exact bytes from the server – the parsed buffer is cut where the library stopped
+      // reading, which differs for packets it does not fully understand (e.g. new item components)
+      bot._client.on('packet', (data: any, meta: any, raw: Buffer, full?: Buffer) => {
         try {
-          cache.record(meta.state, meta.name, data, raw);
+          cache.record(meta.state, meta.name, data, full ?? raw);
         } catch {
           /* never let the cache break the session */
         }

@@ -198,5 +198,38 @@ describe('vanilla client behaviour behind a proxy', () => {
     bot.end();
     server.close();
   }, 30_000);
+
+  it('keeps the exact server bytes of packets the library only partly understands (taken over games get them unchanged)', async () => {
+    const version = '1.21.11';
+    const { StateCache } = await import('../src/runtime/host/takeover.js');
+    const server = mc.createServer({ version, 'online-mode': false, port: 0, host: '127.0.0.1' });
+    await new Promise<void>((r) => server.once('listening', () => r()));
+    const port = server.socketServer.address().port;
+    const md = require('minecraft-data')(version);
+    let sc: any;
+    server.on('playerJoin', (c: any) => {
+      sc = c;
+      c.write('login', { ...md.loginPacket, entityId: 1 });
+    });
+    const client = mc.createClient({ version, host: '127.0.0.1', port, username: 'Bytes01', auth: 'offline', hideErrors: true });
+    const cache = new StateCache();
+    const seen: Array<{ raw: Buffer; full: Buffer }> = [];
+    client.on('packet', (data: any, meta: any, raw: Buffer, full: Buffer) => {
+      if (meta.name === 'entity_equipment') seen.push({ raw, full });
+      cache.record(meta.state, meta.name, data, full ?? raw); // as the session host does
+    });
+    await until(() => !!sc && client.state === 'play', 8000, 'in play');
+    // a valid equipment packet followed by data the library does not know (like new item components)
+    const valid = sc.serializer.createPacketBuffer({ name: 'entity_equipment', params: { entityId: 1, equipments: [{ slot: 0, item: { itemCount: 0 } }] } });
+    const withUnknown = Buffer.concat([valid, Buffer.from([1, 2, 3, 4, 5])]);
+    sc.writeRaw(withUnknown);
+    await until(() => seen.length === 1, 5000, 'equipment packet');
+    expect(seen[0].raw.length).toBe(valid.length); // what the library read …
+    expect(seen[0].full.equals(withUnknown)).toBe(true); // … and what the server really sent
+    const recorded = cache.entities.get(1)?.state.get('entity_equipment')?.[0];
+    expect(Buffer.from(recorded!).equals(withUnknown)).toBe(true);
+    client.end();
+    server.close();
+  }, 30_000);
 });
 

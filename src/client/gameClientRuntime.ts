@@ -263,12 +263,16 @@ export class GameClientRuntime {
       },
       onLoginClosed: (reason) => {
         if (en.ended) return;
-        // The log line with the kick reason is usually written a moment later.
-        setTimeout(() => {
+        // The log line with the kick reason is written a moment later (on slow PCs up to a few seconds).
+        const finish = (tries: number) => {
+          if (en.ended) return;
           en.tail?.poll();
-          const detail = en.disconnectReason ?? reason;
+          if (!en.disconnectReason && !en.lastErrorLine && tries > 0) return void setTimeout(() => finish(tries - 1), 500).unref?.();
+          const why = en.disconnectReason ?? en.lastErrorLine;
+          const detail = why ? `${why} (${reason})` : reason;
           this.end(en, en.online ? 'disconnected' : 'connectFailed', detail, !!en.disconnectReason);
-        }, 700).unref?.();
+        };
+        setTimeout(() => finish(8), 700).unref?.();
       },
     });
     if (en.ended) {

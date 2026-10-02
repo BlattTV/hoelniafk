@@ -321,8 +321,9 @@ export class TakeoverServer {
     client.on('end', (reason: string) => this.detach(`Game left the session${reason ? ` (${reason})` : ''}`));
     // live: client → server (registered once – the upstream may change on reconnects)
     const conv = require('mineflayer/lib/conversions');
-    client.on('packet', (data: any, meta: any, raw: Buffer) => {
+    client.on('packet', (data: any, meta: any, parsedRaw: Buffer, full?: Buffer) => {
       if (!this.attached || meta.state !== 'play') return;
+      const raw = full ?? parsedRaw; // exact bytes of the game (see onPacket)
       const bot = this.bot;
       const up = bot._client;
       const name = meta.name as string;
@@ -392,7 +393,11 @@ export class TakeoverServer {
     };
 
     // live: server → client
-    const onPacket = (data: any, meta: any, raw: Buffer) => {
+    const onPacket = (data: any, meta: any, parsedRaw: Buffer, full?: Buffer) => {
+      // Forward the exact bytes the server sent. The parsed buffer ends where the protocol library stopped
+      // reading – for a packet it does not fully understand (e.g. new 1.21.x item components in
+      // set_equipment) the game would get a cut packet and drop the connection.
+      const raw = full ?? parsedRaw;
       if (!this.attached) return;
       if (meta.state !== 'play') return;
       if (meta.name === 'start_configuration') {
