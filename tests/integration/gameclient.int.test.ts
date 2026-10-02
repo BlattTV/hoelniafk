@@ -334,3 +334,20 @@ describe('real game client: live takeover fails → the game signs in on its own
     await waitFor(() => state().runtime === 'lightweight' && state().state === 'ONLINE', 60_000, 'AFK again');
   }, 240_000);
 });
+
+describe('real game client: "Open game – stable" (own login, whatever the mode)', () => {
+  it('in takeover mode the stable method signs the game in on its own; closing it returns to AFK', async () => {
+    suite.repo.updateIdentity(identityId, { settings: { gameClient: { mode: 'takeover' } } as any });
+    await waitFor(() => state().runtime === 'lightweight' && state().state === 'ONLINE', 60_000, 'AFK ONLINE');
+    const joins = joinsOf('Gamer01').length;
+    await suite.sessions.openGame(sid(), { method: 'stable' });
+    await waitFor(() => state().runtime === 'game' && state().state === 'ONLINE' && !!state().game?.pid, 90_000, 'game signed in on its own');
+    expect(state().takeover).toBe('none'); // nothing relayed – the game has its own connection
+    expect(joinsOf('Gamer01').length).toBe(joins + 1);
+    expect(server.players().filter((p) => p === 'Gamer01')).toHaveLength(1); // never two logins at once
+    expect(suite.repo.sessionEvents({ sessionId: sid() }).some((x) => x.kind === 'game-stable')).toBe(true);
+    process.kill(state().game!.pid!, 'SIGTERM'); // the player closes the window
+    await waitFor(() => state().runtime === 'lightweight' && state().state === 'ONLINE', 30_000, 'AFK again');
+    expect(server.players().filter((p) => p === 'Gamer01')).toHaveLength(1);
+  }, 200_000);
+});

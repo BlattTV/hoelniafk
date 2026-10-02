@@ -143,6 +143,7 @@ export async function dashboardView(root) {
     contextMenu(e, [
       ['Open identity', () => (location.hash = `#/identity/${r.id}`)],
       online ? [`Open game (${online.serverName})`, () => openGame(api, online.id)] : undefined,
+      online ? [`Open game – stable (${online.serverName})`, () => openGame(api, online.id, 'stable')] : undefined,
       null,
       [`Set all sessions online${many}`, () => runBulk('startSessions', ids)],
       [`Set all sessions offline${many}`, () => runBulk('stopSessions', ids)],

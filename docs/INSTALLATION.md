@@ -109,6 +109,14 @@ node ..\scripts\build-installers.mjs        # beide Installer → hoelniafk\rele
    Minecraft in der Server-Version heruntergeladen. Danach übernimmt das echte Spiel die laufende
    Session – ohne neuen Login. **Back to AFK** oder das Spiel zu schließen gibt die Session an den
    AFK-Client zurück.
+
+   **Stabil** (Knopf neben *Open game*, bzw. *Spiel öffnen – stabil* im Rechtsklick-Menü): Das Spiel
+   meldet sich mit der eigenen Anmeldung der Identität an. Die AFK-Session macht dafür etwa eine Sekunde
+   Platz und übernimmt wieder, sobald du das Spiel schließt. Dazwischen wird nichts weitergereicht.
+   Plugins, Proxys und Versionswechsel können deshalb nicht stören. Diese Methode nimmst du, wenn sich
+   das Spiel bei der Live-Übernahme schließt oder hängt. Dauerhaft stellst du sie unter
+   *Identität → Einstellungen → Spiel → Mode → Stable* ein. Scheitert die Live-Übernahme, wechselt die
+   Suite übrigens von selbst auf diese Methode.
 7. **Backend:** Hast du Teil C erledigt, meldest du die Suite unter *Settings & vault → Backend & account*
    an (Details in C5).
 8. Optional:
@@ -507,8 +515,9 @@ In deiner Suite:
 2. Identität öffnen → **Identity Settings → Run on → „Agent: Wohnzimmer-PC“** → *Save settings*.
 3. Session starten wie gewohnt. Sie läuft jetzt auf dem Agent; Chat, Status und Belohnungen siehst du
    wie bei lokalen Sessions.
-4. **Open game** öffnet das echte Minecraft-Fenster **auf dem Agent-PC**. Minecraft wird dort beim
-   ersten Mal heruntergeladen.
+4. **Open game** öffnet das echte Minecraft-Fenster **auf deinem PC**, also dort, wo du klickst. Der
+   Agent gibt das Konto dafür kurz ab und übernimmt die AFK-Session wieder, sobald du das Spiel
+   schließt. Das funktioniert genauso bei Handys als Agent (D7).
 
 Ist der Agent offline oder pausiert, wartet die Session. Sie startet, sobald er wieder verfügbar ist.
 
@@ -601,8 +610,9 @@ den Schlüssel müsste jede Person die App erst deinstallieren und sich neu anme
   Anleitungen je Hersteller: <https://dontkillmyapp.com>.
 - Nach einem Neustart des Handys startet der Agent von selbst. Der Schalter oben in der App schaltet
   ihn ganz aus; *Pausieren* hält nur die Sessions an (wie D3).
-- **„Spiel öffnen“ geht auf dem Handy nicht.** Die Suite meldet dann „only be opened on a PC“, die
-  AFK-Session läuft weiter.
+- **Spiel öffnen:** Auf dem Handy selbst läuft kein Minecraft (Java). *Open game* bzw. *Stabil* in der
+  Suite öffnet das Spiel deshalb auf deinem PC. Das Handy gibt das Konto so lange ab und übernimmt
+  die AFK-Session wieder, sobald du das Spiel schließt (wie D3).
 - Voraussetzung: Android 7 oder neuer auf einem 64-Bit-Handy (arm64). Das sind praktisch alle Geräte
   seit etwa 2017.
 - **Updates:** Gibt es eine neue Version, zeigt die App oben *Neue Version verfügbar* →

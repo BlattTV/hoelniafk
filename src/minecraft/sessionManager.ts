@@ -92,6 +92,8 @@ export class SessionRecord {
   lastFailLogged: string | null = null;
   /** Live takeover failed for this session (reason) – the game opens with its own login instead. */
   takeoverBroken: string | null = null;
+  /** "Open game – stable": this game opening signs in on its own (re-login), whatever the identity's mode. */
+  stableGame = false;
   uuid: string | null = null;
   /** "Start" outside the schedule: keep it online until this time (next schedule change). */
   scheduleOverrideUntil: number | null = null;
@@ -705,7 +707,12 @@ export class SessionManager {
     const onAgent = this.placedOnAgent(r);
     if (mode === 'background' && !onAgent) return 'game';
     // An identity that runs on an agent is played on THIS PC with its own login while the game is open.
-    return r.wantGame && (mode === 'handover' || onAgent) ? 'game' : 'lightweight';
+    return r.wantGame && this.reLogin(r) ? 'game' : 'lightweight';
+  }
+
+  /** The game holds the session with its own login (handover) – not on the AFK client's connection. */
+  private reLogin(r: SessionRecord): boolean {
+    return this.gameSettings(r).mode === 'handover' || this.placedOnAgent(r) || r.stableGame;
   }
 
   /**
@@ -892,8 +899,10 @@ export class SessionManager {
       if (r.wantGame && e.reason === 'clientExited' && r.state !== 'STOPPING') {
         // The user closed the game window: back to AFK right away.
         r.wantGame = false;
+        const reLogin = this.reLogin(r);
+        r.stableGame = false;
         const a0 = this.repo.getAssignment(r.identityId, r.serverId);
-        if (a0?.enabled && a0.desiredState === 'ONLINE' && !this.stopped && (this.gameSettings(r).mode === 'handover' || this.placedOnAgent(r))) {
+        if (a0?.enabled && a0.desiredState === 'ONLINE' && !this.stopped && reLogin) {
           r.consecutiveFailures = 0;
           r.onlineSince = null;
           r.nextAttemptAt = Date.now();
@@ -902,7 +911,10 @@ export class SessionManager {
           return;
         }
       }
-      if (e.reason !== 'clientExited') r.wantGame = false;
+      if (e.reason !== 'clientExited') {
+        r.wantGame = false;
+        r.stableGame = false;
+      }
     }
     const a = this.repo.getAssignment(r.identityId, r.serverId);
     const desiredOnline = !!a && a.enabled && a.desiredState === 'ONLINE';
@@ -1026,8 +1038,9 @@ export class SessionManager {
    *    disconnects (~1 s gap) – the server never sees two logins
    *  - session offline: the game starts and joins directly
    */
-  async openGame(sessionId: string): Promise<SessionInfo> {
+  async openGame(sessionId: string, opts: { method?: 'auto' | 'stable' } = {}): Promise<SessionInfo> {
     const r = this.get(sessionId);
+    const stable = opts.method === 'stable';
     const a = this.repo.getAssignment(r.identityId, r.serverId);
     if (!a) throw new ValidationError('Identity is not assigned to this server');
     const onAgent = this.placedOnAgent(r);
@@ -1045,8 +1058,15 @@ export class SessionManager {
       return this.info(r);
     }
     if (a.desiredState !== 'ONLINE') this.setDesired(r.identityId, r.serverId, 'ONLINE');
-    this.audit.record(r.identityId, 'Game window opened', { server: r.serverName });
-    if (this.gameSettings(r).mode === 'takeover' && !r.takeoverBroken && !onAgent) {
+    this.audit.record(r.identityId, stable ? 'Game window opened (stable: own login)' : 'Game window opened', { server: r.serverName });
+    if (stable) {
+      // Stable method: the official game signs in with the identity's own login, the AFK session steps
+      // aside for that time (~1 s gap) and takes over again when the game is closed. No packets are
+      // relayed – nothing in between that a server, plugin or version change could trip over.
+      r.stableGame = true;
+      this.repo.addSessionEvent(r.identityId, r.serverId, r.id, 'game-stable', 'game signs in on its own');
+    }
+    if (!stable && this.gameSettings(r).mode === 'takeover' && !r.takeoverBroken && !onAgent) {
       if (r.state !== 'ONLINE' || r.runtime !== 'lightweight') await this.waitOnline(r);
       await this.withLock(r, async () => {
         if (this.game!.has(r.id)) return void (await this.game!.show(r.id));
@@ -1140,6 +1160,7 @@ export class SessionManager {
     try {
       if (gameStillOpen) await this.game!.stopSession(r.id, 'Live takeover failed');
       r.wantGame = true;
+      r.stableGame = true;
       await this.withLock(r, () => this.handoverToGame(r));
     } catch (err) {
       r.wantGame = false;
@@ -1172,6 +1193,7 @@ export class SessionManager {
     } catch (e) {
       r.handoverPending = false;
       r.wantGame = false;
+      r.stableGame = false;
       throw e;
     }
   }

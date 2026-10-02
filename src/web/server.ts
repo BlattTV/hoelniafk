@@ -757,13 +757,13 @@ export async function buildServer(suite: Suite, opts: ServerOptions = {}): Promi
   });
   app.get('/api/sessions/:sessionId/events', async (req: Req) => suite.repo.sessionEvents({ sessionId: req.params.sessionId, limit: 200 }));
   // Real Minecraft client window: open (handover / restore) and back to AFK
-  app.post('/api/sessions/:sessionId/game', async (req: Req) => suite.sessions.openGame(req.params.sessionId));
+  app.post('/api/sessions/:sessionId/game', async (req: Req) => suite.sessions.openGame(req.params.sessionId, { method: bodyOf(req).method === 'stable' ? 'stable' : 'auto' }));
   app.delete('/api/sessions/:sessionId/game', async (req: Req) => suite.sessions.closeGame(req.params.sessionId));
   app.post('/api/identities/:id/servers/:serverId/game', async (req: Req) => {
     const identityId = num(req.params.id);
     const serverId = num(req.params.serverId);
     suite.sessions.list(identityId);
-    return suite.sessions.openGame(`${identityId}:${serverId}`);
+    return suite.sessions.openGame(`${identityId}:${serverId}`, { method: bodyOf(req).method === 'stable' ? 'stable' : 'auto' });
   });
 
   // Global chat across all sessions

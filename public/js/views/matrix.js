@@ -32,6 +32,7 @@ export async function matrixView(root) {
       cell.desiredState === 'ONLINE' ? ['Set offline (stop)', () => setDesired(row.id, srv.id, 'OFFLINE')] : ['Set online (start)', () => setDesired(row.id, srv.id, 'ONLINE')],
       ['Reconnect now', () => guard(() => api.post(`/api/sessions/${sid}/reconnect`)).then(load)],
       ['Open game', () => openGame(api, sid).then(load)],
+      ['Open game – stable (own login)', () => openGame(api, sid, 'stable').then(load)],
       cell.runtime === 'game' || (cell.gameStatus && !['closed', 'failed'].includes(cell.gameStatus)) ? ['Back to AFK', () => closeGame(api, sid).then(load)] : undefined,
       null,
       ['Chat', () => openChat({ id: sid, serverName: srv.name }, ctx)],

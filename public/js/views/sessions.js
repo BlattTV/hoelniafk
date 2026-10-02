@@ -21,6 +21,7 @@ export async function sessionsView(root) {
       s.desiredState === 'ONLINE' ? ['Stop (set offline)', () => act(() => api.post(`/api/sessions/${s.id}/stop`))] : ['Start (set online)', () => act(() => api.post(`/api/identities/${s.identityId}/sessions/${s.serverId}/start`))],
       ['Reconnect', () => act(() => api.post(`/api/sessions/${s.id}/reconnect`))],
       ['Open game', () => openGame(api, s.id).then(load)],
+      ['Open game – stable (own login)', () => openGame(api, s.id, 'stable').then(load)],
       s.runtime === 'game' || (s.game && !['closed', 'failed'].includes(s.game.status)) ? ['Back to AFK', () => closeGame(api, s.id).then(load)] : undefined,
       null,
       ['Chat', () => openChat({ id: s.id, serverName: s.serverName }, ctx)],

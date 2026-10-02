@@ -325,8 +325,12 @@ export function contextMenu(ev, items) {
  * "Open game": starts (or brings to the front) the real Minecraft client for the session.
  * The game is a normal desktop window – reachable with Alt-Tab like any other program.
  */
-export async function openGame(api, sessionId) {
-  const r = await guard(() => api.post(`/api/sessions/${encodeURIComponent(sessionId)}/game`));
+/**
+ * "Open game". method 'stable': the game signs in with the identity's own login (the AFK session
+ * steps aside for a moment and comes back when the game is closed) – nothing relayed in between.
+ */
+export async function openGame(api, sessionId, method = 'auto') {
+  const r = await guard(() => api.post(`/api/sessions/${encodeURIComponent(sessionId)}/game`, { method }));
   if (!r) return r;
   const st = r.game?.status;
   toast(st === 'running' ? 'Game window brought to the front' : st === 'installing' ? 'Installing Minecraft – the game window opens when it is ready' : 'Minecraft is starting – the game window opens in a moment', 'ok');
