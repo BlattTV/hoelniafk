@@ -44,7 +44,7 @@ export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 apt-get install -y -qq ca-certificates curl git build-essential python3 >/dev/null
 # Android app of the agent (scripts/build-android.mjs) – optional, releases are built without it too
-apt-get install -y -qq default-jdk-headless aapt zipalign apksigner dalvik-exchange clang lld zip unzip >/dev/null \
+apt-get install -y -qq default-jdk-headless aapt zipalign apksigner clang lld zip unzip >/dev/null \
   || echo "warning: Android build tools not installed – the Android app will not be built"
 
 NODE_MAJOR=0

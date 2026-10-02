@@ -572,7 +572,7 @@ Bildschirm.
 **Einmalig auf dem Update-Server** (LXC aus Teil B; neu installierte Container haben das schon):
 
 ```bash
-apt-get install -y default-jdk-headless aapt zipalign apksigner dalvik-exchange clang lld zip unzip
+apt-get install -y default-jdk-headless aapt zipalign apksigner clang lld zip unzip
 hoelni-updates build-installers      # baut die APK sofort, sonst mit dem nächsten "hoelni-updates build"
 ```
 

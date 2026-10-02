@@ -4,14 +4,15 @@
  *
  *   node scripts/build-android.mjs [--out <dir>] [--build <n>] [--skip-build] [--cache <dir>] [--keystore <file.p12>]
  *
- *   Tools (Debian / Ubuntu): apt-get install default-jdk-headless aapt zipalign apksigner dalvik-exchange clang lld zip unzip
+ *   Tools (Debian / Ubuntu): apt-get install default-jdk-headless aapt zipalign apksigner clang lld zip unzip
  *
  *   1. npm run build (unless --skip-build)
  *   2. agent payload: dist, package.json, build-info.json and only the packages the agent uses
  *      (Minecraft data without the Bedrock files) → assets/agent.zip
  *   3. Node.js for Android: libnode.so from nodejs-mobile (npm), libc++_shared.so (Maven Central),
  *      a small JNI bridge compiled with clang for aarch64-linux-android
- *   4. Java against the Android 14 framework (Robolectric android-all, Maven Central), dex with dx,
+ *   4. Java against the Android 14 framework (Robolectric android-all, Maven Central), dex with dx
+ *      (dalvik-dx, Maven Central – Debian has no dx package),
  *      resources with aapt, zipalign, apksigner
  *
  * Downloads are cached (--cache, default ~/.cache/hoelni-android) and checked against fixed SHA-256
@@ -51,6 +52,10 @@ const DOWNLOADS = {
     url: 'https://repo.maven.apache.org/maven2/com/facebook/fbjni/fbjni/0.7.0/fbjni-0.7.0.aar',
     sha256: '7e319ae110ac5e5ef18904170aea5c3e753e915d196699d7fd39d36c8e1dfe36',
   },
+  dx: {
+    url: 'https://repo.maven.apache.org/maven2/com/jakewharton/android/repackaged/dalvik-dx/16.0.1/dalvik-dx-16.0.1.jar',
+    sha256: '1e4b645628e3bdb097b5331d669e177ef235a551582a8c646dbe36865e541907',
+  },
   androidAll: {
     url: 'https://repo.maven.apache.org/maven2/org/robolectric/android-all/14-robolectric-10818077/android-all-14-robolectric-10818077.jar',
     sha256: '6be2218c6a53fe3c57bc22ebdc723edcb7270a8a6f187545708aa5c0ed813977',
@@ -58,7 +63,7 @@ const DOWNLOADS = {
 };
 
 // ------------------------------------------------------------------ tools
-const TOOLS = ['javac', 'keytool', 'aapt', 'zipalign', 'apksigner', 'clang', 'ld.lld', 'tar', 'zip', 'unzip'];
+const TOOLS = ['java', 'javac', 'keytool', 'aapt', 'zipalign', 'apksigner', 'clang', 'ld.lld', 'tar', 'zip', 'unzip'];
 function which(cmd) {
   for (const dir of (process.env.PATH ?? '').split(path.delimiter)) {
     const p = path.join(dir, cmd);
@@ -66,11 +71,9 @@ function which(cmd) {
   }
   return null;
 }
-const dexTool = which('dalvik-exchange') ?? which('dx');
 const missing = TOOLS.filter((t) => !which(t));
-if (!dexTool) missing.push('dalvik-exchange');
 if (missing.length) {
-  console.log(JSON.stringify({ ok: false, error: `missing build tools: ${missing.join(', ')} – apt-get install default-jdk-headless aapt zipalign apksigner dalvik-exchange clang lld zip unzip`, missing }));
+  console.log(JSON.stringify({ ok: false, error: `missing build tools: ${missing.join(', ')} – apt-get install default-jdk-headless aapt zipalign apksigner clang lld zip unzip`, missing }));
   process.exit(2);
 }
 
@@ -212,7 +215,7 @@ try {
   const rJava = run('find', [gen, '-name', 'R.java']).trim().split('\n')[0];
   const sources = run('find', [path.join(repo, 'android-agent/java'), '-name', '*.java']).trim().split('\n');
   run('javac', ['-nowarn', '-Xlint:-options', '--release', '8', '-classpath', androidJar, '-d', classes, rJava, ...sources]);
-  run(dexTool, ['--dex', '--min-sdk-version=24', `--output=${path.join(work, 'apk', 'classes.dex')}`, classes]);
+  run('java', ['-cp', await fetchCached('dx'), 'com.android.dx.command.Main', '--dex', '--min-sdk-version=24', `--output=${path.join(work, 'apk', 'classes.dex')}`, classes]);
   run('aapt', ['add', unsigned, 'classes.dex', ...fs.readdirSync(libDir).map((f) => `lib/${ABI}/${f}`)], path.join(work, 'apk'));
   const aligned = path.join(work, 'app-aligned.apk');
   run('zipalign', ['-f', '-p', '4', unsigned, aligned]);
