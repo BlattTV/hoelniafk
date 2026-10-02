@@ -127,6 +127,11 @@ export class SessionManager {
   private chatQueue: Array<{ ts: string; sessionId: string; identityId: number; serverId: number; text: string }> = [];
   private chatTimer: NodeJS.Timeout | null = null;
   private stopped = false;
+  /**
+   * Another PC of the same backend account runs the sessions (this suite is in standby): nothing is
+   * started here and running sessions are stopped – desired states stay as they are (synchronized).
+   */
+  private standbyReason: string | null = null;
   private readonly offRuntime: () => void;
 
   /** Macros of a session (macro builder) – set by the app. */
@@ -459,9 +464,21 @@ export class SessionManager {
     }
   }
 
+  /** Standby (another PC of the account is active) on/off – see standbyReason. */
+  setStandby(reason: string | null): void {
+    if (reason === this.standbyReason) return;
+    this.standbyReason = reason;
+    log.info(reason ? `Standby: ${reason}` : 'Active: this PC runs the sessions');
+    void this.reconcile();
+  }
+
+  get standby(): string | null {
+    return this.standbyReason;
+  }
+
   private async reconcileOnce(): Promise<void> {
     const now = Date.now();
-    const assignments = this.repo.listAssignments();
+    const assignments = this.standbyReason ? [] : this.repo.listAssignments();
     const wanted = new Set<string>();
     for (const a of assignments) {
       const id = SessionManager.sessionId(a.identityId, a.serverId);
@@ -490,7 +507,7 @@ export class SessionManager {
     for (const r of this.records.values()) {
       if (wanted.has(r.id)) continue;
       const a = this.repo.getAssignment(r.identityId, r.serverId);
-      const why = a?.enabled && a.desiredState === 'ONLINE' ? 'Outside schedule' : 'Desired state offline';
+      const why = this.standbyReason ? `Standby – ${this.standbyReason}` : a?.enabled && a.desiredState === 'ONLINE' ? 'Outside schedule' : 'Desired state offline';
       if (ACTIVE.includes(r.state) && r.state !== 'STOPPING') void this.withLock(r, () => this.halt(r, why));
       else if (r.state === 'RECONNECTING' || r.state === 'BLOCKED') this.setState(r, 'STOPPED');
     }
@@ -611,7 +628,7 @@ export class SessionManager {
   }
 
   private async launch(r: SessionRecord): Promise<void> {
-    if (this.stopped) return;
+    if (this.stopped || this.standbyReason) return;
     this.startsInFlight++;
     let released = false;
     const release = () => {
@@ -918,7 +935,7 @@ export class SessionManager {
     }
     const a = this.repo.getAssignment(r.identityId, r.serverId);
     const desiredOnline = !!a && a.enabled && a.desiredState === 'ONLINE';
-    if (r.state === 'STOPPING' || !desiredOnline || this.stopped) {
+    if (r.state === 'STOPPING' || !desiredOnline || this.stopped || this.standbyReason) {
       this.endParkedGame(r, 'Session ended');
       this.setState(r, 'STOPPED', r.state === 'STOPPING' ? null : e.error);
       return;
@@ -1039,6 +1056,7 @@ export class SessionManager {
    *  - session offline: the game starts and joins directly
    */
   async openGame(sessionId: string, opts: { method?: 'auto' | 'stable' } = {}): Promise<SessionInfo> {
+    if (this.standbyReason) throw new ValidationError(`This PC is in standby – ${this.standbyReason}. Take over first.`);
     const r = this.get(sessionId);
     const stable = opts.method === 'stable';
     const a = this.repo.getAssignment(r.identityId, r.serverId);

@@ -47,6 +47,8 @@ export async function backupDatabase(db: DB, dataDir: string): Promise<string | 
 }
 import { refs } from './vault/refs.js';
 import { Vault, type SecretStore } from './vault/vault.js';
+import { SnapshotIO } from './sync/snapshot.js';
+import { SyncService } from './sync/syncService.js';
 
 const log = createLogger('suite');
 
@@ -159,6 +161,22 @@ export function createSuite(deps: SuiteDeps) {
   updater.authHeaders = (url) => backend.authHeadersFor(url);
   backend.onConnected = () => void updater.adoptBackend(backend.updatesUrl).catch(() => undefined);
   updater.autoInstallAllowed = () => !sessions.list().some((s) => s.runtime === 'game' || s.takeover !== 'none');
+  // Several PCs of one backend account: only the active one runs the sessions (the others are in
+  // standby) – and all of them share identities and settings (encrypted settings sync).
+  backend.onRoleChanged = (reason) => sessions.setStandby(reason);
+  if (repo.getSetting('backend.standbyFor') && repo.getSetting('backend.username')) sessions.setStandby(`the sessions run on "${repo.getSetting('backend.standbyFor')}"`);
+  const sync = new SyncService(
+    new SnapshotIO(db, vault.store, { deleteIdentity: (id) => identities.delete(id) }),
+    repo,
+    vault,
+    backend,
+    bus,
+    audit,
+    () => {
+      void sessions.reconcile();
+      macros.pushToSessions();
+    },
+  );
   const metrics = new MetricsCollector(sessions, runtime, 180, () => game?.stats().hosts ?? []);
 
   // ----------------------------------------------------------- automation / monitoring
@@ -188,7 +206,9 @@ export function createSuite(deps: SuiteDeps) {
       if (ids.length) await bulk.run('verifyNetwork', ids);
     });
     everyMinutes(a.tokenRefreshHours * 60, 'token refresh', async () => {
-      // Keeps Microsoft refresh tokens alive (they expire after long inactivity).
+      // Keeps Microsoft refresh tokens alive (they expire after long inactivity). In standby the
+      // active PC does it (the tokens come over with the settings sync).
+      if (sessions.standby) return;
       for (const i of repo.listIdentities()) {
         const mc = repo.getMinecraft(i.id);
         if (mc?.authType === 'microsoft' && mc.credentialRef) await auth.authenticate(i.id).catch(() => undefined);
@@ -201,6 +221,7 @@ export function createSuite(deps: SuiteDeps) {
     metrics.start();
     updater.start(config.updates?.checkHours ?? 6);
     void backend.start();
+    sync.start();
   }
 
   let closed = false;
@@ -210,6 +231,7 @@ export function createSuite(deps: SuiteDeps) {
     for (const t of timers) clearInterval(t);
     metrics.stop();
     updater.stop();
+    sync.stop();
     backend.shutdown();
     await sessions.shutdown();
     db.close();
@@ -234,6 +256,7 @@ export function createSuite(deps: SuiteDeps) {
     game,
     updater,
     backend,
+    sync,
     sessions,
     mail,
     discord,

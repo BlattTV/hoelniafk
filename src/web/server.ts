@@ -160,7 +160,27 @@ export async function buildServer(suite: Suite, opts: ServerOptions = {}): Promi
   app.post('/api/backend/certificate', async () => suite.backend.checkCertificate());
   app.post('/api/backend/login', async (req: Req) => {
     const b = bodyOf(req);
-    return suite.backend.login(String(b.username ?? ''), String(b.password ?? ''), b.trustCert ? String(b.trustCert) : null);
+    const st = await suite.backend.login(String(b.username ?? ''), String(b.password ?? ''), b.trustCert ? String(b.trustCert) : null);
+    // settings sync: the password unlocks the account's synchronized settings (or creates the key on the first PC)
+    void suite.sync.setup(st.username ?? String(b.username ?? ''), String(b.password ?? ''), { verified: true }).catch((e) => log.warn(`Sync setup: ${(e as Error).message}`));
+    return st;
+  });
+  // ------------------------------------------------------------------ several PCs: settings sync + active PC
+  app.get('/api/sync', async () => ({ ...suite.sync.status(), standby: suite.sessions.standby, pcs: suite.backend.status().pcs, pcRole: suite.backend.status().pcRole }));
+  app.post('/api/sync/setup', async (req: Req) => {
+    const user = suite.backend.status().username;
+    if (!user || suite.backend.status().state === 'signed-out') throw new ValidationError('Sign in to the backend first');
+    await suite.sync.setup(user, String(bodyOf(req).password ?? ''));
+    return suite.sync.status();
+  });
+  app.post('/api/sync/now', async () => {
+    suite.sync.schedule(true);
+    await suite.sync.syncNow();
+    return suite.sync.status();
+  });
+  app.post('/api/backend/claim', async () => {
+    suite.backend.claim();
+    return suite.backend.status();
   });
   app.post('/api/backend/logout', async () => {
     await suite.backend.logout();

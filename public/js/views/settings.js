@@ -1,7 +1,7 @@
 import { api } from '../api.js';
 import { guard, h, mount } from '../ui.js';
 import { updatesCard } from './updates.js';
-import { backendCard } from './remote.js';
+import { backendCard, syncCard } from './remote.js';
 import { notificationsEnabled, setNotifications } from '../notify.js';
 import { toggleTheme } from '../palette.js';
 import { lang, LANGUAGES, setLanguage } from '../i18n.js';
@@ -12,6 +12,7 @@ export async function settingsView(root) {
     mount(root, 
       h('div', { class: 'page-head' }, h('h1', null, 'Settings & Credential Vault')),
       backendCard(backend, render),
+      syncCard(backend, render),
       updatesCard(updates, render, backend),
       h('section', { class: 'card' }, h('h2', null, 'This PC'),
         h('div', { class: 'toolbar' },

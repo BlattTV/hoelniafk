@@ -16,7 +16,7 @@ import { templatesView } from './views/templates.js';
 import { auditView } from './views/audit.js';
 import { settingsView } from './views/settings.js';
 import { schedulesView } from './views/schedules.js';
-import { accountsView, agentsView } from './views/remote.js';
+import { accountsView, agentsView, takeOver } from './views/remote.js';
 import { proxiesView } from './views/proxies.js';
 import { quickView } from './views/quick.js';
 import { discordView } from './views/discord.js';
@@ -107,6 +107,15 @@ api.get('/api/updates').then(showUpdate).catch(() => undefined);
 const showBackend = (st) => {
   const el = document.getElementById('nav-accounts');
   if (el && st) el.hidden = !(st.role === 'admin' && st.state !== 'signed-out');
+  // another PC of the account runs the sessions: say so everywhere, with "Take over here"
+  const banner = document.getElementById('standby-banner');
+  if (!banner || !st) return;
+  banner.hidden = st.pcRole !== 'standby';
+  if (banner.hidden) return;
+  banner.replaceChildren(
+    h('span', null, t('Standby – the sessions run on'), ' ', h('strong', null, st.activePc ?? t('another PC')), '. ', t('You can change everything here; it is synchronized.')),
+    h('button', { class: 'small primary', onclick: () => takeOver() }, t('Take over here')),
+  );
 };
 api.get('/api/backend').then(showBackend).catch(() => undefined);
 api.get('/api/sessions').then(primeStates).catch(() => undefined);

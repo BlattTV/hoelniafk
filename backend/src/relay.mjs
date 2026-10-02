@@ -10,10 +10,16 @@
  *   agent → relay:    { t:'hello', info } | { t:'paused', value } | { t:'host', m }
  *   relay → manager:  { t:'agent.online', agent } | { t:'agent.offline', id } | { t:'agent.paused', id, value }
  *                     | { t:'from', agentId, frame }
- *   manager → relay:  { t:'to', agentId, frame }            (only to agents of the same user)
+ *                     | { t:'active' } | { t:'standby', active } | { t:'managers', list } | { t:'sync', version }
+ *   manager → relay:  { t:'to', agentId, frame }            (only to agents of the same user; active manager only)
+ *                     | { t:'claim' }                        (this PC takes over: becomes the active manager)
  *   relay → agent:    { t:'host', m } | { t:'reset' } (manager (re)connected or gone: start clean)
  *                     | { t:'manager', online } | { t:'bye', reason }
- * One manager per user is active at a time; a new manager sign-in replaces the old connection.
+ *
+ * Several suites (managers) of one account can be connected – e.g. a desktop and a laptop that share
+ * their settings. Exactly one is ACTIVE: it runs the sessions and controls the agents. The others
+ * are in STANDBY (they see and edit everything, but start nothing) until one of them claims.
+ * A suite that connects while no suite of the account is active becomes active by itself.
  */
 import { WebSocketServer } from 'ws';
 
@@ -63,21 +69,66 @@ export class Relay {
   }
 
   // ---------------------------------------------------------------- manager
+  group(userId) {
+    let g = this.managers.get(userId);
+    if (!g) {
+      g = { active: null, list: new Set() };
+      this.managers.set(userId, g);
+    }
+    return g;
+  }
+
+  /** The active manager of an account (runs the sessions, controls the agents). */
+  activeManager(userId) {
+    return this.managers.get(userId)?.active ?? null;
+  }
+
+  managerView(c, g) {
+    return { deviceId: c.device.id, name: c.device.name, ip: c.ip, connectedAt: c.connectedAt, active: g.active === c };
+  }
+
+  announceManagers(userId) {
+    const g = this.managers.get(userId);
+    if (!g) return;
+    const list = [...g.list].map((c) => this.managerView(c, g));
+    for (const c of g.list) this.send(c.ws, { t: 'managers', list, self: c.device.id });
+  }
+
+  /** `conn` becomes the active manager; the previous one goes to standby and the agents start clean. */
+  activate(userId, conn) {
+    const g = this.group(userId);
+    const prev = g.active;
+    g.active = conn;
+    if (prev && prev !== conn) this.send(prev.ws, { t: 'standby', active: { name: conn.device.name, deviceId: conn.device.id } });
+    this.send(conn.ws, { t: 'active' });
+    for (const a of this.agentsOf(userId)) {
+      this.send(conn.ws, { t: 'agent.online', agent: this.agentView(a) });
+      this.send(a.ws, { t: 'reset' });
+      this.send(a.ws, { t: 'manager', online: true });
+    }
+    if (prev !== conn) this.log.info?.(`manager "${conn.device.name}" of ${conn.device.username} is active${prev ? ` (was "${prev.device.name}")` : ''}`);
+    this.announceManagers(userId);
+  }
+
   onManager(ws, device, ip) {
-    const old = this.managers.get(device.userId);
-    if (old) {
-      this.send(old.ws, { t: 'bye', reason: 'Another manager of this account signed in' });
+    const g = this.group(device.userId);
+    for (const old of g.list) {
+      if (old.device.id !== device.id) continue;
+      // the same PC reconnected: the new connection replaces the old one (keeps its role)
+      g.list.delete(old);
+      if (g.active === old) g.active = null;
+      this.send(old.ws, { t: 'bye', reason: 'Replaced by a new connection of this PC' });
       setTimeout(() => old.ws.terminate(), 200);
     }
-    const conn = { ws, device, ip };
-    this.managers.set(device.userId, conn);
+    const conn = { ws, device, ip, connectedAt: new Date().toISOString() };
+    g.list.add(conn);
     this.accounts.touchDevice(device.id, ip);
     this.keepAlive(ws, device);
     this.log.info?.(`manager "${device.name}" of ${device.username} connected from ${ip}`);
-    for (const a of this.agentsOf(device.userId)) {
-      this.send(ws, { t: 'agent.online', agent: this.agentView(a) });
-      this.send(a.ws, { t: 'reset' });
-      this.send(a.ws, { t: 'manager', online: true });
+    if (!g.active) this.activate(device.userId, conn);
+    else {
+      this.send(ws, { t: 'standby', active: { name: g.active.device.name, deviceId: g.active.device.id } });
+      this.announceManagers(device.userId);
     }
     ws.on('message', (data) => {
       let f;
@@ -86,23 +137,39 @@ export class Relay {
       } catch {
         return;
       }
+      if (f?.t === 'claim') {
+        if (g.list.has(conn)) this.activate(device.userId, conn);
+        return;
+      }
       if (f?.t !== 'to' || f.frame?.t !== 'host') return; // managers can only send runtime commands
+      if (g.active !== conn) return; // standby PCs never control agents
       const a = this.agents.get(Number(f.agentId));
       if (!a || a.device.userId !== device.userId) return; // never across accounts
       this.send(a.ws, { t: 'host', m: f.frame.m });
     });
     ws.on('close', () => {
-      if (this.managers.get(device.userId) !== conn) return;
-      this.managers.delete(device.userId);
+      if (!g.list.delete(conn)) return;
       this.accounts.touchDevice(device.id, ip);
       this.log.info?.(`manager "${device.name}" of ${device.username} disconnected`);
-      // Without a manager nobody controls the sessions: agents stop them.
-      for (const a of this.agentsOf(device.userId)) {
-        this.send(a.ws, { t: 'reset' });
-        this.send(a.ws, { t: 'manager', online: false });
+      if (g.active === conn) {
+        g.active = null;
+        // Without an active manager nobody controls the sessions: agents stop them. A standby PC takes
+        // over only when asked (the active PC may just have lost its connection for a moment).
+        for (const a of this.agentsOf(device.userId)) {
+          this.send(a.ws, { t: 'reset' });
+          this.send(a.ws, { t: 'manager', online: false });
+        }
       }
+      this.announceManagers(device.userId);
     });
     ws.on('error', () => undefined);
+  }
+
+  /** New settings of an account were stored: the other suites of the account fetch them. */
+  syncChanged(userId, version, fromDeviceId) {
+    const g = this.managers.get(userId);
+    if (!g) return;
+    for (const c of g.list) if (c.device.id !== fromDeviceId) this.send(c.ws, { t: 'sync', version });
   }
 
   // ---------------------------------------------------------------- agent
@@ -121,7 +188,7 @@ export class Relay {
     this.accounts.touchDevice(device.id, ip);
     this.keepAlive(ws, device);
     this.log.info?.(`agent "${device.name}" of ${device.username} connected from ${ip}`);
-    const manager = () => this.managers.get(device.userId);
+    const manager = () => this.activeManager(device.userId);
     this.send(ws, { t: 'manager', online: !!manager() });
     this.send(manager()?.ws, { t: 'agent.online', agent: this.agentView(conn) });
     ws.on('message', (data) => {
@@ -158,29 +225,34 @@ export class Relay {
       this.send(a.ws, { t: 'bye', reason });
       setTimeout(() => a.ws.terminate(), 200);
     }
-    for (const m of this.managers.values()) {
-      if (m.device.id === deviceId) {
-        this.send(m.ws, { t: 'bye', reason });
-        setTimeout(() => m.ws.terminate(), 200);
+    for (const g of this.managers.values()) {
+      for (const m of g.list) {
+        if (m.device.id === deviceId) {
+          this.send(m.ws, { t: 'bye', reason });
+          setTimeout(() => m.ws.terminate(), 200);
+        }
       }
     }
   }
 
   kickUser(userId, reason) {
     for (const a of this.agentsOf(userId)) this.kickDevice(a.device.id, reason);
-    const m = this.managers.get(userId);
-    if (m) this.kickDevice(m.device.id, reason);
+    for (const m of [...(this.managers.get(userId)?.list ?? [])]) this.kickDevice(m.device.id, reason);
+  }
+
+  allManagers() {
+    return [...this.managers.values()].flatMap((g) => [...g.list].map((m) => ({ m, active: g.active === m })));
   }
 
   online() {
     return {
-      managers: [...this.managers.values()].map((m) => ({ deviceId: m.device.id, userId: m.device.userId, ip: m.ip })),
+      managers: this.allManagers().map(({ m, active }) => ({ deviceId: m.device.id, userId: m.device.userId, ip: m.ip, active })),
       agents: [...this.agents.values()].map((a) => ({ deviceId: a.device.id, userId: a.device.userId, ip: a.ip, paused: a.paused })),
     };
   }
 
   close() {
-    for (const c of [...this.agents.values(), ...this.managers.values()]) {
+    for (const c of [...this.agents.values(), ...this.allManagers().map((x) => x.m)]) {
       this.send(c.ws, { t: 'bye', reason: 'Backend restarting' });
       c.ws.terminate();
     }

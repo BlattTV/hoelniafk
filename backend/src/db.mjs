@@ -37,6 +37,17 @@ const MIGRATIONS = [
     ip TEXT
   );
   `,
+  // v2: settings sync between the suites (managers) of one account – an encrypted blob the backend
+  // cannot read (key derived from the account password on the PCs), versioned against lost updates
+  `
+  CREATE TABLE sync_blobs (
+    user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    version INTEGER NOT NULL,
+    data BLOB NOT NULL,
+    updated_at TEXT NOT NULL,
+    updated_by TEXT
+  );
+  `,
 ];
 
 export function openDb(file) {

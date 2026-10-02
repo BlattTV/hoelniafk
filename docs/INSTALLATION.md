@@ -449,7 +449,40 @@ Von Hand geht es mit `hoelni-updates build`.
 | Sicherung | Datei `/var/lib/hoelni-backend/backend.db` (plus `/etc/hoelni-backend/`) sichern – oder den Container per Proxmox-Backup |
 | Admin-Passwort vergessen | `hoelni-backend user passwd <name>` im Container |
 
-### C8. Wenn etwas nicht klappt
+### C8. Mehrere PCs mit demselben Konto (Abgleich & aktiver PC)
+
+Meldest du die Suite auf einem weiteren PC mit **demselben Konto** an (*Settings & vault → Backend &
+account*), bekommt dieser PC automatisch alles vom ersten PC:
+
+* **Abgeglichen** werden Identitäten mit allen Einstellungen, Server und Zuweisungen (auch „online“,
+  Zeitpläne und „Läuft auf“), Makros, Vorlagen, Proxy-Pool, Zugänge, Minecraft-Anmeldungen und
+  gespeicherte Passwörter.
+* **Nicht abgeglichen** werden Logs, Chat, die Backend-Anmeldung des PCs und die Browserfenster von
+  Outlook und Discord. In diesen Fenstern meldest du dich einmal pro PC an.
+* **Nichts geht verloren:** Beim ersten Abgleich wird nur ergänzt. Identitäten, die nur auf dem neuen
+  PC existieren, kommen zusätzlich auf den ersten PC. Gelöscht wird später nur, was du auf einem PC
+  ausdrücklich löschst. Ist ein Minecraft-Konto auf beiden PCs getrennt eingerichtet, bleibt es auf
+  diesem PC, wie es ist. Die Suite zeigt das unter *Mehrere PCs* an.
+* **Verschlüsselt:** Bevor die Daten den PC verlassen, werden sie mit deinem Kontopasswort
+  verschlüsselt. Das Backend speichert nur verschlüsselte Daten. PCs, die schon vor diesem Update
+  angemeldet waren, fragen einmal nach dem Kontopasswort (*Settings & vault → Mehrere PCs →
+  Abgleich einrichten*).
+
+**Nur ein PC lässt die Sessions laufen**, sonst wäre ein Minecraft-Konto zweimal online. Der zuerst
+verbundene PC ist **aktiv**, jeder weitere steht auf **Standby**: Dort kannst du alles ansehen und
+ändern, die Änderungen landen per Abgleich auf dem aktiven PC. Gestartet wird auf dem Standby-PC aber
+nichts. Unten erscheint der Hinweis „Standby – die Sessions laufen auf …“ mit dem Knopf **Hier
+übernehmen**. Klickst du ihn, beendet der andere PC seine Sessions, und dieser PC startet sie. Die
+Agents folgen automatisch dem aktiven PC.
+
+Ist der aktive PC aus (nicht mit dem Backend verbunden), wird der nächste PC, der sich verbindet,
+von selbst aktiv. Ein PC im Standby übernimmt dagegen nie von selbst: Der aktive PC könnte nur kurz
+die Verbindung verloren haben und seine Sessions noch laufen lassen.
+
+Nach einer **Passwortänderung** meldest du dich zuerst auf einem PC neu an, der schon abgleicht. Er
+verschlüsselt die Daten mit dem neuen Passwort. Danach klappt die Anmeldung auch auf den anderen PCs.
+
+### C9. Wenn etwas nicht klappt
 
 | Problem | Lösung |
 |---|---|

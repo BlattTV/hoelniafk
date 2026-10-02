@@ -375,3 +375,9 @@ button.link-button:hover { color: var(--text); background: none; }
 .tabs .tab { background: transparent !important; border: 0 !important; border-bottom: 2px solid transparent !important; border-radius: 0 !important; padding: 10px 14px; color: var(--muted); font-weight: 600; }
 .tabs .tab:hover { color: var(--text); }
 .tabs .tab.active { color: var(--text); border-bottom-color: var(--primary) !important; }
+
+/* another PC of the account runs the sessions (settings sync / active PC) */
+.standby-banner { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 40; display: flex; align-items: center; gap: 14px; max-width: min(760px, calc(100vw - 32px));
+  padding: 10px 14px; border-radius: var(--radius); border: 1px solid var(--warning); background: var(--panel); box-shadow: 0 8px 28px rgba(0,0,0,.28); font-size: 13.5px; }
+.standby-banner[hidden] { display: none; }
+ul.plain { list-style: none; margin: 0; padding: 0; }

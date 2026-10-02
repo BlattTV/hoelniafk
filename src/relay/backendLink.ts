@@ -66,6 +66,12 @@ export class BackendLink {
   onConnected: () => void = () => undefined;
   /** Called when an agent becomes usable (online and not paused) – wired to the session manager. */
   onAgentAvailable: (agentId: number) => void = () => undefined;
+  /** This PC became active (null) or standby (reason: which PC runs the sessions) – wired to the sessions. */
+  onRoleChanged: (standbyReason: string | null) => void = () => undefined;
+  /** Another suite of the account stored new settings (version) – wired to the settings sync. */
+  onSyncChanged: (version: number) => void = () => undefined;
+  /** Other suites (PCs) of this account connected to the backend right now. */
+  private managers: Array<{ deviceId: number; name: string; ip: string | null; connectedAt: string; active: boolean; self: boolean }> = [];
   state: LinkState = 'signed-out';
   lastError: string | null = null;
 
@@ -115,7 +121,40 @@ export class BackendLink {
       pinnedCert: !!this.repo.getSetting('backend.cert'),
       proxy: maskProxy(this.proxy),
       agents: [...this.agents.values()].map((a) => ({ ...a, sessions: this.runtime?.agentSessions(a.id) ?? [] })),
+      /** 'active' = this PC runs the sessions; 'standby' = another PC of the account does (see activePc) */
+      pcRole: this.standbyFor() ? ('standby' as const) : ('active' as const),
+      activePc: this.standbyFor(),
+      pcs: this.managers,
     };
+  }
+
+  /** Name of the PC that runs the sessions while this one is in standby (null = this PC is active). */
+  standbyFor(): string | null {
+    return this.repo.getSetting('backend.standbyFor') || null;
+  }
+
+  private setRole(standbyFor: string | null): void {
+    if ((this.standbyFor() ?? null) === standbyFor) return;
+    this.repo.setSetting('backend.standbyFor', standbyFor ?? '');
+    this.audit.record(null, standbyFor ? 'Standby – another PC runs the sessions' : 'This PC runs the sessions', standbyFor ? { pc: standbyFor } : {});
+    this.onRoleChanged(standbyFor ? `the sessions run on "${standbyFor}"` : null);
+  }
+
+  /** "Take over here": this PC becomes the active one – the other PC stops its sessions. */
+  claim(): void {
+    if (this.ws?.readyState !== 1) throw new SuiteError('Not connected to the backend – try again in a moment', 409);
+    this.ws.send(JSON.stringify({ t: 'claim' }));
+    this.audit.record(null, 'Took over the sessions on this PC');
+  }
+
+  /** Device token of this suite (for the settings sync). */
+  async deviceToken(): Promise<string | null> {
+    await this.ready;
+    return this.token();
+  }
+
+  get transportOptions(): TransportOptions {
+    return this.transport();
   }
 
   private changed(): void {
@@ -159,6 +198,8 @@ export class BackendLink {
     await this.vault.store.delete(TOKEN_REF);
     this.repo.setSetting('backend.role', '');
     this.disconnect('signed-out');
+    this.managers = [];
+    this.setRole(null); // without the backend this PC runs its sessions on its own
     this.audit.record(null, 'Signed out from the backend');
   }
 
@@ -361,6 +402,20 @@ export class BackendLink {
         if (m && typeof m.evt === 'string') this.hosts.get(Number(f.agentId))?.deliver(m);
         return;
       }
+      case 'active':
+        this.setRole(null);
+        break;
+      case 'standby':
+        this.setRole(String(f.active?.name ?? 'another PC').slice(0, 120));
+        break;
+      case 'managers':
+        this.managers = Array.isArray(f.list)
+          ? f.list.slice(0, 20).map((m: any) => ({ deviceId: Number(m.deviceId), name: String(m.name ?? ''), ip: m.ip ?? null, connectedAt: String(m.connectedAt ?? ''), active: !!m.active, self: Number(m.deviceId) === Number(f.self) }))
+          : [];
+        break;
+      case 'sync':
+        this.onSyncChanged(Number(f.version) || 0);
+        return;
       case 'bye':
         this.lastError = String(f.reason ?? 'Disconnected by the backend');
         if (/another manager/i.test(this.lastError)) {

@@ -25,7 +25,7 @@
 import fs from 'node:fs';
 import http from 'node:http';
 import https from 'node:https';
-import { HttpError } from './accounts.mjs';
+import { HttpError, SYNC_MAX_BYTES } from './accounts.mjs';
 
 
 function readBody(req, limit = 64 * 1024) {
@@ -186,6 +186,29 @@ export function createBackendServer({ accounts, relay, config, version = '1.0.0'
         if (user.role !== 'admin') throw new HttpError(403, 'An admin account is required');
         accounts.audit(user.username, 'Admin confirmed a backend address change in an app', '', ip);
         return send(res, 200, { ok: true });
+      }
+      if (p === '/api/sync') {
+        // settings sync between the suites of this account – the backend only stores the encrypted blob
+        const device = accounts.deviceByToken(bearer(req));
+        if (!device) throw new HttpError(401, 'Signed out – sign in again');
+        if (device.kind !== 'manager') throw new HttpError(403, 'Only the Hoelni Client Suite synchronizes settings');
+        if (req.method === 'GET') {
+          const cur = accounts.getSync(device.userId);
+          return send(res, 200, cur ? { version: cur.version, data: cur.data.toString('base64'), updatedAt: cur.updatedAt, updatedBy: cur.updatedBy } : { version: 0, data: null });
+        }
+        if (req.method === 'POST') {
+          // the suite checks the account password before it derives the sync key from it (no new device)
+          const b = await readBody(req);
+          accounts.authenticate(device.username, String(b.password ?? ''), ip);
+          return send(res, 200, { ok: true });
+        }
+        if (req.method === 'PUT') {
+          const b = await readBody(req, Math.ceil((SYNC_MAX_BYTES * 4) / 3) + 4096);
+          const r = accounts.putSync(device.userId, b.expected, Buffer.from(String(b.data ?? ''), 'base64'), device.name);
+          relay.syncChanged(device.userId, r.version, device.id);
+          return send(res, 200, r);
+        }
+        throw new HttpError(405, 'Method not allowed');
       }
       if (p === '/api/me' || p === '/api/logout' || p === '/api/agents') {
         const device = accounts.deviceByToken(bearer(req));

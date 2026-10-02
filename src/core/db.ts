@@ -418,6 +418,26 @@ const MIGRATIONS: string[] = [
   UPDATE templates SET config_json = json_set(config_json, '$.settings.afk.enabled', json('false'), '$.settings.afk.action', 'none')
     WHERE json_extract(config_json, '$.settings.afk.action') = 'look';
   `,
+  // v9: settings sync between PCs of the same backend account – every synchronized row gets a
+  // random id that is the same on all PCs (local ids differ per PC). Filled in by the sync on export.
+  `
+  ALTER TABLE identities ADD COLUMN sync_id TEXT;
+  ALTER TABLE servers ADD COLUMN sync_id TEXT;
+  ALTER TABLE templates ADD COLUMN sync_id TEXT;
+  ALTER TABLE network_profiles ADD COLUMN sync_id TEXT;
+  ALTER TABLE proxies ADD COLUMN sync_id TEXT;
+  ALTER TABLE macros ADD COLUMN sync_id TEXT;
+  ALTER TABLE accounts ADD COLUMN sync_id TEXT;
+  ALTER TABLE mail_accounts ADD COLUMN sync_id TEXT;
+  CREATE UNIQUE INDEX identities_sync ON identities(sync_id) WHERE sync_id IS NOT NULL;
+  CREATE UNIQUE INDEX servers_sync ON servers(sync_id) WHERE sync_id IS NOT NULL;
+  CREATE UNIQUE INDEX templates_sync ON templates(sync_id) WHERE sync_id IS NOT NULL;
+  CREATE UNIQUE INDEX network_profiles_sync ON network_profiles(sync_id) WHERE sync_id IS NOT NULL;
+  CREATE UNIQUE INDEX proxies_sync ON proxies(sync_id) WHERE sync_id IS NOT NULL;
+  CREATE UNIQUE INDEX macros_sync ON macros(sync_id) WHERE sync_id IS NOT NULL;
+  CREATE UNIQUE INDEX accounts_sync ON accounts(sync_id) WHERE sync_id IS NOT NULL;
+  CREATE UNIQUE INDEX mail_accounts_sync ON mail_accounts(sync_id) WHERE sync_id IS NOT NULL;
+  `,
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.length;

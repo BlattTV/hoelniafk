@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { openDatabase, SCHEMA_VERSION } from '../src/core/db.js';
+import { DB, migrate, openDatabase, SCHEMA_VERSION } from '../src/core/db.js';
 import { buildServer } from '../src/web/server.js';
 import { createTestSuite } from './helpers.js';
 
@@ -112,8 +112,9 @@ describe('account library', () => {
 
   it('migration v6 on a real v5 database: existing logins become library entries with their browser profiles', () => {
     const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'hoelni-mig6-')), 'hoelni.db');
-    let db: any = openDatabase(file);
-    db.exec('DROP TABLE accounts; ALTER TABLE server_assignments DROP COLUMN placement; UPDATE schema_version SET version = 5'); // a database of v5
+    let db: any = new DB(file);
+    db.pragma('foreign_keys = ON');
+    migrate(db, 5); // a database of v5
     const ts = new Date().toISOString();
     db.prepare("INSERT INTO identities (id, number, label, settings_json, created_at, updated_at) VALUES (1,1,'A','{}',?,?),(2,2,'B','{}',?,?)").run(ts, ts, ts, ts);
     db.prepare("INSERT INTO minecraft_identities (identity_id, username, auth_type, auth_status, msa_account) VALUES (1,'P1','microsoft','AUTHENTICATED','a@outlook.com'),(2,'Pending_2','microsoft','PENDING','b@outlook.com')").run();

@@ -171,4 +171,26 @@ export class Accounts {
     this.getDevice(id);
     this.db.prepare('UPDATE devices SET revoked = 1 WHERE id = ?').run(Number(id));
   }
+
+  // ---------------------------------------------------------------- settings sync (encrypted blob per account)
+
+  getSync(userId) {
+    const r = this.db.prepare('SELECT version, data, updated_at, updated_by FROM sync_blobs WHERE user_id = ?').get(Number(userId));
+    return r ? { version: r.version, data: Buffer.from(r.data), updatedAt: r.updated_at, updatedBy: r.updated_by } : null;
+  }
+
+  /** Stores a new version – only on top of `expected` (the version the PC merged), else 409. */
+  putSync(userId, expected, data, by) {
+    if (!Buffer.isBuffer(data) || data.length === 0) throw new HttpError(400, 'No data');
+    if (data.length > SYNC_MAX_BYTES) throw new HttpError(413, `Sync data too large (max ${SYNC_MAX_BYTES / 1024 / 1024} MB)`);
+    const cur = this.getSync(userId);
+    if ((cur?.version ?? 0) !== Number(expected)) throw new HttpError(409, 'Sync data changed on another PC – merge and try again');
+    const version = (cur?.version ?? 0) + 1;
+    this.db
+      .prepare('INSERT INTO sync_blobs (user_id, version, data, updated_at, updated_by) VALUES (?, ?, ?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET version = excluded.version, data = excluded.data, updated_at = excluded.updated_at, updated_by = excluded.updated_by')
+      .run(Number(userId), version, data, nowIso(), by ? String(by).slice(0, 120) : null);
+    return { version };
+  }
 }
+
+export const SYNC_MAX_BYTES = 16 * 1024 * 1024;

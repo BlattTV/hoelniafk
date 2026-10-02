@@ -99,6 +99,61 @@ export function backendCard(st, rerender) {
     h('p', { class: 'muted' }, 'Accounts live on the backend. Sign in here and in the Hoelni Agent on other PCs with the same account – those PCs then appear under Agents and can run sessions of your identities ("Run on" in the identity settings). Passwords are never stored; the manager keeps only a device token in the vault.'));
 }
 
+const SYNC_TEXT = {
+  off: ['skipped', 'off – sign in to the backend'],
+  'needs-password': ['warn', 'needs the account password once'],
+  syncing: ['info', 'synchronizing…'],
+  ok: ['ok', 'up to date'],
+  error: ['error', 'error'],
+};
+
+/**
+ * Several PCs, one account: identities and settings are synchronized (encrypted with the account
+ * password), and exactly one PC runs the sessions – the others are in standby until they take over.
+ */
+export function syncCard(backend, rerender) {
+  const box = h('section', { class: 'card', id: 'sync-card' }, h('h2', null, 'Several PCs: sync & active PC'), h('p', { class: 'muted' }, 'Loading…'));
+  if (backend.state === 'signed-out') {
+    mount(box, h('h2', null, 'Several PCs: sync & active PC'),
+      h('p', { class: 'muted' }, 'Sign in to the backend above. Every PC signed in with the same account then has the same identities, servers, macros, logins and settings – this PC keeps everything it has, nothing is removed.'));
+    return box;
+  }
+  void api.get('/api/sync').then((st) => {
+    const [cls, text] = SYNC_TEXT[st.state] ?? ['unknown', st.state];
+    const pw = h('input', { type: 'password', autocomplete: 'current-password', placeholder: 'account password', style: { width: '260px' } });
+    const standby = st.pcRole === 'standby';
+    mount(box,
+      h('h2', null, 'Several PCs: sync & active PC'),
+      h('div', { class: 'kv' },
+        h('div', null, 'This PC'), h('div', null, standby
+          ? h('span', { class: 'badge warn' }, 'standby – sessions run on another PC')
+          : h('span', { class: 'badge ok' }, 'active – runs the sessions')),
+        h('div', null, 'Settings sync'), h('div', null, h('span', { class: `badge ${cls}`, title: st.lastError ?? '' }, text),
+          st.lastSyncAt ? h('span', { class: 'muted' }, ` ${relTime(st.lastSyncAt)}`) : null,
+          st.lastError && st.state !== 'ok' ? h('div', { class: 'muted' }, st.lastError) : null),
+        h('div', null, 'PCs of this account'), h('div', null, (st.pcs ?? []).length
+          ? h('ul', { class: 'plain' }, st.pcs.map((p) => h('li', null, p.name, p.self ? h('span', { class: 'muted' }, ' (this PC)') : null, ' ', p.active ? h('span', { class: 'tag' }, 'active') : h('span', { class: 'tag' }, 'standby'))))
+          : h('span', { class: 'muted' }, 'only this PC'))),
+      st.problems?.length ? h('div', { class: 'warnbox' }, h('strong', null, 'Not taken over from the other PC:'), h('ul', null, st.problems.map((p) => h('li', null, p)))) : null,
+      st.state === 'needs-password'
+        ? h('div', { class: 'form-actions' }, pw,
+            h('button', { class: 'primary', onclick: () => guard(async () => { await api.post('/api/sync/setup', { password: pw.value }); pw.value = ''; await rerender(); }, 'Sync set up') }, 'Set up sync'))
+        : h('div', { class: 'form-actions' },
+            standby ? h('button', { class: 'primary', title: 'This PC runs the sessions from now on – the other PC stops them', onclick: () => takeOver(rerender) }, 'Take over here') : null,
+            h('button', { onclick: () => guard(async () => { await api.post('/api/sync/now'); await rerender(); }, 'Synchronized') }, 'Sync now')),
+      h('p', { class: 'muted' }, 'Synchronized: identities with their settings, servers and assignments, macros, templates, proxies, logins (Minecraft sign-ins, saved passwords). Not synchronized: logs, chat, this PC’s backend sign-in and the browser windows of Outlook and Discord (sign in there once per PC). Everything is encrypted with your account password before it leaves this PC. Only the active PC runs sessions, so an account is never online twice.'));
+  }).catch((e) => mount(box, h('h2', null, 'Several PCs: sync & active PC'), h('p', { class: 's-error' }, e.message)));
+  return box;
+}
+
+/** "Take over here": this PC runs the sessions, the other one stops them. */
+export function takeOver(after) {
+  return guard(async () => {
+    await api.post('/api/backend/claim');
+    await after?.();
+  }, 'This PC runs the sessions now');
+}
+
 /** Link to the backend's download page (installers of suite and agent, Android app – built by the update server). */
 export function downloadHint(st) {
   if (!st?.url) return null;
