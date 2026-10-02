@@ -84,12 +84,13 @@ export function computeHealth(
       target: 'discord',
     });
     const link = d?.linkState ?? 'UNKNOWN';
-    const linkStatus: CheckStatus = link === 'LINKED' ? 'ok' : link === 'WAITING' ? 'warn' : link === 'ERROR' ? 'error' : required ? 'error' : 'warn';
+    // optional linking: not linked (yet) is fine – it only warns while a link is under way or failed
+    const linkStatus: CheckStatus = link === 'LINKED' ? 'ok' : link === 'WAITING' ? 'warn' : link === 'ERROR' ? 'error' : required ? 'error' : 'skipped';
     checks.push({
       key: 'discordLinked',
       label: 'Discord linked',
       status: linkStatus,
-      detail: link === 'LINKED' ? 'Linked on Minecraft server' : link === 'WAITING' ? 'Link code received – waiting for confirmation' : link === 'ERROR' ? d?.lastError ?? 'Link error' : 'Not linked',
+      detail: link === 'LINKED' ? 'Linked on Minecraft server' : link === 'WAITING' ? 'Link code received – waiting for confirmation' : link === 'ERROR' ? d?.lastError ?? 'Link error' : required ? 'Not linked' : 'Not linked (optional)',
       target: 'discord',
     });
   }
@@ -142,20 +143,22 @@ export function computeHealth(
   // Sessions: actual vs. desired state
   const assignments = repo.listAssignments(id).filter((a) => a.enabled);
   const desired = assignments.filter((a) => a.desiredState === 'ONLINE');
+  // a session that is online counts, even if it was not set to "should be online" (e.g. started by hand)
   const onlineIds = new Set(sessions.filter((x) => x.state === 'ONLINE').map((x) => x.serverId));
-  const online = desired.filter((a) => onlineIds.has(a.serverId)).length;
+  const wanted = assignments.filter((a) => a.desiredState === 'ONLINE' || onlineIds.has(a.serverId));
+  const online = wanted.filter((a) => onlineIds.has(a.serverId)).length;
   const blocked = sessions.filter((x) => x.state === 'BLOCKED' && desired.some((a) => a.serverId === x.serverId));
   let sessionStatus: CheckStatus;
   let sessionDetail: string;
   if (assignments.length === 0) {
     sessionStatus = 'warn';
     sessionDetail = 'No server assignments';
-  } else if (desired.length === 0) {
+  } else if (wanted.length === 0) {
     sessionStatus = 'warn';
     sessionDetail = `0 of ${assignments.length} assignment(s) set to online`;
   } else {
-    sessionStatus = blocked.length ? 'error' : online === desired.length ? 'ok' : 'warn';
-    sessionDetail = `${online}/${desired.length} online` + (blocked.length ? ` · ${blocked.length} blocked (${blocked[0].lastError ?? 'see session'})` : '');
+    sessionStatus = blocked.length ? 'error' : online === wanted.length ? 'ok' : 'warn';
+    sessionDetail = `${online}/${wanted.length} online` + (blocked.length ? ` · ${blocked.length} blocked (${blocked[0].lastError ?? 'see session'})` : '');
   }
   checks.push({ key: 'sessions', label: 'Minecraft sessions', status: sessionStatus, detail: sessionDetail, target: 'sessions' });
 

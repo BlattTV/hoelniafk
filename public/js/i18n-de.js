@@ -177,6 +177,7 @@ export default {
  "Waiting…": "Wartet…",
  "Link error": "Link-Fehler",
  "Not linked": "Nicht verknüpft",
+ "Not linked (optional)": "Nicht verknüpft (optional)",
  "OAuth expired": "OAuth abgelaufen",
  "Missing": "Fehlt",
  "{0} unread": "{0} ungelesen",

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { computeHealth } from '../src/identity/health.js';
 import { createTestSuite, settle, tick, waitFor } from './helpers.js';
 
 async function fullIdentity() {
@@ -195,6 +196,20 @@ describe('sessions', () => {
     await settle();
     expect(suite.sessions.list(id).map((s) => s.state)).toEqual(['ONLINE', 'ONLINE']);
     expect(suite.identities.health(id).checks.find((c) => c.key === 'sessions')!.detail).toBe('2/2 online');
+  });
+
+  it('health: a session online without "should be online" counts; optional Discord link does not block ready', async () => {
+    const { suite } = await createTestSuite();
+    const id = suite.identities.create({ label: 'Health' }).identity.id;
+    suite.repo.upsertMinecraft(id, { username: 'Health01', authType: 'offline' });
+    const smp = suite.repo.upsertServer({ name: 'SMP', host: 'smp.example.com' });
+    suite.repo.assignServer(id, { serverId: smp.id });
+    const identity = suite.repo.getIdentity(id);
+    const online = [{ serverId: smp.id, state: 'ONLINE' }] as any;
+    const report = computeHealth(suite.repo, identity, online, []);
+    expect(report.checks.find((c) => c.key === 'sessions')).toMatchObject({ status: 'ok', detail: '1/1 online' });
+    expect(report.checks.find((c) => c.key === 'discordLinked')).toMatchObject({ status: 'skipped', detail: 'Not linked (optional)' });
+    expect(computeHealth(suite.repo, identity, [], []).checks.find((c) => c.key === 'sessions')!.detail).toBe('0 of 1 assignment(s) set to online');
   });
 
   it('restores desired sessions through the reconciler and isolates a crashed runtime host', async () => {
