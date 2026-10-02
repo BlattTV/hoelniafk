@@ -140,6 +140,14 @@ describe('Android agent (app process)', () => {
     expect(st.log.join('\n')).toMatch(/on Android/);
   }, 60_000);
 
+  it('macros run on the phone: started by hand ("Run on all matching") and live updates', async () => {
+    const sid = `${identityId}:${serverId}`;
+    const m = suite.macros.save({ name: 'Link', trigger: { type: 'manual' }, blocks: [{ type: 'command', text: 'link' }], identityIds: [identityId], serverIds: [serverId] } as any);
+    await waitFor(() => suite.macros.runAll(m.id).includes(sid), 10_000, 'macro started on the phone session');
+    await waitFor(() => mc.linked.has('Phone01'), 10_000, 'command from the macro reached the server');
+    await waitFor(() => suite.macros.recent().some((l) => l.sessionId === sid && l.status === 'finished'), 10_000, 'macro reported done');
+  }, 30_000);
+
   it('opening the game is refused with a clear message (no Minecraft on a phone)', async () => {
     const sid = `${identityId}:${serverId}`;
     await suite.sessions.openGame(sid);

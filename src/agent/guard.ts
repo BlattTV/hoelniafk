@@ -10,17 +10,32 @@ import dns from 'node:dns/promises';
 import net from 'node:net';
 import type { MainToHost } from '../runtime/protocol.js';
 import type { RuntimeSessionSpec } from '../runtime/types.js';
-import { assertLoopsTakeTime, validateBlocks, validateTrigger } from '../macros/types.js';
+import { assertLoopsTakeTime, validateBlocks, validateTrigger, type MacroProgram } from '../macros/types.js';
 
-/** Macros from the manager are re-validated on the agent (limits, no tight loops). */
-function checkMacros(list: unknown): void {
-  if (list === undefined) return;
-  if (!Array.isArray(list) || list.length > 100) throw new Error('invalid macro list');
-  for (const m of list as any[]) {
-    if (!Number.isInteger(m?.id)) throw new Error('invalid macro id');
-    validateTrigger(m.trigger);
-    assertLoopsTakeTime(validateBlocks(m.blocks));
+/**
+ * Macros from the manager are re-validated on the agent (limits, no tight loops). Each macro on its
+ * own: a macro this agent cannot run (e.g. a block an older agent does not know yet) is left out and
+ * reported – it never stops the session or the other macros.
+ */
+export function sortMacros(list: unknown): { ok: MacroProgram[]; bad: Array<{ macroId: number; error: string }> } {
+  if (list === undefined || list === null) return { ok: [], bad: [] };
+  if (!Array.isArray(list)) return { ok: [], bad: [{ macroId: 0, error: 'invalid macro list' }] };
+  const ok: MacroProgram[] = [];
+  const bad: Array<{ macroId: number; error: string }> = [];
+  for (const m of list.slice(0, 100) as any[]) {
+    const macroId = Number.isInteger(m?.id) ? m.id : 0;
+    try {
+      if (!macroId) throw new Error('invalid macro id');
+      const trigger = validateTrigger(m.trigger);
+      const blocks = validateBlocks(m.blocks);
+      assertLoopsTakeTime(blocks);
+      ok.push({ id: macroId, name: String(m.name ?? '').slice(0, 100), trigger, blocks, humanize: !!m.humanize });
+    } catch (e) {
+      bad.push({ macroId, error: `Not run on this agent: ${(e as Error).message}` });
+    }
   }
+  if (list.length > 100) bad.push({ macroId: 0, error: 'Not run on this agent: more than 100 macros' });
+  return { ok, bad };
 }
 
 const SESSION_ID = /^\d{1,9}:\d{1,9}$/;
@@ -82,14 +97,11 @@ async function checkSpec(spec: RuntimeSessionSpec, allowPrivate: boolean): Promi
 /** Returns null when the command may run, else the reason it is refused. */
 export async function refuseReason(m: MainToHost, allowPrivate: boolean): Promise<string | null> {
   try {
-    if (m.cmd === 'start') {
-      await checkSpec(m.spec, allowPrivate);
-      checkMacros(m.spec.macros);
-    } else if (m.cmd === 'macros.set') {
-      if (!SESSION_ID.test(String(m.sessionId))) throw new Error('invalid session id');
-      checkMacros(m.macros);
-    }
-    else if (m.cmd === 'game.open') {
+    // macros (in "start" and "macros.set") are checked one by one with sortMacros – see AgentCore
+    if (m.cmd === 'start') await checkSpec(m.spec, allowPrivate);
+    else if (m.cmd === 'macro.run' || m.cmd === 'macro.stop') {
+      if (!SESSION_ID.test(String(m.sessionId)) || !Number.isInteger(m.macroId)) throw new Error('invalid macro command');
+    } else if (m.cmd === 'game.open') {
       await checkSpec(m.spec, allowPrivate);
       if (m.spec.sessionId !== m.sessionId) throw new Error('session id mismatch');
       const s = m.settings;

@@ -17,7 +17,7 @@ import { mineflayerBotFactory } from '../minecraft/mineflayerBot.js';
 import { RuntimeHostCore, type HostBotFactory } from '../runtime/host/hostCore.js';
 import type { HostChannel, HostToMain, MainToHost } from '../runtime/protocol.js';
 import type { RuntimeEvent } from '../runtime/types.js';
-import { refuseReason } from './guard.js';
+import { refuseReason, sortMacros } from './guard.js';
 import { openWebSocket, type TransportOptions } from './transport.js';
 
 export interface AgentConfig {
@@ -175,7 +175,22 @@ export class AgentCore {
         else this.emitRuntime({ type: 'takeover', sessionId: String(sessionId), status: 'error', message: `Agent refused: ${reason}` });
         return;
       }
-    } else if (await refuseReason(m, true)) return;
+    } else {
+      const reason = await refuseReason(m, true);
+      if (reason) {
+        // never silent: the manager shows why (macro log / session)
+        if (m.cmd === 'macro.run' || m.cmd === 'macros.set') this.emitRuntime({ type: 'macro', sessionId: String(m.sessionId), macroId: m.cmd === 'macro.run' ? Number(m.macroId) || 0 : 0, status: 'error', message: `Agent refused: ${reason}` });
+        return;
+      }
+    }
+    if (m.cmd === 'start' || m.cmd === 'macros.set') {
+      // each macro is checked on its own; one this agent cannot run is reported, the rest run
+      const sessionId = m.cmd === 'start' ? m.spec.sessionId : m.sessionId;
+      const { ok, bad } = sortMacros(m.cmd === 'start' ? m.spec.macros : m.macros);
+      for (const b of bad) this.emitRuntime({ type: 'macro', sessionId, macroId: b.macroId, status: 'error', message: b.error });
+      if (m.cmd === 'start') m.spec.macros = ok;
+      else m.macros = ok;
+    }
     if (m.cmd === 'start') this.sessions.set(m.spec.sessionId, { server: m.spec.server.name, username: m.spec.username, phase: 'starting' });
     if (m.cmd === 'game.open') return void this.openGame(m);
     if (m.cmd === 'game.close') return void this.closeGame(m.sessionId);

@@ -210,7 +210,7 @@ export class MineflayerRuntime implements MinecraftRuntime {
 
   macroCommand(m: Extract<MainToHost, { cmd: 'macros.set' | 'macro.run' | 'macro.stop' }>): boolean {
     const h = this.sessionHost.get(m.sessionId);
-    if (!h) return false;
+    if (!h?.alive) return false; // e.g. the agent's connection just dropped – the macro did not start
     this.send(h, m);
     return true;
   }

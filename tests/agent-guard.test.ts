@@ -11,7 +11,7 @@ import { openDb } from '../backend/src/db.mjs';
 import { Relay } from '../backend/src/relay.mjs';
 // @ts-expect-error – see above
 import { createBackendServer } from '../backend/src/server.mjs';
-import { isPrivateAddress, refuseReason } from '../src/agent/guard.js';
+import { isPrivateAddress, refuseReason, sortMacros } from '../src/agent/guard.js';
 import { requestJson } from '../src/agent/transport.js';
 import type { MainToHost } from '../src/runtime/protocol.js';
 
@@ -24,6 +24,24 @@ const spec = (over: Record<string, unknown> = {}, network: unknown = { profile: 
   }) as any;
 
 describe('agent guard (commands from the manager)', () => {
+  it('macros are checked one by one: one the agent cannot run is reported, the others run, the session starts', async () => {
+    const good = { id: 1, name: 'Link', trigger: { type: 'spawn' }, blocks: [{ type: 'command', text: 'link' }], humanize: true };
+    const unknown = { id: 2, name: 'New block', trigger: { type: 'manual' }, blocks: [{ type: 'teleportHome' }] };
+    const tight = { id: 3, name: 'Loop', trigger: { type: 'manual' }, blocks: [{ type: 'forever', body: [{ type: 'swing' }] }] };
+    const r = sortMacros([good, unknown, tight]);
+    expect(r.ok.map((m) => m.id)).toEqual([1]);
+    expect(r.ok[0]).toMatchObject({ trigger: { type: 'spawn' }, blocks: [{ type: 'command', text: 'link' }] });
+    expect(r.bad).toEqual([
+      { macroId: 2, error: expect.stringMatching(/Not run on this agent: Unknown block "teleportHome"/) },
+      { macroId: 3, error: expect.stringMatching(/needs a wait/) },
+    ]);
+    expect(sortMacros(undefined)).toEqual({ ok: [], bad: [] });
+    // the session itself is not refused because of a macro
+    expect(await refuseReason({ cmd: 'start', spec: { ...spec(), macros: [unknown] } } as MainToHost, false)).toBeNull();
+    expect(await refuseReason({ cmd: 'macro.run', sessionId: '1:2', macroId: 1.5 } as any, false)).toMatch(/invalid macro command/);
+    expect(await refuseReason({ cmd: 'macro.run', sessionId: '1:2', macroId: 7 } as MainToHost, false)).toBeNull();
+  });
+
   it('classifies private and public addresses', () => {
     for (const ip of ['10.1.2.3', '192.168.1.1', '172.20.0.1', '127.0.0.1', '169.254.1.1', '100.64.0.1', '0.0.0.0', '::1', 'fd00::1', 'fe80::1', '::ffff:192.168.0.2', '224.0.0.1'])
       expect(isPrivateAddress(ip), ip).toBe(true);
