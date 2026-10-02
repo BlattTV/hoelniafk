@@ -176,4 +176,27 @@ describe('vanilla client behaviour behind a proxy', () => {
     bot.end();
     server.close();
   }, 30_000);
+
+  it('reports the configured client brand on join (vanilla or fabric)', async () => {
+    const version = '1.21.11';
+    const { mineflayerBotFactory } = await import('../src/minecraft/mineflayerBot.js');
+    const server = mc.createServer({ version, 'online-mode': false, port: 0, host: '127.0.0.1' });
+    await new Promise<void>((r) => server.once('listening', () => r()));
+    const port = server.socketServer.address().port;
+    const md = require('minecraft-data')(version);
+    const brands: string[] = [];
+    server.on('playerJoin', (c: any) => {
+      c.on('custom_payload', (p: any) => {
+        if (/brand/.test(p.channel)) brands.push(p.data.subarray(1).toString());
+      });
+      c.write('login', { ...md.loginPacket, entityId: 1 });
+    });
+    const spec: any = { username: 'Brand01', auth: 'offline', brand: 'fabric', server: { host: '127.0.0.1', port, version }, network: { profile: null, secret: null }, viewDistance: 'tiny' };
+    const bot: any = mineflayerBotFactory(spec, async () => { throw new Error('no'); });
+    await until(() => brands.length > 0, 8000, 'brand');
+    expect(brands[0]).toBe('fabric');
+    bot.end();
+    server.close();
+  }, 30_000);
 });
+

@@ -61,6 +61,7 @@ async function assertPublicHost(host: string, what: string, allowPrivate: boolea
 async function checkSpec(spec: RuntimeSessionSpec, allowPrivate: boolean): Promise<void> {
   if (!SESSION_ID.test(String(spec?.sessionId))) throw new Error('invalid session id');
   if (spec.auth !== 'offline' && spec.auth !== 'microsoft') throw new Error('invalid sign-in type');
+  if (spec.brand !== undefined && spec.brand !== 'vanilla' && spec.brand !== 'fabric') throw new Error('invalid client brand');
   const name = String(spec.username);
   if (!(USERNAME.test(name) || (spec.auth === 'microsoft' && name.length <= 254 && ACCOUNT_EMAIL.test(name)))) throw new Error('invalid username');
   const port = Number(spec.server?.port);

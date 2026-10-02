@@ -1225,5 +1225,7 @@ export default {
  "Unlink the Microsoft account from this identity? It stays under Logins with its login and can be linked again.": "Microsoft-Konto von dieser Identität trennen? Es bleibt mit seiner Anmeldung unter Zugänge und kann wieder verknüpft werden.",
  "Unlink the Discord account from this identity? It stays under Logins with its login and can be linked again.": "Discord-Konto von dieser Identität trennen? Es bleibt mit seiner Anmeldung unter Zugänge und kann wieder verknüpft werden.",
  "Unlinked": "Getrennt",
- "Unlink": "Trennen"
+ "Unlink": "Trennen",
+ "Client": "Client",
+ "Game window and AFK session report this client when joining (e.g. \"joined using Fabric\")": "Spielfenster und AFK-Session melden beim Beitreten diesen Client (z. B. „joined using Fabric“)"
 };

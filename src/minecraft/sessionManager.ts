@@ -521,6 +521,8 @@ export class SessionManager {
       placement: s.agentId !== null && s.agentId !== undefined ? { agentId: s.agentId } : null,
       macros: this.macrosFor?.(r.identityId, r.serverId) ?? [],
       unsignedChat: this.repo.getSetting(`server.${server.id}.unsignedChat`) === '1',
+      // the AFK session reports the same client as the identity's game window
+      brand: s.gameClient.loader === 'fabric' ? 'fabric' : 'vanilla',
     };
   }
 

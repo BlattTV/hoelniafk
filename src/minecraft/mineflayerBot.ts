@@ -49,6 +49,7 @@ export const mineflayerBotFactory: HostBotFactory = (spec, getJavaSession) => {
     hideErrors: true,
     checkTimeoutInterval: 60_000,
     viewDistance: spec.viewDistance,
+    brand: spec.brand === 'fabric' ? 'fabric' : 'vanilla',
     connect,
   } as any);
   installVanillaCompat(bot);

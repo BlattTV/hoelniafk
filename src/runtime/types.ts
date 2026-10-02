@@ -33,6 +33,8 @@ export interface RuntimeSessionSpec {
   placement?: { agentId: number } | null;
   /** Send chat without signatures (some proxy/translation setups kick signed chat). */
   unsignedChat?: boolean;
+  /** Client brand reported on join (same as the identity's game window: vanilla or fabric). */
+  brand?: 'vanilla' | 'fabric';
   /** Macros of this session (macro builder), started by their triggers. */
   macros?: import('../macros/types.js').MacroProgram[];
 }
