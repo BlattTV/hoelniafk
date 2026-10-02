@@ -215,6 +215,11 @@ export class MineflayerRuntime implements MinecraftRuntime {
     return true;
   }
 
+  /** Agent the session currently runs on (null = this PC / not running). */
+  sessionAgent(sessionId: string): number | null {
+    return this.sessionHost.get(sessionId)?.remote?.agentId ?? null;
+  }
+
   isRemoteSession(sessionId: string): boolean {
     return !!this.sessionHost.get(sessionId)?.remote;
   }

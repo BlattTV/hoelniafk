@@ -69,9 +69,6 @@ async function render() {
     const m = re.exec(path);
     if (!m) continue;
     document.querySelectorAll('[data-nav]').forEach((a) => a.classList.toggle('active', a.dataset.nav === nav));
-    // "Advanced" opens by itself when one of its pages is shown
-    const more = document.getElementById('nav-more');
-    if (more && more.querySelector(`[data-nav="${nav}"]`)) more.open = true;
     const container = h('div');
     try {
       const handle = await view(container, m.slice(1));

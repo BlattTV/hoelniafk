@@ -22,6 +22,7 @@ import {
   type ServerAssignment,
   type ServerRewardState,
   type DesiredState,
+  type Placement,
 } from '../core/types.js';
 
 type Row = Record<string, any>;
@@ -133,7 +134,14 @@ function mapAssignment(r: Row): ServerAssignment {
     networkProfileId: r.network_profile_id,
     desiredState: r.desired_state === 'ONLINE' ? 'ONLINE' : 'OFFLINE',
     schedule: r.schedule_json ? normalizeSchedule(JSON.parse(r.schedule_json)) : null,
+    placement: parsePlacement(r.placement),
   };
+}
+
+function parsePlacement(v: unknown): Placement {
+  if (v === 'local') return 'local';
+  const m = /^agent:(\d+)$/.exec(String(v ?? ''));
+  return m ? { agentId: Number(m[1]) } : 'default';
 }
 
 function mapServerReward(r: Row): ServerRewardState {
@@ -648,6 +656,17 @@ export class IdentityRepository {
     const a = this.getAssignment(identityId, serverId);
     if (!a) throw new ValidationError('Identity is not assigned to this server');
     this.db.prepare('UPDATE server_assignments SET schedule_json = ? WHERE id = ?').run(schedule ? JSON.stringify(normalizeSchedule(schedule)) : null, a.id);
+    this.touch(identityId);
+    return this.getAssignment(identityId, serverId)!;
+  }
+
+  /** Where the session of this identity on this server runs (overrides the identity's "Run on"). */
+  setPlacement(identityId: number, serverId: number, placement: Placement): ServerAssignment {
+    const a = this.getAssignment(identityId, serverId);
+    if (!a) throw new ValidationError('Identity is not assigned to this server');
+    const v = placement === 'default' ? null : placement === 'local' ? 'local' : `agent:${Math.trunc(placement.agentId)}`;
+    if (v && v !== 'local' && !(placement as { agentId: number }).agentId) throw new ValidationError('Invalid agent');
+    this.db.prepare('UPDATE server_assignments SET placement = ? WHERE id = ?').run(v, a.id);
     this.touch(identityId);
     return this.getAssignment(identityId, serverId)!;
   }

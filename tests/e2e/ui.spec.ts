@@ -202,8 +202,13 @@ test('backend: account administration is only shown to admins; agents appear', a
   await expect(page.locator('#view')).toContainText('neighbour');
   await expect(page.locator('#view')).toContainText('Demo agent');
 
-  // Identity settings: "Run on" lists the agent.
+  // Each server of an identity can run on its own agent ("Runs on" in the server table) …
   await page.goto('/#/identity/1');
+  const runsOn = page.locator('#sec-sessions').getByLabel('Runs on').first();
+  await expect(runsOn).toContainText('Demo agent');
+  await expect(runsOn).toContainText('This PC');
+  // … and the identity's default is in the Settings tab.
+  await page.getByRole('tab', { name: 'Settings' }).click();
   await expect(page.locator('select[name=agentId]')).toContainText('Demo agent');
   // The only failed request is the rejected address change (400) above.
   expect(errors.filter((e) => !/status of 400/.test(e))).toEqual([]);
@@ -249,9 +254,10 @@ test('quick setup: name → Microsoft sign-in window (Minecraft + Outlook, no ap
   const external: string[] = [];
   context.on('request', (r) => { if (/^https:\/\/(www\.microsoft\.com|outlook\.live\.com)\//.test(r.url())) external.push(r.url()); });
   await page.goto('/#/');
-  // simple navigation: advanced pages are tucked away
-  await expect(page.locator('#nav-more a')).toHaveCount(5);
-  await expect(page.locator('#nav-more a[data-nav="proxies"]')).toBeHidden();
+  // structured navigation: every page is reachable in a named group (nothing hidden)
+  await expect(page.locator('.sidebar .nav-group')).toHaveText(['Accounts & mail', 'Play', 'Manage']);
+  await expect(page.locator('.sidebar a[data-nav="agents"]')).toBeVisible();
+  await expect(page.locator('.sidebar a[data-nav="proxies"]')).toBeVisible();
   await page.locator('.sidebar a[data-nav="new"]').click();
   await page.getByLabel('Name').fill('Quick Demo');
   await page.locator('.server-choice', { hasText: 'SMP' }).locator('input').check();
@@ -346,7 +352,7 @@ test('macro builder: drag blocks like in Scratch, save and run on a session', as
 test('identity settings: live updates never overwrite unsaved edits', async ({ page }) => {
   const errors = trackErrors(page);
   await page.goto('/#/identity/2');
-  await page.locator('.more-details > summary').click();
+  await page.getByRole('tab', { name: 'Settings' }).click();
   const label = page.locator('#sec-settings input[name=label]');
   await label.fill('Unsaved edit');
   await page.locator('#sec-settings select[name=gcMode]').selectOption('handover');

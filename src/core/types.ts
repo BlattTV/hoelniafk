@@ -195,7 +195,11 @@ export interface ServerAssignment {
   desiredState: DesiredState;
   /** Weekly online window (null = always). */
   schedule: import('./schedule.js').WeekSchedule | null;
+  /** Where this session runs: like the identity ("Run on"), this PC, or a specific agent. */
+  placement: Placement;
 }
+
+export type Placement = 'default' | 'local' | { agentId: number };
 
 export type DesiredState = 'ONLINE' | 'OFFLINE';
 
@@ -278,6 +282,10 @@ export interface SessionInfo {
   game: import('../runtime/types.js').GameInfo | null;
   stats: import('../runtime/types.js').SessionStats | null;
   username: string | null;
+  /** Where it should run: this server's own setting ('default' = like the identity) and the result. */
+  placement: Placement;
+  /** Agent it runs on (null = this PC). */
+  agentId: number | null;
 }
 
 export interface ChatLine {

@@ -317,6 +317,32 @@ export function updateStats(root, ev) {
   return true;
 }
 
+/**
+ * "Runs on" of one server: like the identity, this PC, or a specific agent. Agents are filled in
+ * asynchronously (backend list); the current choice is always shown.
+ */
+function placementSelect(a, identityAgentId, onChange) {
+  const cur = a.placement === 'default' ? 'default' : a.placement === 'local' ? 'local' : String(a.placement.agentId);
+  const inherit = identityAgentId ? `${t('Like the identity')} (${t('agent')} #${identityAgentId})` : `${t('Like the identity')} (${t('this PC')})`;
+  const sel = h('select', { 'aria-label': 'Runs on', title: 'Where this server\'s session runs – each server can use its own agent', onchange: (e) => onChange(e.target.value) },
+    h('option', { value: 'default', selected: cur === 'default' }, inherit),
+    h('option', { value: 'local', selected: cur === 'local' }, 'This PC'));
+  const agentOpt = (id, text) => {
+    const existing = [...sel.options].find((o) => o.value === String(id));
+    if (existing) existing.textContent = text;
+    else sel.appendChild(h('option', { value: String(id), selected: cur === String(id) }, text));
+  };
+  if (/^\d+$/.test(cur)) agentOpt(cur, `${t('Agent')} #${cur}`);
+  api.get('/api/backend/agents').then((agents) => {
+    for (const ag of agents) agentOpt(ag.id, `${t('Agent')}: ${ag.name}${t(ag.online ? (ag.paused ? ' (paused)' : ' (online)') : ' (offline)')}`);
+    if (identityAgentId) {
+      const ag = agents.find((x) => x.id === identityAgentId);
+      if (ag) sel.options[0].textContent = `${t('Like the identity')} (${ag.name})`;
+    }
+  }).catch(() => undefined);
+  return sel;
+}
+
 export function sessionsSection(ctx) {
   const { id, data, meta } = ctx;
   const byServer = new Map(data.assignments.map((a) => [a.serverId, a]));
@@ -327,12 +353,10 @@ export function sessionsSection(ctx) {
     'sessions',
     'Minecraft Server Assignments & Sessions',
     h('p', { class: 'muted' }, 'Desired state is maintained automatically: a session that should be online is reconnected according to the reconnect policy (rules.yaml).'),
-    data.identity.settings.agentId
-      ? h('p', null, h('span', { class: 'tag' }, 'agent'), 'Sessions of this identity run on agent #', String(data.identity.settings.agentId), ' (another household\'s PC). ', h('a', { href: '#/agents' }, 'Agents'), ' · change under Identity Settings → Run on.')
-      : null,
+    h('p', { class: 'muted' }, 'Runs on: each server can run on this PC or on its own agent (PC in another household). “Like the identity” uses the default under Settings.'),
     meta.servers.length
       ? h('table', null,
-          h('thead', null, h('tr', null, ['Server', 'Assigned', 'Should be', 'Network', 'State', 'Details', ''].map((t) => h('th', null, t)))),
+          h('thead', null, h('tr', null, ['Server', 'Assigned', 'Should be', 'Runs on', 'Network', 'State', 'Details', ''].map((t) => h('th', null, t)))),
           h('tbody', null, meta.servers.map((s) => {
             const a = byServer.get(s.id);
             const sess = sessionFor(s.id);
@@ -343,6 +367,7 @@ export function sessionsSection(ctx) {
               h('td', null, s.name, h('div', { class: 'muted' }, `${s.host}:${s.port}`)),
               h('td', null, h('input', { type: 'checkbox', title: 'Assign this server', checked: !!a && a.enabled, onchange: (e) => (e.target.checked ? update({ enabled: true }) : guard(async () => { await api.del(`/api/identities/${id}/servers/${s.id}`); await reload(); })) })),
               h('td', null, a ? select('desired', [['ONLINE', 'online'], ['OFFLINE', 'offline']], a.desiredState, { title: 'Desired state (SHOULD_BE_ONLINE / OFFLINE)', onchange: (e) => guard(async () => { await api.put(`/api/identities/${id}/servers/${s.id}/desired`, { state: e.target.value }); await reload(); }) }) : '–'),
+              h('td', null, a ? placementSelect(a, data.identity.settings.agentId, (v) => guard(async () => { await api.put(`/api/identities/${id}/servers/${s.id}/placement`, { placement: v }); await reload(); }, 'Saved – the session moves there')) : '–'),
               h('td', null, a ? select('np', profileOpts, a.networkProfileId ?? '', { title: 'Per-session network override', onchange: (e) => update({ networkProfileId: e.target.value ? Number(e.target.value) : null }) }) : '–'),
               h('td', null, sess ? stateBadge(sess.state, sess.lastError ?? '') : h('span', { class: 'muted' }, '–'), gameBadge(sess), scheduleNote(sess)),
               h('td', { class: 'muted', style: { fontSize: '12px', maxWidth: '260px' } },
@@ -473,7 +498,8 @@ export function settingsSection(ctx) {
       field('Tags (comma separated)', h('input', { name: 'tags', value: s.ui.tags.join(', ') })),
     ),
     h('h3', null, 'Where it runs'),
-    h('div', { class: 'form-grid' }, field('Run on', runOnSelect(s.agentId))),
+    h('div', { class: 'form-grid' }, field('Runs on (default for all servers)', runOnSelect(s.agentId))),
+    h('p', { class: 'muted' }, 'Each server can use its own agent: Overview → server table → “Runs on”.'),
     h('h3', null, 'Game client (“Open game”)'),
     h('div', { class: 'form-grid' },
       field('Mode', select('gcMode', [['takeover', 'Takeover – the game takes over the running session (no re-login)'], ['handover', 'Handover – quick re-login into the game'], ['background', 'Background – the game holds the session minimized, Open game = restore window']], s.gameClient?.mode ?? 'takeover')),

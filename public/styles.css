@@ -369,3 +369,9 @@ button.link-button:hover { color: var(--text); background: none; }
 /* ---------------------------------------------------------------- logo (always on the navy tile – reads the same in light and dark) */
 .logo-card { display: block; width: min(320px, 100%); height: auto; border-radius: 18px; box-shadow: 0 10px 34px rgba(2, 6, 23, .35); }
 .updates-logo { width: 160px; margin: 4px 0 14px; }
+
+/* ---------------------------------------------------------------- tabs (identity page) */
+.tabs { display: flex; gap: 4px; margin: 4px 0 16px; border-bottom: 1px solid var(--line); }
+.tabs .tab { background: transparent !important; border: 0 !important; border-bottom: 2px solid transparent !important; border-radius: 0 !important; padding: 10px 14px; color: var(--muted); font-weight: 600; }
+.tabs .tab:hover { color: var(--text); }
+.tabs .tab.active { color: var(--text); border-bottom-color: var(--primary) !important; }

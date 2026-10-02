@@ -18,7 +18,9 @@ import {
 export async function identityView(root, [idStr, section]) {
   const id = Number(idStr);
   const ctx = { id, data: null, meta: await loadMeta(), reload: null, chatListener: null };
-  let detailsOpen = !!section; // deep links (health list, setup check) open the details
+  // Tabs instead of one long page; deep links (/identity/1/network …) open the tab that holds the section
+  const TAB_OF = { sessions: 'overview', settings: 'settings', network: 'settings', health: 'details', minecraft: 'details', discord: 'details', mail: 'details', rewards: 'details', audit: 'details' };
+  let tab = TAB_OF[section] ?? 'overview';
 
   const render = async () => {
     const [data, audit] = await Promise.all([api.get(`/api/identities/${id}`), api.get(`/api/audit?identityId=${id}&limit=15`)]);
@@ -50,19 +52,24 @@ export async function identityView(root, [idStr, section]) {
           ]) }, 'More'),
         ),
       ),
-      h('div', { class: 'tiles' },
-        microsoftTile(id, data, ctx.reload),
-        discordTile(id, data.discord, data.mail?.address ?? data.microsoft?.email ?? null, ctx.reload)),
-      sessionsSection(ctx),
-      h('details', { class: 'more-details', open: detailsOpen || undefined, ontoggle: (e) => { detailsOpen = e.target.open; } },
-        h('summary', null, 'Details & settings', h('span', { class: 'muted' }, ' – health, Minecraft, Discord link, network, rewards, settings, audit')),
-        h('div', { class: 'grid-2' },
-          h('div', null, healthSection(ctx), minecraftSection(ctx), discordSection(ctx), networkSection(ctx)),
-          h('div', null, data.mail ? mailSection(ctx) : null, rewardsSection(ctx), settingsSection(ctx),
-            h('section', { class: 'card', id: 'sec-audit' }, h('h2', null, 'Audit (this identity)'),
-              h('table', null, h('tbody', null, audit.map((e) => h('tr', null, h('td', { class: 'muted mono' }, fmtTime(e.ts)), h('td', null, e.action), h('td', { class: 'muted' }, e.detail))))),
-              h('p', null, h('a', { href: '#/audit' }, 'Full audit log →'))))),
-      ),
+      h('div', { class: 'tabs', role: 'tablist' },
+        [['overview', 'Overview', 'Accounts and servers – start, stop, where each server runs'], ['settings', 'Settings', 'Default agent, game client, AFK, network'], ['details', 'Status & history', 'Health, Minecraft, Discord link, rewards, audit']].map(([k, label, tip]) =>
+          h('button', { class: `tab ${tab === k ? 'active' : ''}`, role: 'tab', 'aria-selected': tab === k ? 'true' : 'false', title: tip, onclick: () => { tab = k; void render(); } }, label))),
+      tab === 'overview'
+        ? [
+            h('div', { class: 'tiles' },
+              microsoftTile(id, data, ctx.reload),
+              discordTile(id, data.discord, data.mail?.address ?? data.microsoft?.email ?? null, ctx.reload)),
+            sessionsSection(ctx),
+          ]
+        : tab === 'settings'
+          ? h('div', { class: 'grid-2' }, h('div', null, settingsSection(ctx)), h('div', null, networkSection(ctx)))
+          : h('div', { class: 'grid-2' },
+              h('div', null, healthSection(ctx), minecraftSection(ctx), discordSection(ctx)),
+              h('div', null, data.mail ? mailSection(ctx) : null, rewardsSection(ctx),
+                h('section', { class: 'card', id: 'sec-audit' }, h('h2', null, 'Audit (this identity)'),
+                  h('table', null, h('tbody', null, audit.map((e) => h('tr', null, h('td', { class: 'muted mono' }, fmtTime(e.ts)), h('td', null, e.action), h('td', { class: 'muted' }, e.detail))))),
+                  h('p', null, h('a', { href: '#/audit' }, 'Full audit log →'))))),
     );
     window.scrollTo(0, scroll);
   };

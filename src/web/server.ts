@@ -676,6 +676,17 @@ export async function buildServer(suite: Suite, opts: ServerOptions = {}): Promi
     suite.bus.emit({ type: 'identity.changed', identityId: id });
     return a;
   });
+  /** Where this identity's session on this server runs: 'default' (like the identity), 'local' or an agent id. */
+  app.put('/api/identities/:id/servers/:sid/placement', async (req: Req) => {
+    const id = num(req.params.id);
+    const sid = num(req.params.sid);
+    const v = bodyOf(req).placement;
+    const placement = v === 'default' || v === 'local' ? v : { agentId: num(v, 'agent') };
+    const a = suite.repo.setPlacement(id, sid, placement);
+    suite.bus.emit({ type: 'identity.changed', identityId: id });
+    void suite.sessions.placementChanged(id, sid).catch(() => undefined);
+    return a;
+  });
   app.delete('/api/identities/:id/servers/:sid', async (req: Req) => {
     const id = num(req.params.id);
     suite.repo.unassignServer(id, num(req.params.sid));

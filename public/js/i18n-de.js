@@ -1227,5 +1227,22 @@ export default {
  "Unlinked": "Getrennt",
  "Unlink": "Trennen",
  "Client": "Client",
- "Game window and AFK session report this client when joining (e.g. \"joined using Fabric\")": "Spielfenster und AFK-Session melden beim Beitreten diesen Client (z. B. „joined using Fabric“)"
+ "Game window and AFK session report this client when joining (e.g. \"joined using Fabric\")": "Spielfenster und AFK-Session melden beim Beitreten diesen Client (z. B. „joined using Fabric“)",
+ "Manage": "Verwaltung",
+ "Overview": "Übersicht",
+ "Status & history": "Status & Verlauf",
+ "Accounts and servers – start, stop, where each server runs": "Konten und Server – starten, stoppen, wo jeder Server läuft",
+ "Default agent, game client, AFK, network": "Standard-Agent, Spiel-Client, AFK, Netzwerk",
+ "Health, Minecraft, Discord link, rewards, audit": "Zustand, Minecraft, Discord-Verknüpfung, Belohnungen, Protokoll",
+ "Runs on": "Läuft auf",
+ "Like the identity": "Wie die Identität",
+ "this PC": "dieser PC",
+ "agent": "Agent",
+ "Where this server's session runs – each server can use its own agent": "Wo die Session dieses Servers läuft – jeder Server kann einen eigenen Agent nutzen",
+ "Saved – the session moves there": "Gespeichert – die Session zieht dorthin um",
+ "Runs on: each server can run on this PC or on its own agent (PC in another household). “Like the identity” uses the default under Settings.": "Läuft auf: Jeder Server kann auf diesem PC oder auf einem eigenen Agent (PC in einem anderen Haushalt) laufen. „Wie die Identität“ nutzt den Standard unter Einstellungen.",
+ "Runs on (default for all servers)": "Läuft auf (Standard für alle Server)",
+ "Each server can use its own agent: Overview → server table → “Runs on”.": "Jeder Server kann einen eigenen Agent nutzen: Übersicht → Server-Tabelle → „Läuft auf“.",
+ "Settings": "Einstellungen",
+ "Accounts & mail": "Konten & Mail"
 };

@@ -225,6 +225,8 @@ export class SessionManager {
         : null,
       stats: r.stats,
       username: r.username,
+      placement: a?.placement ?? 'default',
+      agentId: this.agentFor(r.identityId, r.serverId),
     };
   }
 
@@ -249,16 +251,16 @@ export class SessionManager {
    * "Run on" of an identity changed (this PC ↔ agent): running sessions move there now – stopped here
    * first (never two logins at once), then started at the new place. Waiting ones retry right away.
    */
-  async placementChanged(identityId: number): Promise<void> {
-    const agentId = this.repo.getIdentity(identityId).settings.agentId ?? null;
-    let where = 'this PC';
-    if (agentId !== null) where = `agent #${agentId}`;
-    for (const r of [...this.records.values()].filter((x) => x.identityId === identityId)) {
+  async placementChanged(identityId: number, serverId?: number): Promise<void> {
+    for (const r of [...this.records.values()].filter((x) => x.identityId === identityId && (serverId === undefined || x.serverId === serverId))) {
+      const agentId = this.agentFor(r.identityId, r.serverId);
+      const where = agentId === null ? 'this PC' : `agent #${agentId}`;
       const a = this.repo.getAssignment(r.identityId, r.serverId);
       if (!a?.enabled || a.desiredState !== 'ONLINE') continue;
       const onAgent = !!this.runtime.isRemoteSession?.(r.id);
       const active = ACTIVE.includes(r.state) && r.state !== 'STOPPING';
-      if (active && onAgent === (agentId !== null)) continue; // already there
+      const onRightAgent = agentId === null ? !onAgent : onAgent && this.runtime.sessionAgent?.(r.id) === agentId;
+      if (active && onRightAgent) continue; // already there
       this.repo.addSessionEvent(r.identityId, r.serverId, r.id, 'move', `Moving the session to ${where}`);
       await this.withLock(r, async () => {
         if (r.takeover !== 'none') await this.closeGame(r.id).catch(() => undefined);
@@ -276,7 +278,7 @@ export class SessionManager {
   agentAvailable(agentId: number): void {
     for (const r of this.records.values()) {
       if (r.state !== 'RECONNECTING') continue;
-      if (this.repo.getIdentity(r.identityId).settings.agentId !== agentId) continue;
+      if (this.agentFor(r.identityId, r.serverId) !== agentId) continue;
       r.nextAttemptAt = Date.now();
       r.consecutiveFailures = 0;
     }
@@ -517,8 +519,8 @@ export class SessionManager {
       afk: s.afk,
       lightweight: s.lightweight,
       viewDistance: s.viewDistance,
-      takeover: (!!this.game || s.agentId !== null) && s.gameClient.mode === 'takeover',
-      placement: s.agentId !== null && s.agentId !== undefined ? { agentId: s.agentId } : null,
+      takeover: (!!this.game || this.agentFor(r.identityId, r.serverId) !== null) && s.gameClient.mode === 'takeover',
+      placement: ((agent) => (agent !== null ? { agentId: agent } : null))(this.agentFor(r.identityId, r.serverId)),
       macros: this.macrosFor?.(r.identityId, r.serverId) ?? [],
       unsignedChat: this.repo.getSetting(`server.${server.id}.unsignedChat`) === '1',
       // the AFK session reports the same client as the identity's game window
@@ -706,9 +708,20 @@ export class SessionManager {
     return r.wantGame && (mode === 'handover' || onAgent) ? 'game' : 'lightweight';
   }
 
-  /** "Run on" of the identity is an agent (another PC). */
+  /**
+   * Agent that runs this identity's session on this server (null = this PC): the server's own setting,
+   * otherwise the identity's "Run on".
+   */
+  agentFor(identityId: number, serverId: number): number | null {
+    const p = this.repo.getAssignment(identityId, serverId)?.placement ?? 'default';
+    if (p === 'local') return null;
+    if (p !== 'default') return p.agentId;
+    return this.repo.getIdentity(identityId).settings.agentId ?? null;
+  }
+
+  /** The session runs on an agent (another PC). */
   private placedOnAgent(r: SessionRecord): boolean {
-    return this.repo.getIdentity(r.identityId).settings.agentId != null;
+    return this.agentFor(r.identityId, r.serverId) !== null;
   }
 
   private onRuntimeEvent(source: 'lightweight' | 'game', e: RuntimeEvent): void {

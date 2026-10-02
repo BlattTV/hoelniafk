@@ -125,6 +125,7 @@ export interface MinecraftRuntime {
   closeTakeover(sessionId: string, reason?: string): Promise<void>;
   /** The session runs on a remote agent (household PC). */
   isRemoteSession?(sessionId: string): boolean;
+  sessionAgent?(sessionId: string): number | null;
   /** Command for the agent that runs a session (game window on that PC). */
   sendToSessionHost?(sessionId: string, m: import('./protocol.js').MainToHost): boolean;
   /** Macro commands for the host (local or agent) that runs the session. */

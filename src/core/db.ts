@@ -406,6 +406,10 @@ const MIGRATIONS: string[] = [
            strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
     FROM discord_identities WHERE oauth_state = 'CONNECTED';
   `,
+  // v7: where a session runs, per server (NULL = like the identity, 'local' = this PC, 'agent:<id>')
+  `
+  ALTER TABLE server_assignments ADD COLUMN placement TEXT;
+  `,
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.length;
