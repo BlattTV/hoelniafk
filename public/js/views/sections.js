@@ -308,7 +308,7 @@ export async function diagnose(identityId, profileId) {
 // ---------------------------------------------------------------- servers & sessions
 
 /** One line of live session stats (updated in place, see updateStats). */
-export const statsText = (st) => `ping ${st.ping ?? '–'} ms · health ${st.health ?? '–'} · ${st.physics ? 'physics' : 'lightweight'} · in ${fmtBytes(st.bytesIn)}`;
+export const statsText = (st) => `ping ${st.ping ?? '–'} ms · health ${st.health ?? '–'} · in ${fmtBytes(st.bytesIn)}`;
 
 /** Stats arrive every few seconds: update the numbers in place instead of re-rendering the page (no flicker). */
 export function updateStats(root, ev) {
@@ -509,7 +509,6 @@ export function settingsSection(ctx) {
     h('div', { class: 'toolbar' },
       h('label', { class: 'check' }, h('input', { type: 'checkbox', name: 'autoReconnect', checked: s.autoReconnect }), 'Auto reconnect'),
       h('label', { class: 'check' }, h('input', { type: 'checkbox', name: 'afkEnabled', checked: s.afk.enabled }), 'Anti-AFK'),
-      h('label', { class: 'check', title: 'Physics off in the AFK client (saves CPU); the AFK action "jump" keeps physics on' }, h('input', { type: 'checkbox', name: 'lightweight', checked: s.lightweight }), 'Lightweight AFK mode'),
     ),
     field('Notes', h('textarea', { name: 'notes' }, s.ui.notes ?? '')),
   );
@@ -524,7 +523,6 @@ export function settingsSection(ctx) {
         settings: {
           networkGuard: f.networkGuard ?? s.networkGuard,
           viewDistance: f.viewDistance,
-          lightweight: f.lightweight,
           agentId: f.agentId ? Number(f.agentId) : null,
           gameClient: { ...s.gameClient, mode: f.gcMode, loader: f.gcLoader === 'fabric' ? 'fabric' : 'vanilla', memoryMb: Number(f.gcMemoryMb) },
           discordLinking: f.discordLinking,

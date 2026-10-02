@@ -261,29 +261,68 @@ export async function macrosView(root) {
     data.macros.map((m) => h('button', { class: `macro-item ${current?.id === m.id ? 'active' : ''}`, onclick: () => selectMacro(m) },
       h('span', { class: `mark ${m.enabled ? 'ok' : ''}` }), m.name)));
 
-  const multi = (label, options, selected, set) =>
-    h('details', { class: 'scope' },
-      h('summary', null, `${t(label)}: ${selected?.length ? selected.length : t('all')}`),
-      options.map(([id, name]) => h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: !!selected?.includes(id), onchange: (e) => {
-        const cur = new Set(selected ?? []);
+  // Scope picker: stays open while ticking several entries (no re-render); "all" = no restriction.
+  const multi = (label, options, selected, set) => {
+    let cur = new Set(selected ?? []);
+    const summary = h('summary', null);
+    const boxes = [];
+    const allBox = h('input', { type: 'checkbox' });
+    const sync = () => {
+      summary.textContent = `${t(label)}: ${cur.size ? `${cur.size} / ${options.length}` : t('all')}`;
+      allBox.checked = !cur.size;
+    };
+    allBox.addEventListener('change', () => {
+      cur = new Set();
+      for (const b of boxes) b.checked = false;
+      set(null);
+      markDirty();
+      sync();
+    });
+    const items = options.map(([id, name]) => {
+      const box = h('input', { type: 'checkbox', checked: cur.has(id), onchange: (e) => {
         if (e.target.checked) cur.add(id);
         else cur.delete(id);
         set(cur.size ? [...cur] : null);
         markDirty();
-        renderSettings();
-      } }), name)));
+        sync();
+      } });
+      boxes.push(box);
+      return h('label', { class: 'check' }, box, name || `#${id}`);
+    });
+    const el = h('details', { class: 'scope' }, summary, h('label', { class: 'check' }, allBox, h('strong', null, t('all'))), items);
+    sync();
+    return el;
+  };
 
   const renderSettings = () => {
     if (!current) return mount(settingsEl);
     const online = sessions.filter((s) => s.state === 'ONLINE');
-    const sessSel = h('select', null, online.map((s) => h('option', { value: s.id }, `${s.username ?? s.id} @ ${s.serverName}`)));
+    // "Run on": every online session the macro applies to (its identities × servers), or one of them.
+    // Rebuilt in place when the scope changes, so the scope lists stay open.
+    const runBox = h('span', { class: 'toolbar' });
+    const renderRun = () => {
+      const applies = (s) => (!current.identityIds || current.identityIds.includes(s.identityId)) && (!current.serverIds || current.serverIds.includes(s.serverId));
+      const matching = online.filter(applies);
+      const sessSel = h('select', { 'aria-label': 'Run macro on' },
+        h('option', { value: 'all' }, `${t('All matching sessions')} (${matching.length})`),
+        matching.map((s) => h('option', { value: s.id }, `${s.username ?? s.id} @ ${s.serverName}`)));
+      mount(runBox,
+        h('span', { class: 'muted' }, 'Run on:'),
+        matching.length ? sessSel : h('span', { class: 'muted' }, 'no matching session online'),
+        h('button', { disabled: !matching.length || !current.id, title: 'Runs the saved macro now (save changes first)', onclick: () => guard(async () => {
+          if (dirty) throw new Error(t('Save the macro first'));
+          const r = await api.post(`/api/macros/${current.id}/run`, { sessionId: sessSel.value });
+          toast(`${t('Macro started on')} ${r.sessions.length} ${t('session(s)')}`, 'ok');
+        }) }, 'Run'),
+        h('button', { disabled: !matching.length || !current.id, onclick: () => guard(() => api.post(`/api/macros/${current.id}/stop`, { sessionId: sessSel.value }), 'Stopped') }, 'Stop'));
+    };
     mount(settingsEl,
       h('div', { class: 'macro-settings' },
         h('input', { class: 'macro-name', value: current.name, oninput: (e) => { current.name = e.target.value; dirty = true; }, onchange: markDirty }),
         h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: current.enabled, onchange: (e) => { current.enabled = e.target.checked; markDirty(); } }), 'active'),
         h('label', { class: 'check', title: 'Waits and actions vary slightly and get small pauses – like a person' }, h('input', { type: 'checkbox', checked: current.humanize, onchange: (e) => { current.humanize = e.target.checked; markDirty(); } }), 'human timing'),
-        multi('Identities', identities.rows.map((r) => [r.id, r.label]), current.identityIds, (v) => (current.identityIds = v)),
-        multi('Servers', servers.map((s) => [s.id, s.name]), current.serverIds, (v) => (current.serverIds = v))),
+        multi('Identities', identities.rows.map((r) => [r.id, r.label || `Identity${String(r.number).padStart(2, '0')}`]), current.identityIds, (v) => { current.identityIds = v; renderRun(); }),
+        multi('Servers', servers.map((s) => [s.id, s.name]), current.serverIds, (v) => { current.serverIds = v; renderRun(); })),
       h('div', { class: 'toolbar' },
         h('button', { class: 'primary', onclick: () => guard(async () => {
           const body = { name: current.name, enabled: current.enabled, humanize: current.humanize, trigger: current.trigger, blocks: current.blocks, identityIds: current.identityIds, serverIds: current.serverIds };
@@ -294,10 +333,8 @@ export async function macrosView(root) {
           renderAll();
         }, 'Macro saved – running sessions use it right away') }, 'Save'),
         current.id ? h('button', { class: 'danger', onclick: () => confirm(`Delete macro "${current.name}"?`) && guard(async () => { await api.del(`/api/macros/${current.id}`); data = await api.get('/api/macros'); current = data.macros[0] ? structuredClone(data.macros[0]) : null; dirty = false; renderAll(); }, 'Macro deleted') }, 'Delete') : null,
-        h('span', { class: 'muted' }, 'Test on:'),
-        online.length ? sessSel : h('span', { class: 'muted' }, 'no session online'),
-        h('button', { disabled: !online.length || !current.id || dirty, title: dirty ? 'Save first' : 'Runs the saved macro on this session now', onclick: () => guard(() => api.post(`/api/macros/${current.id}/run`, { sessionId: sessSel.value }), 'Macro started') }, 'Run'),
-        h('button', { disabled: !online.length || !current.id, onclick: () => guard(() => api.post(`/api/macros/${current.id}/stop`, { sessionId: sessSel.value }), 'Stopped') }, 'Stop')));
+        runBox));
+    renderRun();
   };
 
   const renderLog = () => {

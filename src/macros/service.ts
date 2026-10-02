@@ -129,6 +129,22 @@ export class MacroService {
     if (!this.runtime.macroCommand?.({ cmd: 'macro.run', sessionId, macroId })) throw new ValidationError('The session is not online');
   }
 
+  /** Runs the macro on every online session it applies to (its identities × servers). Returns the session ids. */
+  runAll(macroId: number): string[] {
+    const m = this.get(macroId);
+    const started: string[] = [];
+    for (const s of this.runningSessions()) {
+      if (!this.forSession(s.identityId, s.serverId).some((p) => p.id === macroId)) continue;
+      if (this.runtime.macroCommand?.({ cmd: 'macro.run', sessionId: s.sessionId, macroId })) started.push(s.sessionId);
+    }
+    if (!started.length) throw new ValidationError(`"${m.name}" applies to no online session (check active, identities and servers)`);
+    return started;
+  }
+
+  stopAll(macroId: number): void {
+    for (const s of this.runningSessions()) this.runtime.macroCommand?.({ cmd: 'macro.stop', sessionId: s.sessionId, macroId });
+  }
+
   stop(macroId: number, sessionId: string): void {
     this.runtime.macroCommand?.({ cmd: 'macro.stop', sessionId, macroId });
   }

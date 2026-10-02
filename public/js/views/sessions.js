@@ -1,5 +1,5 @@
 import { api } from '../api.js';
-import { t as tr } from '../i18n.js';
+import { t } from '../i18n.js';
 import { clear, contextMenu, fmtBytes, guard, h, identityName, mount, patch, openGame, closeGame, gameBadge, scheduleNote, pad2, relTime, select, stateBadge } from '../ui.js';
 import { openChat, openSessionLog } from './sections.js';
 
@@ -37,17 +37,17 @@ export async function sessionsView(root) {
       h('div', { class: 'sub' }, `${by('ONLINE')} online · ${by('RECONNECTING')} reconnecting · ${by('BLOCKED')} blocked · ${sessions.filter((s) => s.desiredState === 'ONLINE').length} desired online · ${sessions.length} total`)));
     patch(wrap, list.length // only changed rows are replaced
       ? h('table', null,
-          h('thead', null, h('tr', null, ['Identity', 'Server', 'Should be', 'State', 'Since', 'Reconnects', 'Ping', 'Traffic', 'Mode', 'Last error / next attempt', ''].map((t) => h('th', null, t)))),
+          h('thead', null, h('tr', null, ['Identity', 'Server', 'Should be', 'State', 'Since', 'Reconnects', 'Ping', 'Traffic', 'Mode', 'Last error / next attempt', ''].map((label) => h('th', null, label)))),
           h('tbody', null, list.map((s) => h('tr', { 'data-key': s.id, oncontextmenu: (e) => menu(e, s) },
             h('td', null, h('a', { href: `#/identity/${s.identityId}/sessions` }, names.get(s.identityId) ?? `#${s.identityId}`), s.username ? h('div', { class: 'muted' }, s.username) : null),
-            h('td', null, s.serverName, h('div', { class: 'muted' }, s.agentId ? `${tr('Agent')} #${s.agentId}` : tr('This PC'))),
+            h('td', null, s.serverName, h('div', { class: 'muted' }, s.agentId ? `${t('Agent')} #${s.agentId}` : t('This PC'))),
             h('td', null, s.desiredState === 'ONLINE' ? h('span', { class: 's-ok' }, 'online') : h('span', { class: 'muted' }, 'offline')),
             h('td', null, stateBadge(s.state, s.lastError ?? ''), scheduleNote(s)),
             h('td', { class: 'muted nowrap' }, relTime(s.since)),
             h('td', { class: 'mono' }, `${s.reconnects}${s.consecutiveFailures ? ` (${s.consecutiveFailures} failed)` : ''}`),
             h('td', { class: 'mono', dataset: { ping: s.id } }, s.stats?.ping !== null && s.stats?.ping !== undefined ? `${s.stats.ping} ms` : '–'),
             h('td', { class: 'mono muted', dataset: { traffic: s.id } }, s.stats ? `${fmtBytes(s.stats.bytesIn)} / ${fmtBytes(s.stats.bytesOut)}` : '–'),
-            h('td', null, gameBadge(s) ?? (s.stats ? (s.stats.physics ? 'physics' : h('span', { class: 'muted', title: 'Physics off – lightweight AFK mode' }, 'lightweight')) : '–')),
+            h('td', null, gameBadge(s) ?? (s.stats ? 'AFK' : '–')),
             h('td', { class: s.state === 'BLOCKED' ? 's-error' : 'muted', style: { maxWidth: '320px', fontSize: '12px' } }, s.state === 'RECONNECTING' ? `next ${relTime(s.nextAttemptAt)} – ${s.lastError ?? ''}` : s.lastError ?? ''),
             h('td', null, h('div', { class: 'toolbar' },
               h('button', { class: 'small', title: 'Play in the real Minecraft client', onclick: () => openGame(api, s.id).then(load) }, 'Game'),
@@ -68,7 +68,7 @@ export async function sessionsView(root) {
     render();
   };
   await load();
-  let t;
+  let reloadTimer;
   return {
     onEvent(ev) {
       if (ctx.chatListener) ctx.chatListener(ev);
@@ -80,8 +80,8 @@ export async function sessionsView(root) {
         return;
       }
       if (ev.type === 'session.state' && !document.getElementById('modal-root').childElementCount) {
-        clearTimeout(t);
-        t = setTimeout(load, 700);
+        clearTimeout(reloadTimer);
+        reloadTimer = setTimeout(load, 700);
       }
     },
   };

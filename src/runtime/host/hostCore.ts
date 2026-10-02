@@ -405,10 +405,14 @@ export class RuntimeHostCore {
 
   // ------------------------------------------------------------------ AFK / lightweight mode
 
+  /**
+   * Physics always on: the AFK player falls, collides with blocks, takes knockback and is pushed by other
+   * players like a normal client. Without it the server saw a player that floats, ignores knockback and
+   * stands inside others – which looks like a cheat.
+   */
   private applyPhysics(s: HostSession): void {
     if (!('physicsEnabled' in s.bot)) return;
-    const needs = !s.spec.lightweight || (s.spec.afk.enabled && s.spec.afk.action === 'jump');
-    s.bot.physicsEnabled = needs;
+    s.bot.physicsEnabled = true;
   }
 
   private startAfk(s: HostSession): void {

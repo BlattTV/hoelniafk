@@ -264,5 +264,30 @@ describe('vanilla client behaviour behind a proxy', () => {
     client.end();
     server.close();
   }, 30_000);
+
+  it('is pushed away by overlapping players like a vanilla client (no walking through others)', async () => {
+    const { pushFromEntities } = await import('../src/minecraft/vanillaCompat.js');
+    const v = (x: number, y: number, z: number) => ({ x, y, z });
+    const me = { position: v(0, 64, 0), velocity: v(0, 0, 0), width: 0.6, height: 1.8 };
+    const bot: any = {
+      entity: me,
+      game: { gameMode: 'survival' },
+      entities: {
+        1: me,
+        2: { name: 'player', type: 'player', position: v(0.3, 64, 0), width: 0.6, height: 1.8 }, // overlaps, east of me
+        3: { name: 'player', type: 'player', position: v(5, 64, 0), width: 0.6, height: 1.8 }, // far away
+        4: { name: 'item', type: 'object', position: v(-0.1, 64, 0), width: 0.25, height: 0.25 }, // items never push
+      },
+    };
+    pushFromEntities(bot);
+    // vanilla: d = sqrt(0.3); dx = 0.3/d; f = min(1, 1/d) = 1 → velocity -= dx * 0.05
+    expect(me.velocity.x).toBeCloseTo(-(0.3 / Math.sqrt(0.3)) * 0.05, 6);
+    expect(me.velocity.z).toBe(0);
+    // standing above the other player's head: no push
+    me.velocity.x = 0;
+    me.position.y = 66;
+    pushFromEntities(bot);
+    expect(me.velocity.x).toBe(0);
+  });
 });
 

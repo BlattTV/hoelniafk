@@ -102,7 +102,7 @@ test('identity: "Open game" hands the session to the real client and "Back to AF
     await page.goto('/#/sessions');
     await expect(row()).not.toContainText('in game', { timeout: 2000 });
     await expect(row()).toContainText('ONLINE', { timeout: 2000 });
-    await expect(row()).toContainText('lightweight', { timeout: 2000 });
+    await expect(row()).toContainText('AFK', { timeout: 2000 }); // back to the AFK client
   }).toPass({ timeout: 60_000 });
 });
 
@@ -344,7 +344,27 @@ test('macro builder: drag blocks like in Scratch, save and run on a session', as
   await waitOnline(page, 1);
   await page.reload();
   await page.locator('.macro-item', { hasText: 'E2E stars' }).click();
+  // several identities: the list stays open while ticking, the macro runs on all matching sessions
+  const scope = page.locator('details.scope', { hasText: 'Identities' });
+  await scope.locator('summary').click();
+  await scope.getByLabel('Identity01').check();
+  await scope.getByLabel('Identity02').check();
+  await expect(scope).toHaveAttribute('open', '');
+  await expect(scope.locator('summary')).toContainText('2 /');
+  await expect(page.getByLabel('Run macro on')).toContainText('All matching sessions (4)'); // 2 identities × 2 servers
+  // … and only on one server
+  const servers = page.locator('details.scope', { hasText: 'Servers' });
+  await servers.locator('summary').click();
+  await servers.getByLabel('SMP').check();
+  await expect(page.getByLabel('Run macro on')).toContainText('All matching sessions (2)');
+  await expect(page.getByLabel('Run macro on')).not.toContainText('@ Event');
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(page.locator('.badge', { hasText: 'unsaved changes' })).toHaveCount(0);
+  const saved2 = (await (await page.request.get('/api/macros', { headers: { 'x-hoelni-token': token } })).json()).macros.find((m: any) => m.name === 'E2E stars');
+  expect(saved2.identityIds.sort()).toEqual([1, 2]);
+  await expect(page.getByLabel('Run macro on')).toContainText('All matching sessions (2)');
   await page.getByRole('button', { name: 'Run', exact: true }).click();
+  await expect(page.locator('.toast', { hasText: 'Macro started on 2 session(s)' })).toBeVisible();
   await expect(page.locator('.macro-log')).toContainText('finished', { timeout: 20_000 });
   expect(errors).toEqual([]);
 });

@@ -1244,5 +1244,12 @@ export default {
  "Runs on (default for all servers)": "Läuft auf (Standard für alle Server)",
  "Each server can use its own agent: Overview → server table → “Runs on”.": "Jeder Server kann einen eigenen Agent nutzen: Übersicht → Server-Tabelle → „Läuft auf“.",
  "Settings": "Einstellungen",
- "Accounts & mail": "Konten & Mail"
+ "Accounts & mail": "Konten & Mail",
+ "All matching sessions": "Alle passenden Sessions",
+ "Macro started on": "Makro gestartet auf",
+ "session(s)": "Session(s)",
+ "Save the macro first": "Erst das Makro speichern",
+ "Run on:": "Ausführen auf:",
+ "no matching session online": "keine passende Session online",
+ "Runs the saved macro now (save changes first)": "Führt das gespeicherte Makro jetzt aus (Änderungen vorher speichern)"
 };

@@ -193,11 +193,15 @@ export async function buildServer(suite: Suite, opts: ServerOptions = {}): Promi
     return { ok: true };
   });
   app.post('/api/macros/:id/run', async (req: Req) => {
-    suite.macros.run(num(req.params.id), String(bodyOf(req).sessionId ?? ''));
-    return { ok: true };
+    const sid = String(bodyOf(req).sessionId ?? '');
+    if (sid === 'all') return { ok: true, sessions: suite.macros.runAll(num(req.params.id)) };
+    suite.macros.run(num(req.params.id), sid);
+    return { ok: true, sessions: [sid] };
   });
   app.post('/api/macros/:id/stop', async (req: Req) => {
-    suite.macros.stop(num(req.params.id), String(bodyOf(req).sessionId ?? ''));
+    const sid = String(bodyOf(req).sessionId ?? '');
+    if (sid === 'all') suite.macros.stopAll(num(req.params.id));
+    else suite.macros.stop(num(req.params.id), sid);
     return { ok: true };
   });
 

@@ -54,6 +54,9 @@ export function installVanillaCompat(bot: any): void {
     return write(name, params);
   };
 
+  // ---- pushed by other entities, like the vanilla client (the physics library has no entity collision)
+  if (typeof bot.on === 'function') bot.on('physicsTick', () => pushFromEntities(bot));
+
   // ---- cookies (kept for the lifetime of this connection, like the vanilla client)
   const cookies = new Map<string, Buffer>();
   client.on('store_cookie', (p: any) => {
@@ -229,5 +232,40 @@ function plainText(json: unknown): string {
     return walk(typeof json === 'string' ? JSON.parse(json) : json);
   } catch {
     return String(json);
+  }
+}
+
+/** Entities that push the player when they overlap (vanilla: everything pushable except item/xp/arrows …). */
+const NOT_PUSHING = /^(item|experience_orb|arrow|spectral_arrow|trident|snowball|egg|ender_pearl|fireball|small_fireball|item_frame|glow_item_frame|painting|armor_stand|marker|area_effect_cloud|falling_block|tnt|lightning_bolt|text_display|item_display|block_display|interaction)$/;
+
+/**
+ * Vanilla Entity#push for the local player: every overlapping entity pushes it away a little each tick
+ * (0.05 × direction, weaker when farther apart). Called after each physics tick.
+ */
+export function pushFromEntities(bot: any): void {
+  const me = bot?.entity;
+  if (!me?.position || !me.velocity || !bot.entities) return;
+  if (bot._client && bot._client.state !== 'play') return;
+  if (bot.game?.gameMode === 'spectator') return;
+  const w = (me.width ?? 0.6) / 2;
+  const hgt = me.height ?? 1.8;
+  for (const e of Object.values(bot.entities) as any[]) {
+    if (!e || e === me || !e.position || NOT_PUSHING.test(String(e.name ?? ''))) continue;
+    if (e.type === 'player' && e.gameMode === 3) continue;
+    const ew = (e.width ?? 0.6) / 2;
+    const eh = e.height ?? 1.8;
+    // bounding boxes overlap?
+    if (Math.abs(e.position.x - me.position.x) >= w + ew || Math.abs(e.position.z - me.position.z) >= w + ew) continue;
+    if (e.position.y >= me.position.y + hgt || me.position.y >= e.position.y + eh) continue;
+    let dx = e.position.x - me.position.x;
+    let dz = e.position.z - me.position.z;
+    let d = Math.max(Math.abs(dx), Math.abs(dz));
+    if (d < 0.01) continue;
+    d = Math.sqrt(d);
+    dx /= d;
+    dz /= d;
+    const f = Math.min(1, 1 / d);
+    me.velocity.x -= dx * f * 0.05;
+    me.velocity.z -= dz * f * 0.05;
   }
 }
