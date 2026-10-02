@@ -1,5 +1,5 @@
 import { api } from '../api.js';
-import { t } from '../i18n.js';
+import { t as tr } from '../i18n.js';
 import { clear, contextMenu, fmtBytes, guard, h, identityName, mount, patch, openGame, closeGame, gameBadge, scheduleNote, pad2, relTime, select, stateBadge } from '../ui.js';
 import { openChat, openSessionLog } from './sections.js';
 
@@ -40,7 +40,7 @@ export async function sessionsView(root) {
           h('thead', null, h('tr', null, ['Identity', 'Server', 'Should be', 'State', 'Since', 'Reconnects', 'Ping', 'Traffic', 'Mode', 'Last error / next attempt', ''].map((t) => h('th', null, t)))),
           h('tbody', null, list.map((s) => h('tr', { 'data-key': s.id, oncontextmenu: (e) => menu(e, s) },
             h('td', null, h('a', { href: `#/identity/${s.identityId}/sessions` }, names.get(s.identityId) ?? `#${s.identityId}`), s.username ? h('div', { class: 'muted' }, s.username) : null),
-            h('td', null, s.serverName, h('div', { class: 'muted' }, s.agentId ? `${t('Agent')} #${s.agentId}` : t('This PC'))),
+            h('td', null, s.serverName, h('div', { class: 'muted' }, s.agentId ? `${tr('Agent')} #${s.agentId}` : tr('This PC'))),
             h('td', null, s.desiredState === 'ONLINE' ? h('span', { class: 's-ok' }, 'online') : h('span', { class: 'muted' }, 'offline')),
             h('td', null, stateBadge(s.state, s.lastError ?? ''), scheduleNote(s)),
             h('td', { class: 'muted nowrap' }, relTime(s.since)),
