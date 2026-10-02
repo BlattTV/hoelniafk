@@ -231,5 +231,38 @@ describe('vanilla client behaviour behind a proxy', () => {
     client.end();
     server.close();
   }, 30_000);
+
+  it('signed commands go out when the 1.21.5+ chat checksum is above 127 (signed byte like vanilla)', async () => {
+    const { signedByte } = await import('../src/minecraft/vanillaCompat.js');
+    expect(signedByte(174)).toBe(-82);
+    expect(signedByte(127)).toBe(127);
+    expect(signedByte(256)).toBe(1); // 0 → 1 like vanilla
+    const version = '1.21.11';
+    const server = mc.createServer({ version, 'online-mode': false, port: 0, host: '127.0.0.1' });
+    await new Promise<void>((r) => server.once('listening', () => r()));
+    const port = server.socketServer.address().port;
+    const md = require('minecraft-data')(version);
+    let sc: any;
+    const got: any[] = [];
+    server.on('playerJoin', (c: any) => {
+      sc = c;
+      c.on('packet', (d: any, meta: any) => /^chat_/.test(meta.name) && got.push({ name: meta.name, ...d }));
+      c.write('login', { ...md.loginPacket, entityId: 1 });
+    });
+    const client = mc.createClient({ version, host: '127.0.0.1', port, username: 'Sum01', auth: 'offline' });
+    installVanillaCompat({ _client: client });
+    const errors: string[] = [];
+    client.on('error', (e: Error) => errors.push(e.message));
+    await until(() => !!sc && client.state === 'play', 8000, 'in play');
+    // what the library produces for a checksum of 174
+    client.write('chat_command_signed', { command: 'server', timestamp: BigInt(Date.now()), salt: 0n, argumentSignatures: [], messageCount: 0, acknowledged: Buffer.alloc(3), checksum: 174 });
+    client.write('chat_message', { message: 'hi', timestamp: BigInt(Date.now()), salt: 0n, signature: undefined, offset: 0, acknowledged: Buffer.alloc(3), checksum: 200 });
+    await until(() => got.length === 2, 5000, 'chat packets arrive');
+    expect(errors).toEqual([]);
+    // same byte on the wire (0xAE / 0xC8), each in the range its packet type expects
+    expect(got.map((g) => [g.name, g.checksum])).toEqual([['chat_command_signed', -82], ['chat_message', 200]]);
+    client.end();
+    server.close();
+  }, 30_000);
 });
 

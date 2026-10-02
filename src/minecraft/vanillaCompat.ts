@@ -32,10 +32,27 @@ const RP_LOADED = 0;
 const RP_ACCEPTED = 3;
 const RP_DOWNLOADED = 4;
 
+/** Packets whose checksum field the protocol data types as a SIGNED byte (chat_message uses u8 – same wire byte). */
+const CHAT_PACKETS = new Set(['chat_command_signed']);
+
+/** Byte value as Java's (byte) cast gives it: same low 8 bits, range -128..127 (0 stays 1, like vanilla). */
+export function signedByte(n: number): number {
+  const b = ((n & 0xff) << 24) >> 24;
+  return b === 0 ? 1 : b;
+}
+
 export function installVanillaCompat(bot: any): void {
   const client = bot?._client;
   if (!client || client.__hoelniCompat) return;
   client.__hoelniCompat = true;
+
+  // ---- chat checksum (1.21.5+): the library computes it as 0..255, but signed commands type the field as a
+  // signed byte (-128..127) – every command with a checksum above 127 failed to send ("value out of range").
+  const write = client.write.bind(client);
+  client.write = (name: string, params: any) => {
+    if (CHAT_PACKETS.has(name) && params && typeof params.checksum === 'number') params = { ...params, checksum: signedByte(params.checksum) };
+    return write(name, params);
+  };
 
   // ---- cookies (kept for the lifetime of this connection, like the vanilla client)
   const cookies = new Map<string, Buffer>();
