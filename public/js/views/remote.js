@@ -126,7 +126,7 @@ export function syncCard(backend, rerender) {
       h('h2', null, 'Several PCs: sync & active PC'),
       h('div', { class: 'kv' },
         h('div', null, 'This PC'), h('div', null, standby
-          ? h('span', { class: 'badge warn' }, 'standby – sessions run on another PC')
+          ? h('span', { class: 'badge warn' }, 'standby – controls the active PC')
           : h('span', { class: 'badge ok' }, 'active – runs the sessions')),
         h('div', null, 'Settings sync'), h('div', null, h('span', { class: `badge ${cls}`, title: st.lastError ?? '' }, text),
           st.lastSyncAt ? h('span', { class: 'muted' }, ` ${relTime(st.lastSyncAt)}`) : null,
@@ -141,7 +141,7 @@ export function syncCard(backend, rerender) {
         : h('div', { class: 'form-actions' },
             standby ? h('button', { class: 'primary', title: 'This PC runs the sessions from now on – the other PC stops them', onclick: () => takeOver(rerender) }, 'Take over here') : null,
             h('button', { onclick: () => guard(async () => { await api.post('/api/sync/now'); await rerender(); }, 'Synchronized') }, 'Sync now')),
-      h('p', { class: 'muted' }, 'Synchronized: identities with their settings, servers and assignments, macros, templates, proxies, logins (Minecraft sign-ins, saved passwords). Not synchronized: logs, chat, this PC’s backend sign-in and the browser windows of Outlook and Discord (sign in there once per PC). Everything is encrypted with your account password before it leaves this PC. Only the active PC runs sessions, so an account is never online twice.'));
+      h('p', { class: 'muted' }, 'Synchronized: identities with their settings, servers and assignments, macros, templates, proxies, logins (Minecraft sign-ins, saved passwords). Not synchronized: logs, chat, this PC’s backend sign-in and the browser windows of Outlook and Discord (sign in there once per PC). Everything is encrypted with your account password before it leaves this PC. Only the active PC runs sessions, so an account is never online twice. A PC in standby steers the active one (remote control) – “Take over here” moves the sessions to this PC. On the phone: Hoelni Control (download page) or the browser at <backend>/app.'));
   }).catch((e) => mount(box, h('h2', null, 'Several PCs: sync & active PC'), h('p', { class: 's-error' }, e.message)));
   return box;
 }

@@ -11,8 +11,16 @@
  *   relay → manager:  { t:'agent.online', agent } | { t:'agent.offline', id } | { t:'agent.paused', id, value }
  *                     | { t:'from', agentId, frame }
  *                     | { t:'active' } | { t:'standby', active } | { t:'managers', list } | { t:'sync', version }
+ *                     | { t:'rpc', id, req } (to the active manager: a request of a controller) | { t:'controllers', n }
+ *                     | { t:'rpc.res', id, status, body } (to a standby manager: answer of the active PC) | { t:'event', ev }
  *   manager → relay:  { t:'to', agentId, frame }            (only to agents of the same user; active manager only)
  *                     | { t:'claim' }                        (this PC takes over: becomes the active manager)
+ *                     | { t:'rpc', id, req }                 (standby PC: request for the active PC – remote control)
+ *                     | { t:'rpc.res', id, status, body }    (active PC: answer) | { t:'event', ev } (active PC: live event)
+ *
+ * Remote control: standby PCs and the "Hoelni Control" app (phone / browser, REST + event stream on
+ * the backend) send API requests to the ACTIVE PC – the sessions keep running where they are, only
+ * the control moves. The active PC checks every request against its own list of allowed actions.
  *   relay → agent:    { t:'host', m } | { t:'reset' } (manager (re)connected or gone: start clean)
  *                     | { t:'manager', online } | { t:'bye', reason }
  *
@@ -28,7 +36,10 @@ export class Relay {
     this.accounts = accounts;
     this.log = log;
     this.wss = new WebSocketServer({ noServer: true, maxPayload: 16 * 1024 * 1024 });
-    this.managers = new Map(); // userId → conn
+    this.managers = new Map(); // userId → { active, list }
+    this.listeners = new Map(); // userId → Set<fn(event)> – "Hoelni Control" apps following the live events
+    this.pending = new Map(); // rpc id → { resolve, reject, timer }
+    this.rpcSeq = 0;
     this.agents = new Map(); // deviceId → conn
   }
 
@@ -37,6 +48,12 @@ export class Relay {
     const device = this.accounts.deviceByToken(token);
     if (!device) {
       socket.write('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
+      socket.destroy();
+      return;
+    }
+    if (device.kind !== 'manager' && device.kind !== 'agent') {
+      // the control app uses the REST API + event stream, never the relay
+      socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
       socket.destroy();
       return;
     }
@@ -108,6 +125,7 @@ export class Relay {
     }
     if (prev !== conn) this.log.info?.(`manager "${conn.device.name}" of ${conn.device.username} is active${prev ? ` (was "${prev.device.name}")` : ''}`);
     this.announceManagers(userId);
+    this.announceControllers(userId);
   }
 
   onManager(ws, device, ip) {
@@ -129,6 +147,7 @@ export class Relay {
     else {
       this.send(ws, { t: 'standby', active: { name: g.active.device.name, deviceId: g.active.device.id } });
       this.announceManagers(device.userId);
+      this.announceControllers(device.userId);
     }
     ws.on('message', (data) => {
       let f;
@@ -141,6 +160,24 @@ export class Relay {
         if (g.list.has(conn)) this.activate(device.userId, conn);
         return;
       }
+      if (f?.t === 'rpc.res') {
+        const p = this.pending.get(Number(f.id));
+        if (!p || p.conn !== conn) return; // only the PC that was asked answers
+        this.pending.delete(Number(f.id));
+        clearTimeout(p.timer);
+        p.resolve({ status: Number(f.status) || 500, body: f.body ?? null });
+        return;
+      }
+      if (f?.t === 'event') {
+        if (g.active === conn && f.ev && typeof f.ev.type === 'string') this.fanOut(device.userId, f.ev);
+        return;
+      }
+      if (f?.t === 'rpc') {
+        // a standby PC controls the active one
+        if (g.active === conn || !f.req) return;
+        void this.rpc(device.userId, f.req).then((r) => this.send(ws, { t: 'rpc.res', id: f.id, status: r.status, body: r.body }));
+        return;
+      }
       if (f?.t !== 'to' || f.frame?.t !== 'host') return; // managers can only send runtime commands
       if (g.active !== conn) return; // standby PCs never control agents
       const a = this.agents.get(Number(f.agentId));
@@ -151,6 +188,12 @@ export class Relay {
       if (!g.list.delete(conn)) return;
       this.accounts.touchDevice(device.id, ip);
       this.log.info?.(`manager "${device.name}" of ${device.username} disconnected`);
+      for (const [id, p] of this.pending) {
+        if (p.conn !== conn) continue;
+        this.pending.delete(id);
+        clearTimeout(p.timer);
+        p.resolve({ status: 503, body: { error: 'The PC went offline' } });
+      }
       if (g.active === conn) {
         g.active = null;
         // Without an active manager nobody controls the sessions: agents stop them. A standby PC takes
@@ -163,6 +206,59 @@ export class Relay {
       this.announceManagers(device.userId);
     });
     ws.on('error', () => undefined);
+  }
+
+  // ---------------------------------------------------------------- remote control
+
+  /** Number of controllers (standby PCs + control apps) – the active PC only sends live events while there are some. */
+  controllersOf(userId) {
+    const g = this.managers.get(userId);
+    return (g ? [...g.list].filter((c) => c !== g.active).length : 0) + (this.listeners.get(userId)?.size ?? 0);
+  }
+
+  announceControllers(userId) {
+    const a = this.activeManager(userId);
+    if (a) this.send(a.ws, { t: 'controllers', n: this.controllersOf(userId) });
+  }
+
+  /** A request for the active PC of the account → its answer { status, body }. */
+  rpc(userId, req, timeoutMs = 30_000) {
+    const a = this.activeManager(userId);
+    if (!a) return Promise.resolve({ status: 503, body: { error: 'No PC of this account is active right now – start the Hoelni Client Suite on a PC' } });
+    const id = ++this.rpcSeq;
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        this.pending.delete(id);
+        resolve({ status: 504, body: { error: 'The PC did not answer in time' } });
+      }, timeoutMs);
+      this.pending.set(id, { resolve, timer, conn: a });
+      this.send(a.ws, { t: 'rpc', id, req });
+    });
+  }
+
+  /** "Hoelni Control" follows the live events of the active PC. Returns the function that stops it. */
+  addListener(userId, fn) {
+    let set = this.listeners.get(userId);
+    if (!set) this.listeners.set(userId, (set = new Set()));
+    set.add(fn);
+    this.announceControllers(userId);
+    return () => {
+      set.delete(fn);
+      if (!set.size) this.listeners.delete(userId);
+      this.announceControllers(userId);
+    };
+  }
+
+  fanOut(userId, ev) {
+    const g = this.managers.get(userId);
+    if (g) for (const c of g.list) if (c !== g.active) this.send(c.ws, { t: 'event', ev });
+    for (const fn of this.listeners.get(userId) ?? []) {
+      try {
+        fn(ev);
+      } catch {
+        /* a closed stream */
+      }
+    }
   }
 
   /** New settings of an account were stored: the other suites of the account fetch them. */

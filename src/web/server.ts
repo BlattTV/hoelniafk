@@ -51,6 +51,22 @@ export interface ServerOptions {
   apiToken?: string;
 }
 
+/** Never sent to another device: things of this PC, secrets, windows (see remote control). */
+const REMOTE_DENY = [
+  /^\/api\/(backend|sync|vault|updates|settings|events|status\/restart)(\/|\?|$)/,
+  /\/(window|open|password|recovery|export)(\/|\?|$)/,
+  /^\/api\/(rules|demo)(\/|\?|$)/,
+];
+export function remoteAllowed(method: string, path: string): boolean {
+  if (!path.startsWith('/api/') || path.includes('..')) return false;
+  if (method === 'GET' && /^\/api\/backend\/agents(\?|$)/.test(path)) return true; // the agents list is fine to see
+  if (REMOTE_DENY.some((r) => (r.source.includes('rules') ? method !== 'GET' && r.test(path) : r.test(path)))) return false;
+  // opening the game window on another PC makes no sense remotely ("Back to AFK" does)
+  if (method === 'POST' && /\/game(\?|$)/.test(path)) return false;
+  return true;
+}
+const stripToken = (url: string) => url.replace(/([?&])token=[^&]*&?/, '$1').replace(/[?&]$/, '');
+
 export async function buildServer(suite: Suite, opts: ServerOptions = {}): Promise<{ app: FastifyInstance; apiToken: string }> {
   const apiToken = opts.apiToken ?? crypto.randomBytes(32).toString('base64url');
   const port = suite.config.port;
@@ -86,6 +102,20 @@ export async function buildServer(suite: Suite, opts: ServerOptions = {}): Promi
         return reply;
       }
     }
+  });
+
+  // ------------------------------------------------------------------ remote control (several PCs, Hoelni Control app)
+  // A standby PC hands its controls to the active PC of the account: requests go there through the
+  // backend, the sessions keep running where they are. Things of THIS PC stay local.
+  app.addHook('preHandler', async (req, reply) => {
+    if (!req.url.startsWith('/api/') || req.headers['x-hoelni-remote'] || !suite.backend.remoteControl) return;
+    const path = stripToken(req.url);
+    if (!remoteAllowed(req.method, path)) return;
+    const r = await suite.backend.rpc({ method: req.method, path, body: req.body ?? null, by: suite.backend.status().pcs.find((p) => p.self)?.name ?? 'standby PC' });
+    // active PC unreachable: reading falls back to this PC's synchronized data
+    if ((r.status === 503 || r.status === 504) && req.method === 'GET') return;
+    reply.code(r.status).send(r.body ?? {});
+    return reply;
   });
 
   app.addHook('onSend', async (req, reply, payload) => {
@@ -312,6 +342,32 @@ export async function buildServer(suite: Suite, opts: ServerOptions = {}): Promi
 
   // ------------------------------------------------------------------ identities
   app.get('/api/dashboard', async () => ({ rows: suite.identities.dashboard() }));
+  /** Short overview for the "Hoelni Control" app and its home-screen widgets. */
+  app.get('/api/summary', async () => {
+    const sessions = suite.sessions.list();
+    const rows = suite.identities.dashboard();
+    const name = (identityId: number) => {
+      const r = rows.find((x) => x.id === identityId);
+      return r?.minecraft.username || r?.label || `#${identityId}`;
+    };
+    const st = suite.backend.status();
+    return {
+      pc: st.pcs.find((p) => p.self)?.name ?? null,
+      sessions: {
+        online: sessions.filter((x) => x.state === 'ONLINE').length,
+        wanted: sessions.filter((x) => x.desiredState === 'ONLINE').length,
+        problems: sessions.filter((x) => x.state === 'BLOCKED' || x.state === 'RECONNECTING').length,
+        list: sessions
+          .filter((x) => x.desiredState === 'ONLINE' || x.state !== 'STOPPED')
+          .slice(0, 12)
+          .map((x) => ({ id: x.id, name: name(x.identityId), server: x.serverName, state: x.state })),
+      },
+      identities: { total: rows.length, ready: rows.filter((r) => r.ready).length },
+      agents: { online: st.agents.filter((a) => a.online).length, total: st.agents.length },
+      stars: rows.reduce((a, r) => a + (Number(r.stars) || 0), 0),
+      at: new Date().toISOString(),
+    };
+  });
 
   app.get('/api/identities/:id', async (req: Req) => {
     const id = num(req.params.id);
@@ -950,6 +1006,28 @@ export async function buildServer(suite: Suite, opts: ServerOptions = {}): Promi
       before: req.query.before ? num(req.query.before, 'before') : undefined,
     }),
   );
+
+  // Active PC: requests of controllers (standby PCs, the "Hoelni Control" app) – only what makes
+  // sense from another device (no vault, no sign-ins of this PC, no windows, no passwords).
+  suite.backend.onRpc = async (req) => {
+    const method = String(req.method ?? 'GET').toUpperCase();
+    const path = stripToken(String(req.path ?? ''));
+    if (!remoteAllowed(method, path)) return { status: 403, body: { error: 'Not possible from another device – do it on the PC itself' } };
+    const res = await app.inject({
+      method: method as 'GET',
+      url: path,
+      payload: method === 'GET' || req.body === null || req.body === undefined ? undefined : (req.body as Record<string, unknown>),
+      headers: { host: `127.0.0.1:${port}`, 'x-hoelni-token': apiToken, 'x-hoelni-remote': '1' },
+    });
+    let body: unknown = res.body;
+    try {
+      body = res.json();
+    } catch {
+      /* not JSON */
+    }
+    if (method !== 'GET' && res.statusCode < 400) suite.audit.record(null, 'Remote control', { by: String(req.by ?? 'remote').slice(0, 80), action: `${method} ${path.split('?')[0]}` });
+    return { status: res.statusCode, body };
+  };
 
   return { app, apiToken };
 }

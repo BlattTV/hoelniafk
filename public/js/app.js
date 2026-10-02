@@ -113,7 +113,7 @@ const showBackend = (st) => {
   banner.hidden = st.pcRole !== 'standby';
   if (banner.hidden) return;
   banner.replaceChildren(
-    h('span', null, t('Standby – the sessions run on'), ' ', h('strong', null, st.activePc ?? t('another PC')), '. ', t('You can change everything here; it is synchronized.')),
+    h('span', null, t('Remote control – the sessions run on'), ' ', h('strong', null, st.activePc ?? t('another PC')), '. ', t('Everything you do here happens there.')),
     h('button', { class: 'small primary', onclick: () => takeOver() }, t('Take over here')),
   );
 };

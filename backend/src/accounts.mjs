@@ -127,7 +127,7 @@ export class Accounts {
 
   // ---------------------------------------------------------------- devices (manager / agent logins)
   registerDevice(user, kind, name, info = {}, ip = null) {
-    if (!['manager', 'agent'].includes(kind)) throw new HttpError(400, 'client must be manager or agent');
+    if (!['manager', 'agent', 'remote'].includes(kind)) throw new HttpError(400, 'client must be manager, agent or remote');
     const token = crypto.randomBytes(32).toString('base64url');
     const clean = String(name ?? '').trim().slice(0, 60) || `${user.username}-${kind}`;
     const r = this.db

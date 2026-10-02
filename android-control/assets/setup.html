@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Hoelni Control</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; background: #0b1220; color: #e6edf7; font: 15px/1.5 Inter, 'Segoe UI', Roboto, system-ui, sans-serif; }
+  main { max-width: 420px; margin: 0 auto; padding: 48px 20px; }
+  img { display: block; width: 180px; margin: 0 auto 8px; }
+  h1 { text-align: center; font-size: 22px; margin: 6px 0; }
+  p { color: #8ea0bd; text-align: center; margin: 0 0 24px; }
+  label { display: block; font-size: 13px; color: #8ea0bd; margin: 0 2px 6px; }
+  input { width: 100%; box-sizing: border-box; padding: 13px; border-radius: 13px; border: 1px solid #1e2a44; background: #0d1628; color: inherit; font: inherit; outline: none; }
+  input:focus { border-color: #3b82f6; }
+  button { width: 100%; margin-top: 16px; padding: 13px; border: 0; border-radius: 14px; background: #3b82f6; color: #fff; font: inherit; font-weight: 700; }
+  .err { color: #fca5a5; text-align: center; margin-top: 12px; min-height: 1.4em; }
+</style>
+</head>
+<body>
+<main>
+  <img src="logo.png" alt="Hoelni">
+  <h1>Hoelni Control</h1>
+  <p>Mit welchem Backend soll die App sprechen?</p>
+  <label for="url">Backend-Adresse</label>
+  <input id="url" autocapitalize="none" autocomplete="url" inputmode="url">
+  <button id="go">Weiter</button>
+  <div class="err" id="err"></div>
+</main>
+<script>
+  const app = window.HoelniControl;
+  const input = document.getElementById('url');
+  input.value = app ? app.backend().replace(/^https:\/\//, '') : 'afk.hoelni.de';
+  const go = () => {
+    const r = app ? app.setBackend(input.value) : '';
+    document.getElementById('err').textContent = r || '';
+  };
+  document.getElementById('go').onclick = go;
+  input.addEventListener('keydown', (e) => e.key === 'Enter' && go());
+</script>
+</body>
+</html>

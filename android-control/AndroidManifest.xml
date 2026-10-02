@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Hoelni Control: steers the Hoelni Client Suite from the phone (the control page of the backend,
+  /app, in a WebView) and shows it on the home screen (widgets). Built by
+  scripts/build-android.mjs - -app control; versionCode / versionName are set by the build.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="de.hoelni.control">
+
+    <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="33" />
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <application
+        android:label="Hoelni Control"
+        android:icon="@drawable/ic_launcher"
+        android:allowBackup="false"
+        android:usesCleartextTraffic="true">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:configChanges="orientation|screenSize|keyboardHidden|uiMode">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <receiver
+            android:name=".StatusWidget"
+            android:label="Hoelni Status"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_status_info" />
+        </receiver>
+
+        <receiver
+            android:name=".ActionsWidget"
+            android:label="Hoelni Schnellaktionen"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_actions_info" />
+        </receiver>
+    </application>
+</manifest>

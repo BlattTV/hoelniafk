@@ -47,7 +47,7 @@ async function pcWithData(): Promise<T> {
 
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => {
-  for (const c of cleanups.splice(0)) await c().catch(() => undefined);
+  for (const c of cleanups.splice(0).reverse()) await c().catch(() => undefined);
 });
 
 describe('settings sync: merge', () => {
@@ -218,5 +218,97 @@ describe('settings sync through the backend + one active PC', () => {
     b.suite.sync.schedule(false);
     await b.suite.sync.syncNow();
     await waitFor(() => byLabel(a).has('Alpha (from laptop)'), 10_000, 'edit arrived on A');
+  }, 60_000);
+});
+
+describe('remote control: the sessions stay where they run, the control moves', () => {
+  it('a standby PC and the control app steer the active PC through the backend', async () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hoelni-remote-'));
+    const accounts = new Accounts(openDb(path.join(tmp, 'backend.db')));
+    accounts.createUser('niklas', 'account-password-1', 'admin');
+    const quiet = { info: () => undefined, error: () => undefined };
+    const relay = new Relay(accounts, quiet);
+    const server = createBackendServer({ accounts, relay, config: { trustProxy: false }, log: quiet });
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+    const url = `http://127.0.0.1:${server.address().port}`;
+    const { buildServer } = await import('../src/web/server.js');
+
+    const a = await pcWithData();
+    const alphaA = byLabel(a).get('Alpha')!.id;
+    const smpA = a.suite.repo.listServers().find((x) => x.name === 'SMP')!.id;
+    a.suite.sessions.startReconciler();
+    await a.suite.sessions.startSession(alphaA, smpA);
+    await waitFor(() => a.bots.length === 1, 5000, 'A runs Alpha');
+    a.bots[0].join();
+    a.suite.repo.setSetting('backend.url', url);
+    await buildServer(a.suite, { apiToken: 'tok-a' }); // wires the remote-control answers
+    await a.suite.backend.login('niklas', 'account-password-1');
+    await waitFor(() => a.suite.backend.status().pcRole === 'active' && a.suite.backend.status().state === 'online', 5000, 'A active');
+
+    const b = await createTestSuite();
+    b.suite.repo.setSetting('backend.url', url);
+    const { app: appB } = await buildServer(b.suite, { apiToken: 'tok-b' });
+    await b.suite.backend.login('niklas', 'account-password-1');
+    await waitFor(() => b.suite.backend.remoteControl, 5000, 'B controls A');
+    cleanups.push(async () => {
+      for (const s of [a.suite, b.suite]) {
+        s.sync.stop();
+        s.backend.shutdown();
+      }
+      relay.close();
+      server.closeAllConnections?.();
+      await new Promise((r) => server.close(r));
+    });
+    const hb = { host: '127.0.0.1:7420', 'x-hoelni-token': 'tok-b' };
+    const sid = `${alphaA}:${smpA}`;
+
+    // B (standby, nothing synchronized yet) shows A's live sessions …
+    const list = (await appB.inject({ method: 'GET', url: '/api/sessions', headers: hb })).json();
+    expect(list.find((x: any) => x.id === sid)).toMatchObject({ state: 'ONLINE' });
+    // … and stops one on A – nothing starts on B
+    expect((await appB.inject({ method: 'POST', url: `/api/sessions/${sid}/stop`, headers: hb })).statusCode).toBe(200);
+    await waitFor(() => a.bots[0].quitCalled, 5000, 'A stopped Alpha');
+    expect(b.bots).toHaveLength(0);
+    // things of B itself stay on B
+    expect((await appB.inject({ method: 'GET', url: '/api/backend', headers: hb })).json().pcRole).toBe('standby');
+
+    // the control app: own device kind, REST + live events, no access to the vault
+    const login = await fetch(`${url}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: 'niklas', password: 'account-password-1', client: 'remote', name: 'Pixel' }) }).then((r) => r.json());
+    const auth = { authorization: `Bearer ${login.token}`, 'content-type': 'application/json' };
+    const rpc = (method: string, p: string, body?: unknown) => fetch(`${url}/api/remote/rpc`, { method: 'POST', headers: auth, body: JSON.stringify({ method, path: p, body }) });
+    const st = await fetch(`${url}/api/remote/status`, { headers: auth }).then((r) => r.json());
+    expect(st.active.name).toMatch(/Manager on/);
+    expect(st.pcs).toHaveLength(2);
+    expect((await rpc('GET', '/api/vault')).status).toBe(403);
+    expect((await rpc('GET', `/api/identities/${byLabel(a).get('Beta')!.id}/discord/password`)).status).toBe(403);
+    const events: any[] = [];
+    const ctrl = new AbortController();
+    void fetch(`${url}/api/remote/events`, { headers: auth, signal: ctrl.signal }).then(async (r) => {
+      const reader = r.body!.getReader();
+      let buf = '';
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) return;
+        buf += Buffer.from(value).toString();
+        for (const m of buf.split('\n\n').slice(0, -1)) if (m.startsWith('data: ')) events.push(JSON.parse(m.slice(6)));
+        buf = buf.split('\n\n').pop()!;
+      }
+    }).catch(() => undefined);
+    cleanups.push(async () => ctrl.abort());
+    await new Promise((r) => setTimeout(r, 300));
+    expect((await rpc('POST', `/api/identities/${alphaA}/sessions/${smpA}/start`)).status).toBe(200);
+    await waitFor(() => a.bots.length === 2, 5000, 'A starts Alpha again (control app)');
+    a.bots[1].join();
+    await waitFor(() => events.some((e) => e.type === 'session.state' && e.data?.state === 'ONLINE'), 5000, 'live event reached the app');
+    const sessions = await rpc('GET', '/api/sessions').then((r) => r.json());
+    expect(sessions.find((x: any) => x.id === sid).state).toBe('ONLINE');
+    // without an active PC the app gets a clear answer
+    a.suite.backend.shutdown();
+    let status = 0;
+    for (let i = 0; i < 50 && status !== 503; i++) {
+      status = (await rpc('GET', '/api/sessions')).status;
+      if (status !== 503) await new Promise((r) => setTimeout(r, 100));
+    }
+    expect(status).toBe(503);
   }, 60_000);
 });

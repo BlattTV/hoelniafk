@@ -2,7 +2,10 @@
 /**
  * Builds the Hoelni Agent for Android (APK) – on Linux, without Gradle, Android Studio or the NDK.
  *
- *   node scripts/build-android.mjs [--out <dir>] [--build <n>] [--skip-build] [--cache <dir>] [--keystore <file.p12>]
+ *   node scripts/build-android.mjs [--app agent|control] [--out <dir>] [--build <n>] [--skip-build] [--cache <dir>] [--keystore <file.p12>]
+ *
+ *   --app agent    Hoelni Agent: the phone runs AFK sessions (default)
+ *   --app control  Hoelni Control: steers the suite from the phone (control page of the backend + widgets)
  *
  *   Tools (Debian / Ubuntu): apt-get install default-jdk-headless aapt zipalign apksigner clang lld zip unzip
  *
@@ -38,8 +41,20 @@ const opt = (n) => {
 const outDir = path.resolve(opt('out') ?? path.join(repo, 'release'));
 const cacheDir = path.resolve(opt('cache') ?? path.join(os.homedir(), '.cache', 'hoelni-android'));
 const keystore = path.resolve(opt('keystore') ?? path.join(cacheDir, 'release.p12'));
+/** agent = Hoelni Agent (runs sessions, embedded Node.js) · control = Hoelni Control (steers the suite, widgets) */
+const APP = opt('app') ?? 'agent';
+if (!['agent', 'control'].includes(APP)) throw new Error('--app must be agent or control');
+const PROJECT = APP === 'agent' ? 'android-agent' : 'android-control';
 const say = (m) => process.stderr.write(`› ${m}\n`);
-const run = (cmd, args, cwd = repo) => execFileSync(cmd, args, { cwd, stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 256 * 1024 * 1024 }).toString();
+function run(cmd, args, cwd = repo) {
+  try {
+    return execFileSync(cmd, args, { cwd, stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 256 * 1024 * 1024 }).toString();
+  } catch (e) {
+    // readable error (the update server shows it): the tool's own message, without the Java proxy noise
+    const out = `${e.stderr ?? ''}${e.stdout ?? ''}`.split('\n').filter((l) => l.trim() && !l.startsWith('Picked up JAVA_TOOL_OPTIONS')).slice(-15).join('\n');
+    throw new Error(`${path.basename(cmd)} failed:\n${out || e.message}`);
+  }
+}
 const require = createRequire(path.join(repo, 'package.json'));
 
 const ABI = 'arm64-v8a';
@@ -95,7 +110,7 @@ async function fetchCached(name) {
 }
 
 // ------------------------------------------------------------------ 1. compile the agent
-if (!argv.includes('--skip-build')) {
+if (APP === 'agent' && !argv.includes('--skip-build')) {
   say('npm run build');
   run(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['run', 'build']);
 }
@@ -107,95 +122,100 @@ const versionName = build ? `${pkg.version}-${build}` : pkg.version;
 
 const work = fs.mkdtempSync(path.join(os.tmpdir(), 'hoelni-android-'));
 try {
-  // ---------------------------------------------------------------- 2. payload
-  say('collecting the agent payload');
-  const payload = path.join(work, 'payload');
-  fs.cpSync(path.join(repo, 'dist'), path.join(payload, 'dist'), { recursive: true, filter: (f) => !f.endsWith('.map') });
-  fs.writeFileSync(path.join(payload, 'package.json'), JSON.stringify({ name: pkg.name, version: pkg.version, type: 'module', private: true }, null, 2));
-  let commit = null;
-  try {
-    commit = run('git', ['rev-parse', '--short', 'HEAD']).trim();
-  } catch {
-    /* not a git checkout */
-  }
-  fs.writeFileSync(path.join(payload, 'build-info.json'), JSON.stringify({ version: pkg.version, build, commit, builtAt: new Date().toISOString(), platform: 'android' }, null, 2));
-
-  // packages the agent imports (esbuild follows the imports from the entry), then their dependencies
-  const esbuild = require('esbuild');
-  const meta = (
-    await esbuild.build({ entryPoints: [path.join(repo, 'dist/agent/android.js')], bundle: true, platform: 'node', format: 'esm', write: false, metafile: true, packages: 'external', logLevel: 'silent' })
-  ).metafile;
-  const roots = new Set();
-  for (const input of Object.values(meta.inputs)) {
-    for (const imp of input.imports ?? []) {
-      if (!imp.external || imp.path.startsWith('node:')) continue;
-      const name = imp.path.startsWith('@') ? imp.path.split('/').slice(0, 2).join('/') : imp.path.split('/')[0];
-      if (!builtinModules.includes(name)) roots.add(name);
+  // the agent carries the suite's agent code and Node.js for Android; the control app is only Java + the web page
+  let payloadZip = null;
+  let libDir = null;
+  if (APP === 'agent') {
+    // ---------------------------------------------------------------- 2. payload
+    say('collecting the agent payload');
+    const payload = path.join(work, 'payload');
+    fs.cpSync(path.join(repo, 'dist'), path.join(payload, 'dist'), { recursive: true, filter: (f) => !f.endsWith('.map') });
+    fs.writeFileSync(path.join(payload, 'package.json'), JSON.stringify({ name: pkg.name, version: pkg.version, type: 'module', private: true }, null, 2));
+    let commit = null;
+    try {
+      commit = run('git', ['rev-parse', '--short', 'HEAD']).trim();
+    } catch {
+      /* not a git checkout */
     }
-  }
-  const seen = new Map(); // package dir → name
-  const visit = (name, fromDir) => {
-    let dir = fromDir;
-    for (;;) {
-      const candidate = path.join(dir, 'node_modules', name);
-      if (fs.existsSync(path.join(candidate, 'package.json'))) {
-        const real = fs.realpathSync(candidate);
-        if (seen.has(real)) return;
-        seen.set(real, path.relative(repo, candidate));
-        const pj = JSON.parse(fs.readFileSync(path.join(real, 'package.json'), 'utf8'));
-        for (const dep of Object.keys({ ...(pj.dependencies ?? {}), ...(pj.optionalDependencies ?? {}) })) visit(dep, candidate);
-        return;
+    fs.writeFileSync(path.join(payload, 'build-info.json'), JSON.stringify({ version: pkg.version, build, commit, builtAt: new Date().toISOString(), platform: 'android' }, null, 2));
+
+    // packages the agent imports (esbuild follows the imports from the entry), then their dependencies
+    const esbuild = require('esbuild');
+    const meta = (
+      await esbuild.build({ entryPoints: [path.join(repo, 'dist/agent/android.js')], bundle: true, platform: 'node', format: 'esm', write: false, metafile: true, packages: 'external', logLevel: 'silent' })
+    ).metafile;
+    const roots = new Set();
+    for (const input of Object.values(meta.inputs)) {
+      for (const imp of input.imports ?? []) {
+        if (!imp.external || imp.path.startsWith('node:')) continue;
+        const name = imp.path.startsWith('@') ? imp.path.split('/').slice(0, 2).join('/') : imp.path.split('/')[0];
+        if (!builtinModules.includes(name)) roots.add(name);
       }
-      const up = path.dirname(dir);
-      if (up === dir) return; // optional dependency not installed (e.g. native helpers for other systems)
-      dir = up;
     }
-  };
-  for (const r of roots) visit(r, repo);
-  const SKIP_DIR = /^(test|tests|__tests__|docs?|examples?|benchmarks?|\.github)(\/|$)/i;
-  const SKIP_FILE = /\.(md|markdown|map|ts|tsx|flow|node|dll|exe|dylib)$/i; // .node: native addons of the build machine
-  for (const [real, rel] of seen) {
-    const mcData = rel.endsWith('minecraft-data');
-    fs.cpSync(real, path.join(payload, rel), {
-      recursive: true,
-      dereference: true,
-      filter: (f) => {
-        const r = path.relative(real, f).split(path.sep).join('/');
-        if (!r) return true;
-        if (r.startsWith('node_modules')) return false; // nested packages are visited on their own
-        if (SKIP_DIR.test(r) || SKIP_FILE.test(r)) return false;
-        if (mcData && (/^minecraft-data\/data\/bedrock\/(?!common)/.test(r) || /^(bin|typings)(\/|$)/.test(r))) return false; // Java servers only
-        return true;
-      },
-    });
-  }
-  say(`payload: ${seen.size} packages`);
-  const payloadZip = path.join(work, 'agent.zip');
-  run('zip', ['-q', '-r', '-9', '-X', payloadZip, '.'], payload);
+    const seen = new Map(); // package dir → name
+    const visit = (name, fromDir) => {
+      let dir = fromDir;
+      for (;;) {
+        const candidate = path.join(dir, 'node_modules', name);
+        if (fs.existsSync(path.join(candidate, 'package.json'))) {
+          const real = fs.realpathSync(candidate);
+          if (seen.has(real)) return;
+          seen.set(real, path.relative(repo, candidate));
+          const pj = JSON.parse(fs.readFileSync(path.join(real, 'package.json'), 'utf8'));
+          for (const dep of Object.keys({ ...(pj.dependencies ?? {}), ...(pj.optionalDependencies ?? {}) })) visit(dep, candidate);
+          return;
+        }
+        const up = path.dirname(dir);
+        if (up === dir) return; // optional dependency not installed (e.g. native helpers for other systems)
+        dir = up;
+      }
+    };
+    for (const r of roots) visit(r, repo);
+    const SKIP_DIR = /^(test|tests|__tests__|docs?|examples?|benchmarks?|\.github)(\/|$)/i;
+    const SKIP_FILE = /\.(md|markdown|map|ts|tsx|flow|node|dll|exe|dylib)$/i; // .node: native addons of the build machine
+    for (const [real, rel] of seen) {
+      const mcData = rel.endsWith('minecraft-data');
+      fs.cpSync(real, path.join(payload, rel), {
+        recursive: true,
+        dereference: true,
+        filter: (f) => {
+          const r = path.relative(real, f).split(path.sep).join('/');
+          if (!r) return true;
+          if (r.startsWith('node_modules')) return false; // nested packages are visited on their own
+          if (SKIP_DIR.test(r) || SKIP_FILE.test(r)) return false;
+          if (mcData && (/^minecraft-data\/data\/bedrock\/(?!common)/.test(r) || /^(bin|typings)(\/|$)/.test(r))) return false; // Java servers only
+          return true;
+        },
+      });
+    }
+    say(`payload: ${seen.size} packages`);
+    payloadZip = path.join(work, 'agent.zip');
+    run('zip', ['-q', '-r', '-9', '-X', payloadZip, '.'], payload);
 
-  // ---------------------------------------------------------------- 3. native libraries
-  say('preparing Node.js for Android');
-  const libDir = path.join(work, 'apk', 'lib', ABI);
-  fs.mkdirSync(libDir, { recursive: true });
-  const nm = await fetchCached('nodejsMobile');
-  run('tar', ['-xzf', nm, '-C', work, `package/android/libnode/bin/${ABI}/libnode.so`]);
-  fs.renameSync(path.join(work, `package/android/libnode/bin/${ABI}/libnode.so`), path.join(libDir, 'libnode.so'));
-  const aar = await fetchCached('fbjni');
-  run('unzip', ['-q', '-o', aar, `jni/${ABI}/libc++_shared.so`, '-d', work]);
-  fs.renameSync(path.join(work, `jni/${ABI}/libc++_shared.so`), path.join(libDir, 'libc++_shared.so'));
-  // JNI bridge – no C library or NDK headers needed (stdio.h is only included by jni.h, unused)
-  const jdk = path.resolve(path.dirname(fs.realpathSync(which('javac'))), '..');
-  const inc = path.join(work, 'inc');
-  fs.mkdirSync(inc);
-  fs.writeFileSync(path.join(inc, 'stdio.h'), '');
-  const resDir = run('clang', ['-print-resource-dir']).trim();
-  run('clang', [
-    '--target=aarch64-linux-android24', '-nostdinc', '-isystem', path.join(resDir, 'include'), '-isystem', inc,
-    '-I', path.join(jdk, 'include'), '-I', path.join(jdk, 'include', 'linux'),
-    '-fPIC', '-shared', '-nostdlib', '-ffreestanding', '-fno-builtin', '-fno-stack-protector', '-O2',
-    '-fuse-ld=lld', '-Wl,-soname,libhoelni.so', '-Wl,-z,max-page-size=16384', '-Wl,--allow-shlib-undefined',
-    '-L', libDir, '-lnode', path.join(repo, 'android-agent/jni/bridge.c'), '-o', path.join(libDir, 'libhoelni.so'),
-  ]);
+    // ---------------------------------------------------------------- 3. native libraries
+    say('preparing Node.js for Android');
+    libDir = path.join(work, 'apk', 'lib', ABI);
+    fs.mkdirSync(libDir, { recursive: true });
+    const nm = await fetchCached('nodejsMobile');
+    run('tar', ['-xzf', nm, '-C', work, `package/android/libnode/bin/${ABI}/libnode.so`]);
+    fs.renameSync(path.join(work, `package/android/libnode/bin/${ABI}/libnode.so`), path.join(libDir, 'libnode.so'));
+    const aar = await fetchCached('fbjni');
+    run('unzip', ['-q', '-o', aar, `jni/${ABI}/libc++_shared.so`, '-d', work]);
+    fs.renameSync(path.join(work, `jni/${ABI}/libc++_shared.so`), path.join(libDir, 'libc++_shared.so'));
+    // JNI bridge – no C library or NDK headers needed (stdio.h is only included by jni.h, unused)
+    const jdk = path.resolve(path.dirname(fs.realpathSync(which('javac'))), '..');
+    const inc = path.join(work, 'inc');
+    fs.mkdirSync(inc);
+    fs.writeFileSync(path.join(inc, 'stdio.h'), '');
+    const resDir = run('clang', ['-print-resource-dir']).trim();
+    run('clang', [
+      '--target=aarch64-linux-android24', '-nostdinc', '-isystem', path.join(resDir, 'include'), '-isystem', inc,
+      '-I', path.join(jdk, 'include'), '-I', path.join(jdk, 'include', 'linux'),
+      '-fPIC', '-shared', '-nostdlib', '-ffreestanding', '-fno-builtin', '-fno-stack-protector', '-O2',
+      '-fuse-ld=lld', '-Wl,-soname,libhoelni.so', '-Wl,-z,max-page-size=16384', '-Wl,--allow-shlib-undefined',
+      '-L', libDir, '-lnode', path.join(repo, 'android-agent/jni/bridge.c'), '-o', path.join(libDir, 'libhoelni.so'),
+    ]);
+  }
 
   // ---------------------------------------------------------------- 4. app
   say('compiling the app');
@@ -204,19 +224,21 @@ try {
   const classes = path.join(work, 'classes');
   fs.mkdirSync(gen);
   fs.mkdirSync(classes);
+  fs.mkdirSync(path.join(work, 'apk'), { recursive: true });
   const assets = path.join(work, 'assets');
-  fs.cpSync(path.join(repo, 'android-agent/assets'), assets, { recursive: true });
-  fs.copyFileSync(payloadZip, path.join(assets, 'agent.zip'));
+  fs.cpSync(path.join(repo, PROJECT, 'assets'), assets, { recursive: true });
+  if (payloadZip) fs.copyFileSync(payloadZip, path.join(assets, 'agent.zip'));
+  if (APP === 'control') fs.copyFileSync(path.join(repo, 'control-app/logo.png'), path.join(assets, 'logo.png'));
   const unsigned = path.join(work, 'app-unsigned.apk');
   run('aapt', [
-    'package', '-f', '-M', path.join(repo, 'android-agent/AndroidManifest.xml'), '-S', path.join(repo, 'android-agent/res'), '-A', assets,
+    'package', '-f', '-M', path.join(repo, PROJECT, 'AndroidManifest.xml'), '-S', path.join(repo, PROJECT, 'res'), '-A', assets,
     '-I', androidJar, '-J', gen, '-F', unsigned, '-0', 'zip', '--version-code', String(versionCode), '--version-name', versionName,
   ]);
   const rJava = run('find', [gen, '-name', 'R.java']).trim().split('\n')[0];
-  const sources = run('find', [path.join(repo, 'android-agent/java'), '-name', '*.java']).trim().split('\n');
+  const sources = run('find', [path.join(repo, PROJECT, 'java'), '-name', '*.java']).trim().split('\n');
   run('javac', ['-nowarn', '-Xlint:-options', '--release', '8', '-classpath', androidJar, '-d', classes, rJava, ...sources]);
   run('java', ['-cp', await fetchCached('dx'), 'com.android.dx.command.Main', '--dex', '--min-sdk-version=24', `--output=${path.join(work, 'apk', 'classes.dex')}`, classes]);
-  run('aapt', ['add', unsigned, 'classes.dex', ...fs.readdirSync(libDir).map((f) => `lib/${ABI}/${f}`)], path.join(work, 'apk'));
+  run('aapt', ['add', unsigned, 'classes.dex', ...(libDir ? fs.readdirSync(libDir).map((f) => `lib/${ABI}/${f}`) : [])], path.join(work, 'apk'));
   const aligned = path.join(work, 'app-aligned.apk');
   run('zipalign', ['-f', '-p', '4', unsigned, aligned]);
 
@@ -230,14 +252,14 @@ try {
     fs.chmodSync(keystore, 0o600);
   }
   const pass = fs.readFileSync(`${keystore}.pass`, 'utf8').trim();
-  const file = `Hoelni-Agent-Android-${versionName}.apk`;
+  const file = `${APP === 'agent' ? 'Hoelni-Agent-Android' : 'Hoelni-Control-Android'}-${versionName}.apk`;
   fs.mkdirSync(outDir, { recursive: true });
   const target = path.join(outDir, file);
   run('apksigner', ['sign', '--ks', keystore, '--ks-pass', `pass:${pass}`, '--ks-key-alias', 'hoelni', '--min-sdk-version', '24', '--out', target, aligned]);
   run('apksigner', ['verify', target]);
   const size = fs.statSync(target).size;
   say(`${file} (${(size / 1e6).toFixed(1)} MB)`);
-  console.log(JSON.stringify({ ok: true, kind: 'android', file, path: target, size, sha256: sha256(target), version: versionName, build, versionCode }));
+  console.log(JSON.stringify({ ok: true, kind: APP === 'agent' ? 'android' : 'android-control', file, path: target, size, sha256: sha256(target), version: versionName, build, versionCode }));
 } finally {
   fs.rmSync(work, { recursive: true, force: true });
 }

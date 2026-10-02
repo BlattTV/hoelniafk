@@ -1,0 +1,155 @@
+package de.hoelni.control;
+
+import android.app.Activity;
+import android.app.PendingIntent;
+import android.content.Context;
+import android.content.Intent;
+import android.graphics.Color;
+import android.net.Uri;
+import android.os.Build;
+import android.os.Bundle;
+import android.webkit.JavascriptInterface;
+import android.webkit.WebSettings;
+import android.webkit.WebView;
+import android.webkit.WebViewClient;
+
+/**
+ * Hoelni Control: the backend's control page (/app) in a WebView. The page signs in itself (the
+ * backend issues a device token for this phone); the bridge below keeps that token for the widgets.
+ */
+public class MainActivity extends Activity {
+  private static final String SETUP = "file:///android_asset/setup.html";
+  private WebView web;
+  /** The page shown is the configured backend (or the setup page) – only then the bridge works. */
+  private volatile boolean trusted = false;
+
+  static PendingIntent openIntent(Context ctx, String tab) {
+    Intent i = new Intent(ctx, MainActivity.class);
+    i.putExtra("tab", tab);
+    i.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+    return PendingIntent.getActivity(ctx, tab.hashCode(), i, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+  }
+
+  @Override
+  protected void onCreate(Bundle state) {
+    super.onCreate(state);
+    getWindow().setStatusBarColor(Color.parseColor("#0b1220"));
+    getWindow().setNavigationBarColor(Color.parseColor("#0d1424"));
+    web = new WebView(this);
+    web.setBackgroundColor(Color.parseColor("#0b1220"));
+    WebSettings s = web.getSettings();
+    s.setJavaScriptEnabled(true);
+    s.setDomStorageEnabled(true);
+    s.setAllowFileAccess(true);
+    web.setWebViewClient(new WebViewClient() {
+      @Override
+      public boolean shouldOverrideUrlLoading(WebView view, String url) {
+        if (isOurs(url)) return false;
+        startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
+        return true;
+      }
+
+      @Override
+      public void onPageStarted(WebView view, String url, android.graphics.Bitmap icon) {
+        trusted = isOurs(url);
+      }
+    });
+    web.addJavascriptInterface(new Bridge(), "HoelniControl");
+    setContentView(web);
+    open(getIntent().getStringExtra("tab"));
+  }
+
+  @Override
+  protected void onNewIntent(Intent intent) {
+    super.onNewIntent(intent);
+    String tab = intent.getStringExtra("tab");
+    if (tab != null) open(tab);
+  }
+
+  private boolean isOurs(String url) {
+    String b = Store.backend(this);
+    return url != null && (url.startsWith(SETUP) || (b != null && (url.equals(b) || url.startsWith(b + "/"))));
+  }
+
+  private void open(String tab) {
+    String b = Store.backend(this);
+    if (b == null) web.loadUrl(SETUP);
+    else web.loadUrl(b + "/app/" + (tab != null ? "?tab=" + Uri.encode(tab) : ""));
+  }
+
+  @Override
+  public void onBackPressed() {
+    moveTaskToBack(true);
+  }
+
+  /** window.HoelniControl in the page (only while the configured backend / the setup page is shown). */
+  final class Bridge {
+    @JavascriptInterface
+    public void saveSession(String origin, String token, String user) {
+      String b = Store.backend(MainActivity.this);
+      if (!trusted || b == null || !b.equals(origin)) return;
+      Store.setToken(MainActivity.this, token, user);
+      refreshWidgets();
+    }
+
+    @JavascriptInterface
+    public void clearSession() {
+      if (!trusted) return;
+      Store.clear(MainActivity.this);
+      refreshWidgets();
+    }
+
+    @JavascriptInterface
+    public String deviceName() {
+      String m = Build.MODEL == null ? "Android" : Build.MODEL;
+      String brand = Build.MANUFACTURER == null ? "" : Build.MANUFACTURER;
+      if (!brand.isEmpty() && !m.toLowerCase().startsWith(brand.toLowerCase())) m = brand.substring(0, 1).toUpperCase() + brand.substring(1) + " " + m;
+      return m;
+    }
+
+    @JavascriptInterface
+    public void refreshWidgets() {
+      StatusWidget.requestRefresh(MainActivity.this);
+      ActionsWidget.show(MainActivity.this, null);
+    }
+
+    @JavascriptInterface
+    public String backend() {
+      String b = Store.backend(MainActivity.this);
+      return b != null ? b : Store.DEFAULT_BACKEND;
+    }
+
+    @JavascriptInterface
+    public void changeBackend() {
+      if (!trusted) return;
+      web.post(new Runnable() {
+        @Override
+        public void run() {
+          web.loadUrl(SETUP);
+        }
+      });
+    }
+
+    /** From the setup page: the backend address (https://… – the app loads its control page). */
+    @JavascriptInterface
+    public String setBackend(String input) {
+      if (!trusted) return "not allowed";
+      String url = input == null ? "" : input.trim();
+      if (url.isEmpty()) url = Store.DEFAULT_BACKEND;
+      if (!url.startsWith("http://") && !url.startsWith("https://")) url = "https://" + url;
+      while (url.endsWith("/")) url = url.substring(0, url.length() - 1);
+      Uri u = Uri.parse(url);
+      if (u.getHost() == null || u.getHost().isEmpty() || (u.getPath() != null && !u.getPath().isEmpty())) return "Bitte nur die Adresse eingeben, z. B. afk.hoelni.de";
+      final String target = u.getScheme() + "://" + u.getHost() + (u.getPort() > 0 ? ":" + u.getPort() : "");
+      Store.setBackend(MainActivity.this, target);
+      refreshWidgets();
+      web.post(new Runnable() {
+        @Override
+        public void run() {
+          web.loadUrl(target + "/app/");
+        }
+      });
+      return "";
+    }
+  }
+}

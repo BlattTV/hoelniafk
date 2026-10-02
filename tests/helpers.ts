@@ -197,9 +197,9 @@ export async function settle(rounds = 6): Promise<void> {
   for (let i = 0; i < rounds; i++) await tick();
 }
 
-export async function waitFor(cond: () => boolean, timeoutMs = 5000, what = 'condition'): Promise<void> {
+export async function waitFor(cond: () => boolean | Promise<boolean>, timeoutMs = 5000, what = 'condition'): Promise<void> {
   const start = Date.now();
-  while (!cond()) {
+  while (!(await cond())) {
     if (Date.now() - start > timeoutMs) throw new Error(`Timed out waiting for ${what}`);
     await new Promise((r) => setTimeout(r, 5));
   }

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="status_desc">Sessions online, aktiver PC und die wichtigsten Sessions auf einen Blick</string>
+    <string name="actions_desc">Alle Sessions online / offline / neu verbinden mit einem Tipp</string>
+</resources>

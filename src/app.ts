@@ -164,6 +164,9 @@ export function createSuite(deps: SuiteDeps) {
   // Several PCs of one backend account: only the active one runs the sessions (the others are in
   // standby) – and all of them share identities and settings (encrypted settings sync).
   backend.onRoleChanged = (reason) => sessions.setStandby(reason);
+  // remote control: the active PC sends live events to its controllers; a standby PC shows those of the active one
+  bus.on((ev) => backend.forwardEvent(ev as any));
+  backend.onRemoteEvent = (ev) => bus.emit({ ...(ev as any), remote: true });
   if (repo.getSetting('backend.standbyFor') && repo.getSetting('backend.username')) sessions.setStandby(`the sessions run on "${repo.getSetting('backend.standbyFor')}"`);
   const sync = new SyncService(
     new SnapshotIO(db, vault.store, { deleteIdentity: (id) => identities.delete(id) }),

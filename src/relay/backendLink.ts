@@ -39,6 +39,22 @@ export function maskProxy(url: string | null): string {
   return url.replace(/\/\/([^:@/]*):[^@/]*@/, '//$1:•••@');
 }
 
+/** A request of a remote controller for the active PC's API (same paths as the suite's own UI). */
+export interface RemoteRequest {
+  method: string;
+  path: string;
+  body?: unknown;
+  /** Name of the controlling device (shown in the audit log). */
+  by?: string;
+}
+export interface RemoteResponse {
+  status: number;
+  body: unknown;
+}
+
+/** Events the active PC sends to its controllers (enough to keep their screens live). */
+const FORWARDED_EVENTS = new Set(['identity.changed', 'session.state', 'session.chat', 'session.game', 'session.stats', 'reward.changed', 'link.state', 'macro', 'auth.devicecode', 'accounts.changed', 'mail.updated', 'network.checked']);
+
 export interface AgentInfo {
   id: number;
   name: string;
@@ -70,6 +86,15 @@ export class BackendLink {
   onRoleChanged: (standbyReason: string | null) => void = () => undefined;
   /** Another suite of the account stored new settings (version) – wired to the settings sync. */
   onSyncChanged: (version: number) => void = () => undefined;
+  /** Active PC: answers a remote-control request (another PC in standby or the "Hoelni Control" app). */
+  onRpc: (req: RemoteRequest) => Promise<RemoteResponse> = async () => ({ status: 503, body: { error: 'Remote control not available' } });
+  /** Standby PC: a live event of the active PC (shown here as if it happened on this PC). */
+  onRemoteEvent: (ev: Record<string, unknown>) => void = () => undefined;
+  /** Standby PCs + control apps following this (active) PC – live events are only sent while > 0. */
+  private controllers = 0;
+  private rpcSeq = 0;
+  private readonly rpcWaiting = new Map<number, { resolve: (r: RemoteResponse) => void; timer: NodeJS.Timeout }>();
+  private readonly statsSentAt = new Map<string, number>();
   /** Other suites (PCs) of this account connected to the backend right now. */
   private managers: Array<{ deviceId: number; name: string; ip: string | null; connectedAt: string; active: boolean; self: boolean }> = [];
   state: LinkState = 'signed-out';
@@ -145,6 +170,37 @@ export class BackendLink {
     if (this.ws?.readyState !== 1) throw new SuiteError('Not connected to the backend – try again in a moment', 409);
     this.ws.send(JSON.stringify({ t: 'claim' }));
     this.audit.record(null, 'Took over the sessions on this PC');
+  }
+
+  /** Standby PC: a request for the active PC of the account (remote control through the backend). */
+  rpc(req: RemoteRequest, timeoutMs = 30_000): Promise<RemoteResponse> {
+    if (this.ws?.readyState !== 1) return Promise.resolve({ status: 503, body: { error: 'Not connected to the backend' } });
+    const id = ++this.rpcSeq;
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        this.rpcWaiting.delete(id);
+        resolve({ status: 504, body: { error: 'The active PC did not answer in time' } });
+      }, timeoutMs);
+      this.rpcWaiting.set(id, { resolve, timer });
+      this.ws!.send(JSON.stringify({ t: 'rpc', id, req }));
+    });
+  }
+
+  /** Remote control is possible: this PC is in standby and connected (the active PC answers). */
+  get remoteControl(): boolean {
+    return !!this.standbyFor() && this.ws?.readyState === 1 && this.managers.some((m) => m.active && !m.self);
+  }
+
+  /** Active PC: live events for the controllers (standby PCs, control apps) – stats at most every 3 s per session. */
+  forwardEvent(ev: { type: string; [k: string]: unknown }): void {
+    if (!this.controllers || this.standbyFor() || this.ws?.readyState !== 1 || !FORWARDED_EVENTS.has(ev.type)) return;
+    if (ev.type === 'session.stats') {
+      const key = String((ev as any).sessionId ?? (ev as any).data?.sessionId ?? '');
+      const last = this.statsSentAt.get(key) ?? 0;
+      if (Date.now() - last < 3000) return;
+      this.statsSentAt.set(key, Date.now());
+    }
+    this.ws.send(JSON.stringify({ t: 'event', ev }));
   }
 
   /** Device token of this suite (for the settings sync). */
@@ -332,6 +388,12 @@ export class BackendLink {
     ws.on('message', (data) => this.onFrame(String(data)));
     ws.on('close', () => {
       if (this.ws === ws) this.ws = null;
+      for (const [id, w] of this.rpcWaiting) {
+        this.rpcWaiting.delete(id);
+        clearTimeout(w.timer);
+        w.resolve({ status: 503, body: { error: 'Connection to the backend lost' } });
+      }
+      this.controllers = 0;
       for (const id of [...this.hosts.keys()]) this.agentOffline(id);
       if (this.stopped) {
         this.changed();
@@ -415,6 +477,30 @@ export class BackendLink {
         break;
       case 'sync':
         this.onSyncChanged(Number(f.version) || 0);
+        return;
+      case 'controllers':
+        this.controllers = Number(f.n) || 0;
+        return;
+      case 'rpc': {
+        // remote control: only the active PC answers, every request is checked by onRpc (allowlist)
+        const id = f.id;
+        const reply = (r: RemoteResponse) => {
+          if (this.ws?.readyState === 1) this.ws.send(JSON.stringify({ t: 'rpc.res', id, status: r.status, body: r.body }));
+        };
+        if (this.standbyFor()) reply({ status: 409, body: { error: 'This PC is in standby' } });
+        else void this.onRpc(f.req as RemoteRequest).then(reply, (e) => reply({ status: 500, body: { error: (e as Error).message } }));
+        return;
+      }
+      case 'rpc.res': {
+        const w = this.rpcWaiting.get(Number(f.id));
+        if (!w) return;
+        this.rpcWaiting.delete(Number(f.id));
+        clearTimeout(w.timer);
+        w.resolve({ status: Number(f.status) || 500, body: f.body ?? null });
+        return;
+      }
+      case 'event':
+        if (this.standbyFor() && f.ev && typeof f.ev.type === 'string') this.onRemoteEvent(f.ev);
         return;
       case 'bye':
         this.lastError = String(f.reason ?? 'Disconnected by the backend');

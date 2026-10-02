@@ -120,9 +120,40 @@ section{background:#0f172a;border:1px solid #1e293b;border-radius:16px;padding:1
 <body><main>${logo() ? `<img class="logo" src="${logo()}" alt="Hoelni AFK Client">` : ''}<h1>Hoelni herunterladen</h1><p class="sub">Einmal installieren – danach aktualisieren sich die Programme selbst.</p>
 ${card(items.suite, 'Hoelni Client Suite', 'Das Hauptprogramm für deinen PC: Identitäten, AFK-Sessions, Discord, Outlook und das Minecraft-Fenster.')}
 ${card(items.agent, 'Hoelni Agent', `Für PCs in anderen Haushalten: installieren, mit dem Hoelni-Konto anmelden, fertig. Startet mit Windows im Hintergrund.${publicUrl ? ` Verbindet sich mit <code>${esc(publicUrl)}</code>.` : ''}`)}
+${card(items['android-control'], 'Hoelni Control (Android)', `Steuert deine Suite vom Handy aus: Sessions starten und stoppen, Chat, Makros, Agents – mit Widgets für den Startbildschirm. Die Sessions laufen dabei weiter auf deinem PC. Ohne App geht es auch im Browser: <a href="/app/">${esc(publicUrl ? `${publicUrl.replace(/\/+$/, '')}/app` : '/app')}</a>.`)}
 ${card(items.android, 'Hoelni Agent für Android', 'Das Handy als Agent: APK auf dem Handy herunterladen und öffnen (Installation aus dieser Quelle einmal erlauben), mit dem Hoelni-Konto anmelden – die AFK-Sessions laufen dann im Hintergrund, auch bei ausgeschaltetem Bildschirm. Am besten am Ladekabel und im WLAN. Neue Versionen meldet die App selbst.')}
 <p class="meta">Windows zeigt bei nicht signierten Programmen evtl. „Der Computer wurde durch Windows geschützt“ → <b>Weitere Informationen</b> → <b>Trotzdem ausführen</b>.</p>
 </main></body></html>`;
+}
+
+const CONTROL_TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.png': 'image/png', '.svg': 'image/svg+xml', '.webmanifest': 'application/manifest+json', '.json': 'application/json' };
+const CONTROL_DIR = new URL('../../control-app/', import.meta.url);
+
+/** The "Hoelni Control" web app (also inside the Android app) – static files, same origin as the API. */
+function serveControlApp(p, res, search = '') {
+  if (p === '/app') {
+    // relative file names in the page need the trailing slash
+    res.writeHead(302, { Location: `/app/${search}`, 'Cache-Control': 'no-store' });
+    return res.end();
+  }
+  const rel = p === '/app/' ? 'index.html' : p.slice('/app/'.length);
+  if (!/^[a-z0-9_-]+(\.[a-z0-9]+)+$/i.test(rel)) throw new HttpError(404, 'Not found');
+  const type = CONTROL_TYPES[rel.slice(rel.lastIndexOf('.'))];
+  let data;
+  try {
+    data = type ? fs.readFileSync(new URL(rel, CONTROL_DIR)) : null;
+  } catch {
+    data = null;
+  }
+  if (!data) throw new HttpError(404, 'Not found');
+  res.writeHead(200, {
+    'Content-Type': type,
+    'Cache-Control': 'no-cache',
+    'X-Content-Type-Options': 'nosniff',
+    'Referrer-Policy': 'no-referrer',
+    'Content-Security-Policy': "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+  });
+  res.end(data);
 }
 
 export function createBackendServer({ accounts, relay, config, version = '1.0.0', log = console }) {
@@ -186,6 +217,43 @@ export function createBackendServer({ accounts, relay, config, version = '1.0.0'
         if (user.role !== 'admin') throw new HttpError(403, 'An admin account is required');
         accounts.audit(user.username, 'Admin confirmed a backend address change in an app', '', ip);
         return send(res, 200, { ok: true });
+      }
+      // ------------------------------------------------------------ "Hoelni Control": phone / browser controls the active PC
+      if (req.method === 'GET' && (p === '/app' || p.startsWith('/app/'))) return serveControlApp(p, res, url.search);
+      if (p.startsWith('/api/remote/')) {
+        const device = accounts.deviceByToken(bearer(req));
+        if (!device) throw new HttpError(401, 'Signed out – sign in again');
+        if (device.kind === 'agent') throw new HttpError(403, 'Agents cannot control the suite');
+        accounts.touchDevice(device.id, ip);
+        if (req.method === 'GET' && p === '/api/remote/status') {
+          const g = relay.managers.get(device.userId);
+          const pcs = g ? [...g.list].map((c) => relay.managerView(c, g)) : [];
+          return send(res, 200, { user: { username: device.username, role: device.role }, device: { id: device.id, name: device.name }, active: pcs.find((x) => x.active) ?? null, pcs });
+        }
+        if (req.method === 'POST' && p === '/api/remote/rpc') {
+          const b = await readBody(req, 256 * 1024);
+          const method = String(b.method ?? 'GET').toUpperCase();
+          const path = String(b.path ?? '');
+          if (!['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].includes(method) || !/^\/api\/[A-Za-z0-9/_.:%?=&,-]{1,400}$/.test(path) || path.includes('..')) throw new HttpError(400, 'Invalid request');
+          const r = await relay.rpc(device.userId, { method, path, body: b.body ?? null, by: device.name });
+          return send(res, r.status, r.body ?? {});
+        }
+        if (req.method === 'GET' && p === '/api/remote/events') {
+          // live events of the active PC (server-sent events; the app reads them with fetch + Authorization)
+          res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
+          res.write(': hello\n\n');
+          const stop = relay.addListener(device.userId, (ev) => res.write(`data: ${JSON.stringify(ev)}\n\n`));
+          const beat = setInterval(() => {
+            if (!accounts.isDeviceActive(device.id)) return res.end();
+            res.write(': ping\n\n');
+          }, 20_000);
+          req.on('close', () => {
+            clearInterval(beat);
+            stop();
+          });
+          return;
+        }
+        throw new HttpError(404, 'Not found');
       }
       if (p === '/api/sync') {
         // settings sync between the suites of this account – the backend only stores the encrypted blob

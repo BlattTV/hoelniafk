@@ -48,6 +48,24 @@ const MIGRATIONS = [
     updated_by TEXT
   );
   `,
+  // v3: the "Hoelni Control" app (phone / browser) signs in as its own kind of device
+  `
+  CREATE TABLE devices_new (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL CHECK (kind IN ('manager', 'agent', 'remote')),
+    name TEXT NOT NULL,
+    token_hash TEXT NOT NULL UNIQUE,
+    info_json TEXT,
+    created_at TEXT NOT NULL,
+    last_seen_at TEXT,
+    last_ip TEXT,
+    revoked INTEGER NOT NULL DEFAULT 0
+  );
+  INSERT INTO devices_new SELECT id, user_id, kind, name, token_hash, info_json, created_at, last_seen_at, last_ip, revoked FROM devices;
+  DROP TABLE devices;
+  ALTER TABLE devices_new RENAME TO devices;
+  `,
 ];
 
 export function openDb(file) {

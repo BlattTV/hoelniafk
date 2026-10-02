@@ -219,19 +219,31 @@ export class Builder {
    * tools or a failure never block a release.
    */
   async buildAndroidLocked({ build = null } = {}) {
+    const files = [];
+    for (const app of ['agent', 'control']) {
+      const r = await this.buildAndroidApp(app, build);
+      if (r.skipped) return r; // tools missing: same reason for both
+      if (r.error) return r;
+      files.push(r.file);
+    }
+    return { skipped: false, file: files.join(', ') };
+  }
+
+  /** One Android app: agent (runs AFK sessions on the phone) or control (steers the suite, widgets). */
+  async buildAndroidApp(app, build) {
     const workDir = this.opts.workDir;
     const dir = path.join(this.store.dataDir, 'android');
     const out = fs.mkdtempSync(path.join(os.tmpdir(), 'hoelni-apk-'));
     try {
-      this.log('building the Android app (agent)');
+      this.log(`building the Android app (${app})`);
       let text;
       try {
-        text = run(process.execPath, [path.join(workDir, 'scripts', 'build-android.mjs'), '--skip-build', '--out', out, '--cache', path.join(dir, 'cache'), '--keystore', path.join(dir, 'release.p12'), ...(build ? ['--build', String(build)] : [])], workDir);
+        text = run(process.execPath, [path.join(workDir, 'scripts', 'build-android.mjs'), '--app', app, '--skip-build', '--out', out, '--cache', path.join(dir, 'cache'), '--keystore', path.join(dir, 'release.p12'), ...(build ? ['--build', String(build)] : [])], workDir);
       } catch (e) {
         const result = String(e.stdout ?? '').trim().split('\n').pop();
         if (result.startsWith('{') && JSON.parse(result).missing) {
           const error = JSON.parse(result).error;
-          this.log(`Android app skipped – ${error}`);
+          this.log(`Android apps skipped – ${error}`);
           return { skipped: true, error };
         }
         throw e;
@@ -242,7 +254,7 @@ export class Builder {
       return { skipped: false, file: result.file };
     } catch (e) {
       const error = String(e.stderr || e.message).slice(-1500);
-      this.log(`Android build failed (the release itself is published): ${error}`);
+      this.log(`Android build (${app}) failed (the release itself is published): ${error}`);
       return { skipped: false, error };
     } finally {
       fs.rmSync(out, { recursive: true, force: true });

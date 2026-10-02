@@ -469,11 +469,16 @@ account*), bekommt dieser PC automatisch alles vom ersten PC:
   Abgleich einrichten*).
 
 **Nur ein PC lässt die Sessions laufen**, sonst wäre ein Minecraft-Konto zweimal online. Der zuerst
-verbundene PC ist **aktiv**, jeder weitere steht auf **Standby**: Dort kannst du alles ansehen und
-ändern, die Änderungen landen per Abgleich auf dem aktiven PC. Gestartet wird auf dem Standby-PC aber
-nichts. Unten erscheint der Hinweis „Standby – die Sessions laufen auf …“ mit dem Knopf **Hier
-übernehmen**. Klickst du ihn, beendet der andere PC seine Sessions, und dieser PC startet sie. Die
-Agents folgen automatisch dem aktiven PC.
+verbundene PC ist **aktiv**, jeder weitere steht auf **Standby** und wird zur **Fernsteuerung**: Du
+siehst dort die Sessions des aktiven PCs live und kannst sie starten, stoppen, neu verbinden, Chat
+schreiben, Makros ausführen und Einstellungen ändern. Das passiert alles auf dem aktiven PC, und die
+Sessions bleiben dort. Unten erscheint der Hinweis „Fernsteuerung – die Sessions laufen auf …“.
+Lokal bleiben nur Dinge dieses PCs: Tresor, Backend-Anmeldung, Updates, die Fenster für Outlook und
+Discord sowie „Spiel öffnen“.
+
+Willst du die Sessions wirklich auf den anderen PC holen, klickst du **Hier übernehmen**. Dann
+beendet der bisherige PC seine Sessions, und dieser PC startet sie. Die Agents folgen automatisch
+dem aktiven PC.
 
 Ist der aktive PC aus (nicht mit dem Backend verbunden), wird der nächste PC, der sich verbindet,
 von selbst aktiv. Ein PC im Standby übernimmt dagegen nie von selbst: Der aktive PC könnte nur kurz
@@ -481,6 +486,32 @@ die Verbindung verloren haben und seine Sessions noch laufen lassen.
 
 Nach einer **Passwortänderung** meldest du dich zuerst auf einem PC neu an, der schon abgleicht. Er
 verschlüsselt die Daten mit dem neuen Passwort. Danach klappt die Anmeldung auch auf den anderen PCs.
+
+### C8a. Hoelni Control – die Suite vom Handy steuern
+
+**Hoelni Control** steuert den aktiven PC vom Handy aus. Die Sessions laufen dabei weiter auf dem PC.
+
+* **Im Browser** (jedes Handy, auch iPhone): `https://afk.hoelni.de/app` öffnen und mit dem Hoelni-Konto
+  anmelden. Über „Zum Startbildschirm hinzufügen“ wird daraus ein App-Symbol.
+* **Als Android-App mit Widgets:** auf <https://afk.hoelni.de/download> **Hoelni Control (Android)**
+  laden und installieren, Backend-Adresse bestätigen, anmelden. Danach lange auf den Startbildschirm
+  tippen → *Widgets* → **Hoelni Status** (Sessions online, aktiver PC, die wichtigsten Sessions) und
+  **Hoelni Schnellaktionen** (alle online, alle offline, neu verbinden, App öffnen).
+
+Möglich sind:
+
+* Übersicht mit Sessions online, Identitäten, Agents, Sternen und einem Live-Verlauf
+* Sessions starten, stoppen und neu verbinden, Chat lesen und schreiben, „Zurück zu AFK“
+* Identitäten mit ihren Servern ansehen und einzeln oder alle starten bzw. stoppen
+* Makros ausführen und stoppen, mit Protokoll
+* PCs und Agents des Kontos ansehen
+
+Nicht möglich, weil es zum PC gehört: Tresor, Anmeldungen in Outlook- und Discord-Fenstern,
+gespeicherte Passwörter anzeigen, Updates und „Spiel öffnen“. Neue Funktionen der Oberfläche kommen
+mit jedem Backend-Update von selbst. Die App muss dafür nicht neu installiert werden.
+
+Jedes Handy meldet sich als eigenes Gerät an („Control: …“). Unter *Accounts* kann ein Admin es
+jederzeit abmelden.
 
 ### C9. Wenn etwas nicht klappt
 
