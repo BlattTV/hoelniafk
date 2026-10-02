@@ -410,6 +410,14 @@ const MIGRATIONS: string[] = [
   `
   ALTER TABLE server_assignments ADD COLUMN placement TEXT;
   `,
+  // v8: the anti-AFK head turn was on by default but never reached the server (physics was off). Now
+  // that physics is always on it is visible – switched off where it was set, nobody chose it on purpose.
+  `
+  UPDATE identities SET settings_json = json_set(settings_json, '$.afk.enabled', json('false'), '$.afk.action', 'none')
+    WHERE json_extract(settings_json, '$.afk.action') = 'look';
+  UPDATE templates SET config_json = json_set(config_json, '$.settings.afk.enabled', json('false'), '$.settings.afk.action', 'none')
+    WHERE json_extract(config_json, '$.settings.afk.action') = 'look';
+  `,
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.length;

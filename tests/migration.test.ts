@@ -56,4 +56,21 @@ describe('database migrations', () => {
     const cols = db.prepare('PRAGMA table_info(server_assignments)').all() as Array<{ name: string }>;
     expect(cols.some((c) => c.name === 'desired_state')).toBe(false);
   });
+
+  it('v8 switches off the anti-AFK head turn (visible since physics is always on), keeps other choices', () => {
+    const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'hoelni-mig8-')), 'hoelni.db');
+    const db = new DB(file);
+    migrate(db, 7);
+    const ts = new Date().toISOString();
+    const settings = (afk: object) => JSON.stringify({ autoReconnect: true, afk });
+    db.prepare('INSERT INTO identities (number, label, settings_json, created_at, updated_at) VALUES (1, ?, ?, ?, ?), (2, ?, ?, ?, ?)').run(
+      'Look', settings({ enabled: true, action: 'look', intervalSec: 45 }), ts, ts,
+      'Jump', settings({ enabled: true, action: 'jump', intervalSec: 30 }), ts, ts,
+    );
+    db.close();
+    const repo = new IdentityRepository(openDatabase(file));
+    expect(repo.getIdentity(1).settings.afk).toEqual({ enabled: false, action: 'none', intervalSec: 45 });
+    expect(repo.getIdentity(1).settings.autoReconnect).toBe(true);
+    expect(repo.getIdentity(2).settings.afk).toEqual({ enabled: true, action: 'jump', intervalSec: 30 });
+  });
 });

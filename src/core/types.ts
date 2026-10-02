@@ -307,7 +307,7 @@ export interface AuditEntry {
 export const DEFAULT_SETTINGS: IdentitySettings = {
   autoReconnect: true,
   reconnectDelaySec: 15,
-  afk: { enabled: true, action: 'look', intervalSec: 45 },
+  afk: { enabled: false, action: 'none', intervalSec: 45 },
   parsers: ['hoelni-linking', 'hoelni-rewards'],
   discordLinking: 'optional',
   mailEnabled: true,
