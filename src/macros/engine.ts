@@ -61,7 +61,7 @@ export class MacroEngine {
     this.programs = programs;
     const onChat = (text: string, position?: string, msg?: any, sender?: string) => {
       if (position === 'game_info') return;
-      const line = chatLine(text, position, msg, sender, this.bot.players);
+      const line = chatLine(text, position, msg, sender, this.bot.players, (this.bot as any).registry?.language);
       for (const ctx of this.runs.values()) {
         ctx.chat.push(line);
         if (ctx.chat.length > 200) ctx.chat.shift();

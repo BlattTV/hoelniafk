@@ -290,7 +290,7 @@ export class RuntimeHostCore {
     });
     bot.on('messagestr', (text: string, position?: string, msg?: any, sender?: string) => {
       if (position === 'game_info') return; // action bar spam
-      const line = chatLine(text, position, msg, sender, (bot as any).players);
+      const line = chatLine(text, position, msg, sender, (bot as any).players, (bot as any).registry?.language);
       this.emit({ type: 'chat', sessionId: id, text: line.slice(0, 1000), ts: new Date().toISOString() });
     });
     bot.on('kicked', (reason: unknown) => {

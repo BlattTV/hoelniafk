@@ -289,5 +289,29 @@ describe('vanilla client behaviour behind a proxy', () => {
     pushFromEntities(bot);
     expect(me.velocity.x).toBe(0);
   });
+
+  it('deeply nested chat components (colour per word / gradients) come out complete', async () => {
+    const { chatLine, componentText } = await import('../src/minecraft/vanillaCompat.js');
+    const ChatMessage = require('prismarine-chat')('1.21.4');
+    // legacy colour conversion nests every colour change one level deeper
+    const words = ['[HugoSMP]', ' Du', ' hast', ' gerade', ' 5', ' Sterne', ' erhalten', ' –', ' viel', ' Spaß', '!'];
+    let json: any = { text: words[words.length - 1], color: 'gold' };
+    for (let i = words.length - 2; i >= 0; i--) json = { text: words[i], color: i % 2 ? 'yellow' : 'gray', extra: [json] };
+    const empty: any = { text: '' };
+    let wrapped: any = { text: '', extra: [{ text: 'Willkommen zurück!' }] };
+    for (let i = 0; i < 12; i++) wrapped = { text: '', extra: [wrapped] };
+    const msg = new ChatMessage(json);
+    expect(msg.toString()).not.toContain('Spaß'); // the library cuts it off after 8 levels …
+    const line = chatLine(msg.toString(), 'system', msg, undefined, {});
+    expect(line).toBe('[HugoSMP] Du hast gerade 5 Sterne erhalten – viel Spaß!'); // … we do not
+    const deep = new ChatMessage(wrapped);
+    expect(deep.toString()).toBe('');
+    expect(chatLine(deep.toString(), 'system', deep, undefined, {})).toBe('Willkommen zurück!');
+    expect(componentText(new ChatMessage(empty))).toBe('');
+    // translations with positional arguments
+    const tr = new ChatMessage({ translate: 'chat.type.text', with: [{ text: 'Hugo' }, { text: 'hallo' }] });
+    expect(componentText(tr, { 'chat.type.text': '<%s> %s' })).toBe('<Hugo> hallo');
+    expect(componentText(tr, { 'chat.type.text': '%2$s von %1$s (100%%)' })).toBe('hallo von Hugo (100%)');
+  });
 });
 

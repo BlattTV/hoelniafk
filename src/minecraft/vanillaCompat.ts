@@ -209,11 +209,15 @@ export const inConfiguration = (bot: any): boolean => !!bot?._client && bot._cli
  * The vanilla client shows the unsigned content; if even that lacks the sender, the name is put
  * in front like the default chat format.
  */
-export function chatLine(text: string, position: string | undefined, msg: any, sender: string | undefined, players?: Record<string, any>): string {
+export function chatLine(text: string, position: string | undefined, msg: any, sender: string | undefined, players?: Record<string, any>, lang?: Record<string, string>): string {
   let line = String(text ?? '');
+  // the library stops at 8 nested components and drops the rest – servers that colour every word or
+  // letter (gradients, legacy colour codes) nest much deeper, so lines came out empty or cut off
+  const full = componentText(msg, lang);
+  if (full.length > line.length) line = full;
   if (position !== 'chat') return line;
   try {
-    const unsigned = msg?.unsigned?.toString?.();
+    const unsigned = msg?.unsigned ? componentText(msg.unsigned, lang) || msg.unsigned.toString?.() : '';
     if (unsigned) line = unsigned;
   } catch {
     /* keep the plain text */
@@ -221,6 +225,53 @@ export function chatLine(text: string, position: string | undefined, msg: any, s
   const name = sender ? Object.values(players ?? {}).find((p: any) => p?.uuid === sender)?.username : undefined;
   if (name && !line.includes(name)) line = `<${name}> ${line}`;
   return line;
+}
+
+const MAX_LINE = 4096;
+/**
+ * Plain text of a parsed chat message (prismarine-chat ChatMessage: text / translate+with / extra …)
+ * like its toString(), but without the depth limit of 8 (bounded by length and a generous depth).
+ */
+export function componentText(msg: any, lang?: Record<string, string>): string {
+  let out = '';
+  const walk = (c: any, depth: number): string => {
+    if (c == null || depth > 512) return '';
+    if (typeof c === 'string' || typeof c === 'number') return String(c);
+    if (typeof c !== 'object') return '';
+    let s = '';
+    if (typeof c.text === 'string' || typeof c.text === 'number') s += String(c.text);
+    else if (typeof c[''] === 'string' || typeof c[''] === 'number') s += String(c['']);
+    else if (typeof c.translate === 'string') {
+      const args: string[] = Array.isArray(c.with) ? c.with.map((w: any) => walk(w, depth + 1)) : [];
+      const format = lang?.[c.translate] ?? (typeof c.fallback === 'string' ? c.fallback : c.translate);
+      s += formatTranslation(format, args);
+    } else if (typeof c.selector === 'string') s += c.selector;
+    else if (typeof c.keybind === 'string') s += c.keybind;
+    else if (c.score && typeof c.score === 'object' && c.score.name && c.score.objective) s += `<score:${c.score.name}:${c.score.objective}>`;
+    if (Array.isArray(c.extra)) {
+      for (const e of c.extra) {
+        s += walk(e, depth + 1);
+        if (s.length > MAX_LINE) break;
+      }
+    }
+    return s;
+  };
+  try {
+    out = walk(msg, 0);
+  } catch {
+    return '';
+  }
+  return out.replace(/§[0-9a-fk-orx]/gi, '').replace(/\0/g, '').slice(0, MAX_LINE);
+}
+
+/** Minecraft translation format: %s, %1$s and %% (like the vanilla client). */
+function formatTranslation(format: string, args: string[]): string {
+  let next = 0;
+  return format.replace(/%(?:(\d+)\$)?([sd%])/g, (_m, pos: string | undefined, kind: string) => {
+    if (kind === '%') return '%';
+    const i = pos ? Number(pos) - 1 : next++;
+    return args[i] ?? '';
+  });
 }
 
 /** Plain text of a JSON text component (string form as the protocol library hands it over). */
