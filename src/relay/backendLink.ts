@@ -326,6 +326,14 @@ export class BackendLink {
     return [...out.values()].sort((a, b) => Number(b.online) - Number(a.online) || a.name.localeCompare(b.name));
   }
 
+  /** The account owner pauses / resumes one of the account's agents (its sessions stop / may start again). */
+  pauseAgent(agentId: number, paused: boolean): void {
+    const a = this.agents.get(agentId);
+    if (!a?.online) throw new SuiteError('The agent is offline', 409);
+    this.sendTo(agentId, { t: 'host', m: { cmd: paused ? 'agent.pause' : 'agent.resume' } });
+    this.audit.record(null, paused ? 'Agent paused' : 'Agent resumed', { agent: a.name });
+  }
+
   /** Account administration (admins only) – proxied to the backend's admin API. */
   async admin(method: string, path: string, body?: unknown): Promise<unknown> {
     await this.ready;

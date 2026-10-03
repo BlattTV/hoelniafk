@@ -201,6 +201,18 @@ describe('backend relay: manager and agent of the same account', () => {
     await waitFor(() => suite.sessions.getState(sid).state === 'ONLINE', 10_000, 'back ONLINE right after resume (no backoff wait)');
   }, 60_000);
 
+  it('the account owner pauses and resumes an agent from the suite (or the control app)', async () => {
+    const sid = `${identityId}:${serverId}`;
+    await waitFor(() => suite.sessions.getState(sid).state === 'ONLINE' && mc.players().includes('Remote01'), 30_000, 'online on the agent');
+    suite.backend.pauseAgent(agentId, true);
+    await waitFor(() => agent.status.state === 'paused', 5000, 'agent paused');
+    await waitFor(() => !mc.players().includes('Remote01'), 10_000, 'session stopped there');
+    await waitFor(() => suite.backend.status().agents.find((a) => a.id === agentId)?.paused === true, 5000, 'paused visible');
+    suite.backend.pauseAgent(agentId, false);
+    await waitFor(() => agent.status.state === 'online', 5000, 'agent resumed');
+    await waitFor(() => mc.players().includes('Remote01'), 30_000, 'session back on the agent');
+  }, 60_000);
+
   it('"Run on" changed while running: the session moves (this PC ↔ agent) without two logins at once', async () => {
     const sid = `${identityId}:${serverId}`;
     const joins = () => mc.joins.filter((j) => j.username === 'Remote01').length;

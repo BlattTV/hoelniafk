@@ -167,6 +167,8 @@ export class AgentCore {
   }
 
   private async handle(m: MainToHost): Promise<void> {
+    if (m.cmd === 'agent.pause') return this.pause();
+    if (m.cmd === 'agent.resume') return this.resume();
     if (m.cmd === 'start' || m.cmd === 'game.open') {
       const reason = this.status.state === 'paused' ? 'paused by the household' : await refuseReason(m, !!this.cfg.allowPrivateTargets);
       if (reason) {

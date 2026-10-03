@@ -33,7 +33,7 @@ a { color: #93c5fd; }
 .icon-btn.spin svg { animation: spin .9s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 main { padding: 14px 14px calc(96px + var(--safe-b)); max-width: 720px; margin: 0 auto; }
-.nav { position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; display: grid; grid-template-columns: repeat(5, 1fr); padding: 6px 6px calc(6px + var(--safe-b)); background: rgba(13, 20, 36, .96); backdrop-filter: blur(12px); border-top: 1px solid var(--line); }
+.nav { position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; display: grid; grid-template-columns: repeat(6, 1fr); padding: 6px 6px calc(6px + var(--safe-b)); background: rgba(13, 20, 36, .96); backdrop-filter: blur(12px); border-top: 1px solid var(--line); }
 .nav button { border: 0; background: none; color: var(--muted); display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 6px 0; font-size: 11.5px; border-radius: 12px; cursor: pointer; }
 .nav button svg { width: 22px; height: 22px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .nav button.on { color: #fff; }
@@ -121,3 +121,10 @@ details summary { color: var(--muted); font-size: 13px; cursor: pointer; margin-
 .toast { background: #1e293b; border: 1px solid #334155; border-radius: 14px; padding: 11px 14px; font-size: 13.5px; box-shadow: 0 10px 30px rgba(0, 0, 0, .35); animation: up .2s; }
 .toast.err { border-color: #7f1d1d; }
 .toast.ok { border-color: #166534; }
+
+.chat-all { height: calc(100vh - 330px); min-height: 220px; }
+.chat .who { color: #93c5fd; font-weight: 600; margin-right: 6px; }
+.chat-head { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.chat-head label { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.chat-head select { width: 100%; min-width: 0; }
+.nav button { font-size: 11px; }

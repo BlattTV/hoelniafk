@@ -501,10 +501,16 @@ verschlüsselt die Daten mit dem neuen Passwort. Danach klappt die Anmeldung auc
 Möglich sind:
 
 * Übersicht mit Sessions online, Identitäten, Agents, Sternen und einem Live-Verlauf
-* Sessions starten, stoppen und neu verbinden, Chat lesen und schreiben, „Zurück zu AFK“
-* Identitäten mit ihren Servern ansehen und einzeln oder alle starten bzw. stoppen
+* Sessions starten, stoppen und neu verbinden, „Zurück zu AFK“
+* **Chat:** eigener Tab mit dem Chat aller Sessions live; Nachrichten und /Befehle an eine Session
+  oder an alle, die gerade online sind
+* **Zuweisungen:** pro Identität festlegen, wo sie standardmäßig läuft (dieser PC oder ein Agent) und
+  pro Server abweichend; Server hinzufügen, entfernen, einzeln starten/stoppen/neu verbinden
+* **Server:** unter *Identitäten → Server & Zuweisungen* Server anlegen und löschen, Identitäten per
+  Haken einem Server zuweisen („Alle zuweisen“), alle Sessions eines Servers starten oder stoppen
+* **Agents:** Status, laufende Sessions, Identitäten dort; Agent pausieren und fortsetzen
 * Makros ausführen und stoppen, mit Protokoll
-* PCs und Agents des Kontos ansehen
+* PCs des Kontos ansehen
 
 Nicht möglich, weil es zum PC gehört: Tresor, Anmeldungen in Outlook- und Discord-Fenstern,
 gespeicherte Passwörter anzeigen, Updates und „Spiel öffnen“. Neue Funktionen der Oberfläche kommen

@@ -54,11 +54,17 @@
     for (const c of kids.flat(Infinity)) if (c !== null && c !== undefined && c !== false) el.append(c instanceof Node ? c : document.createTextNode(String(c)));
     return el;
   }
+  /** replaceChildren with the same rules as h(): arrays flattened, null / false skipped. */
+  function fill(el, ...kids) {
+    el.replaceChildren(...kids.flat(Infinity).filter((c) => c !== null && c !== undefined && c !== false).map((c) => (c instanceof Node ? c : document.createTextNode(String(c)))));
+    return el;
+  }
   const ICON = {
     home: '<path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>',
     sessions: '<rect x="3" y="4" width="18" height="6" rx="2"/><rect x="3" y="14" width="18" height="6" rx="2"/><path d="M7 7h.01M7 17h.01"/>',
     people: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5"/><circle cx="17.5" cy="8.5" r="2.5"/><path d="M17 14.5c2.4.2 4 1.8 4.5 4.5"/>',
     macro: '<path d="M4 4h7v7H4zM13 13h7v7h-7z"/><path d="M11 7.5h4.5a2 2 0 0 1 2 2V13M13 16.5H8.5a2 2 0 0 1-2-2V11"/>',
+    chat: '<path d="M4 5h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H9l-5 4v-4H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z"/><path d="M8 10h8M8 13h5"/>',
     more: '<circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/>',
     refresh: '<path d="M20 11a8 8 0 0 0-14.6-4.5L3 9M4 13a8 8 0 0 0 14.6 4.5L21 15"/><path d="M3 4v5h5M21 20v-5h-5"/>',
     play: '<path d="M7 4.5v15l12-7.5z"/>',
@@ -152,7 +158,14 @@
     } else if (ev.type === 'macro' && ev.data && ev.data.status !== 'log') feed.unshift({ at: new Date().toISOString(), text: `Makro #${ev.data.macroId}: ${ev.data.status}${ev.data.message ? ` – ${ev.data.message}` : ''}` });
     else if (ev.type === 'auth.devicecode' && ev.data) toast(`Microsoft-Anmeldung: Code ${ev.data.userCode} auf ${ev.data.verificationUri}`);
     feed.splice(30);
-    if (ev.type === 'session.chat' && openChat && ev.sessionId === openChat.id) openChat.add(ev.data);
+    if (ev.type === 'session.chat' && ev.data) {
+      if (openChat && ev.data.sessionId === openChat.id) openChat.add(ev.data);
+      if (cache.chat) {
+        cache.chat.push(ev.data);
+        cache.chat.splice(0, Math.max(0, cache.chat.length - 400));
+        if (tab === 'chat' && chatView) chatView.add(ev.data);
+      }
+    }
     if (['session.state', 'identity.changed', 'macro', 'reward.changed', 'pcs.changed'].includes(ev.type)) {
       clearTimeout(refreshTimer);
       refreshTimer = setTimeout(() => refresh(true), 600);
@@ -167,7 +180,7 @@
     topEl = h('header', { class: 'top' });
     mainEl = h('main');
     const nav = h('nav', { class: 'nav' },
-      [['home', 'Übersicht'], ['sessions', 'Sessions'], ['people', 'Identitäten'], ['macro', 'Makros'], ['more', 'Mehr']].map(([id, label]) =>
+      [['home', 'Übersicht'], ['sessions', 'Sessions'], ['chat', 'Chat'], ['people', 'Identitäten'], ['macro', 'Makros'], ['more', 'Agents']].map(([id, label]) =>
         h('button', { class: tab === id ? 'on' : '', onclick: () => { tab = id; shell(); refresh(); } }, icon(id === 'people' ? 'people' : id), label)));
     app.replaceChildren(topEl, mainEl, nav);
     paintTop();
@@ -197,8 +210,9 @@
         return;
       }
       if (tab === 'home') cache.summary = await pc('GET', '/api/summary');
-      if (tab === 'sessions' || tab === 'home') cache.sessions = await pc('GET', '/api/sessions');
+      if (tab === 'sessions' || tab === 'home' || tab === 'chat') cache.sessions = await pc('GET', '/api/sessions');
       if (tab === 'people' || tab === 'sessions' || !cache.rows) cache.rows = (await pc('GET', '/api/dashboard')).rows;
+      if (tab === 'chat') cache.chat = await pc('GET', '/api/chat?limit=200');
       if (tab === 'macro') cache.macros = await pc('GET', '/api/macros');
       if (tab === 'more') cache.agents = await pc('GET', '/api/backend/agents').catch(() => []);
       cache.error = null;
@@ -218,7 +232,7 @@
 
   function paint() {
     if (!mainEl) return;
-    const views = { home: viewHome, sessions: viewSessions, people: viewPeople, macro: viewMacros, more: viewMore };
+    const views = { home: viewHome, sessions: viewSessions, chat: viewChat, people: viewPeople, macro: viewMacros, more: viewMore };
     const parts = [];
     if (cache.error) parts.push(h('div', { class: 'banner err' }, cache.error));
     if (status && !status.active && tab !== 'more') {
@@ -355,10 +369,95 @@
       .catch((e) => box.replaceChildren(h('div', { class: 'muted' }, e.message)));
   }
 
+  // ------------------------------------------------------------------ chat (all sessions)
+  /** The chat tab is built once and kept, so a refresh never eats what is being typed. */
+  let chatView = null;
+  function viewChat() {
+    if (!chatView) chatView = buildChat();
+    chatView.update();
+    return chatView.el;
+  }
+  function buildChat() {
+    let filter = 'all';
+    let target = 'online';
+    const box = h('div', { class: 'chat chat-all' });
+    const filterSel = h('select', { onchange: () => { filter = filterSel.value; render(); } });
+    const targetSel = h('select', { onchange: () => { target = targetSel.value; } });
+    const input = h('input', { placeholder: 'Nachricht oder /befehl', enterkeyhint: 'send', maxlength: '256' });
+    const sendBtn = h('button', { class: 'btn primary' }, 'Senden');
+    const online = () => (cache.sessions || []).filter((s) => s.state === 'ONLINE');
+    const label = (s) => `${nameOf(s)} · ${s.serverName || ''}`;
+    const sessionOf = (id) => (cache.sessions || []).find((s) => s.id === id);
+    const visible = (l) => filter === 'all' || l.sessionId === filter;
+    const line = (l) => {
+      const s = sessionOf(l.sessionId);
+      const who = s ? nameOf(s) : nameOf({ id: l.sessionId });
+      return h('div', null, h('time', null, timeOf(l.ts)), filter === 'all' ? h('b', { class: 'who' }, who, s?.serverName ? h('span', { class: 'muted' }, ` @${s.serverName}`) : null) : null, l.text);
+    };
+    function render() {
+      const list = (cache.chat || []).filter(visible);
+      const stick = box.scrollHeight - box.scrollTop - box.clientHeight < 40 || !box.childElementCount;
+      box.replaceChildren(...(list.length ? list.map(line) : [h('div', { class: 'muted' }, cache.chat ? 'Noch kein Chat.' : 'Lädt…')]));
+      if (stick) box.scrollTop = box.scrollHeight;
+    }
+    function options(sel, first, value) {
+      const list = cache.sessions || [];
+      sel.replaceChildren(...first.map(([v, t]) => h('option', { value: v }, t)), ...list.map((s) => h('option', { value: s.id }, `${label(s)}${s.state === 'ONLINE' ? '' : ' (offline)'}`)));
+      sel.value = [...sel.options].some((o) => o.value === value) ? value : first[0][0];
+      return sel.value;
+    }
+    async function send() {
+      const text = input.value.trim();
+      if (!text) return;
+      const ids = target === 'online' ? online().map((s) => s.id) : [target];
+      if (!ids.length) return toast('Keine Session online', 'err');
+      if (ids.length > 1 && !confirm(`An ${ids.length} Sessions senden?\n\n${text}`)) return;
+      sendBtn.disabled = true;
+      try {
+        const r = await pc('POST', '/api/chat/send', { sessionIds: ids, text });
+        const bad = (r.results || []).filter((x) => !x.ok);
+        input.value = '';
+        if (bad.length) toast(`${bad.length} von ${ids.length} nicht gesendet: ${bad[0].error}`, 'err');
+        else toast(ids.length > 1 ? `An ${ids.length} Sessions gesendet` : 'Gesendet', 'ok');
+      } catch (e) {
+        toast(e.message, 'err');
+      } finally {
+        sendBtn.disabled = false;
+      }
+    }
+    sendBtn.addEventListener('click', send);
+    input.addEventListener('keydown', (e) => e.key === 'Enter' && send());
+    const el = h('div', null,
+      h('div', { class: 'card chat-head' },
+        h('label', null, h('span', { class: 'muted small' }, 'Anzeigen'), filterSel),
+        h('label', null, h('span', { class: 'muted small' }, 'Senden an'), targetSel)),
+      box,
+      h('div', { class: 'send' }, input, sendBtn));
+    return {
+      el,
+      update() {
+        filter = options(filterSel, [['all', 'Alle Sessions']], filter);
+        target = options(targetSel, [['online', `Alle online (${online().length})`]], target);
+        render();
+      },
+      add(l) {
+        if (!visible(l)) return;
+        if (box.firstElementChild?.classList.contains('muted')) box.replaceChildren();
+        const stick = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+        box.append(line(l));
+        while (box.childElementCount > 400) box.firstElementChild.remove();
+        if (stick) box.scrollTop = box.scrollHeight;
+      },
+    };
+  }
+
   function viewPeople() {
     const rows = cache.rows || [];
-    if (!rows.length) return h('div', { class: 'card empty' }, 'Keine Identitäten.');
-    return h('div', null, rows.map((r) => {
+    const head = h('div', { class: 'actions', style: { gridTemplateColumns: '1fr 1fr', marginBottom: '12px' } },
+      h('button', { class: 'action', onclick: () => serversSheet() }, icon('sessions'), 'Server & Zuweisungen'),
+      h('button', { class: 'action', onclick: () => { tab = 'more'; shell(); refresh(); } }, icon('people'), 'Agents'));
+    if (!rows.length) return h('div', null, head, h('div', { class: 'card empty' }, 'Keine Identitäten.'));
+    return h('div', null, head, rows.map((r) => {
       const online = r.sessions.filter((x) => x.state === 'ONLINE').length;
       const cls = r.sessions.some((x) => x.state === 'BLOCKED') ? 'err' : online ? 'ok' : r.sessions.some((x) => x.desired === 'ONLINE') ? 'warn' : '';
       const name = r.label || `Identity${pad2(r.number)}`;
@@ -370,28 +469,192 @@
     }));
   }
 
+  /** Where something runs: label of a placement / agent id. */
+  function placeLabel(agents, agentId) {
+    if (agentId === null || agentId === undefined) return status?.active?.name ? `PC „${status.active.name}“` : 'PC';
+    const a = agents.find((x) => x.id === agentId);
+    return a ? `Agent „${a.name}“${a.online ? (a.paused ? ' (pausiert)' : '') : ' (offline)'}` : `Agent #${agentId}`;
+  }
+
+  function select(options, value, onchange) {
+    const el = h('select', { onchange: (e) => onchange(e.target.value) }, options.map(([v, label]) => h('option', { value: String(v), selected: String(v) === String(value) }, label)));
+    return el;
+  }
+
+  /** Identity: servers with state, start / stop, where each runs (this PC or an agent), add / remove servers. */
   function personSheet(r) {
-    let close;
     const name = r.label || `Identity${pad2(r.number)}`;
-    close = sheet(
-      h('h2', null, name),
-      h('div', { class: 'muted small' }, `${r.minecraft.username || 'kein Minecraft'} · ${r.stars} ★ · ${r.ready ? 'bereit' : r.health}`),
-      h('div', { class: 'section-title' }, 'Server'),
-      r.sessions.length
-        ? r.sessions.map((x) => {
-            const [cls, text] = stateOf(x.state);
-            const on = x.desired === 'ONLINE';
-            return h('div', { class: 'row' },
-              h('div', { class: 'main' }, h('div', { class: 'name' }, x.serverName), h('div', { class: 'meta' }, text)),
-              h('span', { class: `pill ${cls}` }, text),
-              on
-                ? h('button', { class: 'btn small danger', onclick: () => act(async () => { await pc('POST', `/api/sessions/${x.id}/stop`); close(); }, 'Gestoppt') }, 'Stopp')
-                : h('button', { class: 'btn small primary', onclick: () => act(async () => { await pc('POST', `/api/identities/${r.id}/sessions/${x.id.split(':')[1]}/start`); close(); }, 'Startet') }, 'Start'));
-          })
-        : h('div', { class: 'muted' }, 'Keinem Server zugewiesen.'),
-      h('div', { class: 'btns' },
-        h('button', { class: 'btn', onclick: () => act(() => pc('POST', '/api/bulk', { action: 'startSessions', identityIds: [r.id] }), 'Alle Server dieser Identität starten') }, 'Alle starten'),
-        h('button', { class: 'btn', onclick: () => act(() => pc('POST', '/api/bulk', { action: 'stopSessions', identityIds: [r.id] }), 'Gestoppt') }, 'Alle stoppen')));
+    const body = h('div', null, h('div', { class: 'muted small' }, 'Lädt…'));
+    const close = sheet(h('h2', null, name), h('div', { class: 'muted small' }, `${r.minecraft.username || 'kein Minecraft'} · ${r.stars} ★ · ${r.ready ? 'bereit' : ({ OK: 'in Ordnung', WARNING: 'Hinweise', ERROR: 'Probleme', BLOCKED: 'blockiert' })[r.health] || r.health}`), body);
+    const reload = async () => {
+      try {
+        const [detail, servers, agents, rows] = await Promise.all([pc('GET', `/api/identities/${r.id}`), pc('GET', '/api/servers'), pc('GET', '/api/backend/agents').catch(() => []), pc('GET', '/api/dashboard').then((d) => d.rows)]);
+        const row = rows.find((x) => x.id === r.id) || r;
+        const identityAgent = detail.identity.settings.agentId ?? null;
+        const agentOpts = agents.map((a) => [a.id, placeLabel(agents, a.id)]);
+        const change = (fn, ok) => act(async () => { await fn(); await reload(); }, ok);
+        const assigned = new Set(detail.assignments.map((a) => a.serverId));
+        const free = servers.filter((x) => !assigned.has(x.id));
+        fill(body, 
+          h('div', { class: 'section-title' }, 'Läuft standardmäßig auf'),
+          h('div', { class: 'card' },
+            select([['', placeLabel(agents, null)], ...agentOpts], identityAgent ?? '', (v) =>
+              change(() => pc('PUT', `/api/identities/${r.id}`, { settings: { agentId: v === '' ? null : Number(v) } }), 'Gespeichert – laufende Sessions ziehen um')),
+            h('p', { class: 'muted small' }, 'Gilt für alle Server dieser Identität, die nicht unten etwas Eigenes haben.')),
+          h('div', { class: 'section-title' }, 'Server & Zuweisungen'),
+          detail.assignments.length
+            ? detail.assignments.map((a) => {
+                const sess = row.sessions.find((x) => x.serverId === a.serverId) || { state: 'STOPPED', desired: a.desiredState };
+                const [cls, text] = stateOf(sess.state);
+                const server = servers.find((x) => x.id === a.serverId);
+                const p = a.placement;
+                const pval = p === 'default' || !p ? 'default' : p === 'local' ? 'local' : String(p.agentId);
+                const on = a.desiredState === 'ONLINE';
+                return h('div', { class: 'card' },
+                  h('div', { style: { display: 'flex', alignItems: 'center', gap: '10px' } },
+                    h('div', { style: { flex: '1', minWidth: '0' } }, h('div', { class: 'name' }, h('b', null, server?.name ?? `Server ${a.serverId}`)), h('div', { class: 'muted small' }, server ? `${server.host}${server.port !== 25565 ? `:${server.port}` : ''}` : '')),
+                    h('span', { class: `pill ${cls}` }, text)),
+                  h('label', null, 'Läuft auf'),
+                  select([['default', `Wie die Identität (${placeLabel(agents, identityAgent)})`], ['local', placeLabel(agents, null)], ...agentOpts], pval, (v) =>
+                    change(() => pc('PUT', `/api/identities/${r.id}/servers/${a.serverId}/placement`, { placement: v === 'default' || v === 'local' ? v : Number(v) }), 'Gespeichert – die Session zieht um')),
+                  h('div', { class: 'btns' },
+                    on
+                      ? h('button', { class: 'btn small danger', onclick: () => change(() => pc('POST', `/api/sessions/${r.id}:${a.serverId}/stop`), 'Gestoppt') }, 'Stoppen')
+                      : h('button', { class: 'btn small primary', onclick: () => change(() => pc('POST', `/api/identities/${r.id}/sessions/${a.serverId}/start`), 'Startet') }, 'Starten'),
+                    on ? h('button', { class: 'btn small', onclick: () => change(() => pc('POST', `/api/sessions/${r.id}:${a.serverId}/reconnect`), 'Verbindet neu') }, 'Neu verbinden') : null,
+                    h('button', { class: 'btn small danger', onclick: () => confirm(`${server?.name ?? 'Server'} von ${name} entfernen? Die Session wird beendet.`) && change(() => pc('DELETE', `/api/identities/${r.id}/servers/${a.serverId}`), 'Zuweisung entfernt') }, 'Entfernen')));
+              })
+            : h('div', { class: 'card muted' }, 'Keinem Server zugewiesen.'),
+          free.length
+            ? h('div', { class: 'card' },
+                h('label', null, 'Server hinzufügen'),
+                (() => {
+                  const sel = select(free.map((x) => [x.id, x.name]), free[0].id, () => undefined);
+                  return h('div', { class: 'send' }, sel, h('button', { class: 'btn primary', onclick: () => change(() => pc('PUT', `/api/identities/${r.id}/servers/${sel.value}`, {}), 'Server zugewiesen') }, 'Hinzufügen'));
+                })())
+            : null,
+          h('div', { class: 'btns' },
+            h('button', { class: 'btn', onclick: () => change(() => pc('POST', '/api/bulk', { action: 'startSessions', identityIds: [r.id] }), 'Alle Server dieser Identität starten') }, 'Alle starten'),
+            h('button', { class: 'btn', onclick: () => change(() => pc('POST', '/api/bulk', { action: 'stopSessions', identityIds: [r.id] }), 'Gestoppt') }, 'Alle stoppen')));
+      } catch (e) {
+        fill(body, h('div', { class: 'banner err' }, e.message));
+      }
+    };
+    void reload();
+    return close;
+  }
+
+  /** Servers: add one, see who is assigned, assign a server to several identities at once. */
+  function serversSheet() {
+    const body = h('div', null, h('div', { class: 'muted small' }, 'Lädt…'));
+    sheet(h('h2', null, 'Server & Zuweisungen'), body);
+    const reload = async () => {
+      try {
+        const [servers, rows] = await Promise.all([pc('GET', '/api/servers'), pc('GET', '/api/dashboard').then((d) => d.rows)]);
+        const assignedTo = (sid) => rows.filter((r) => r.sessions.some((x) => x.serverId === sid));
+        const name = h('input', { placeholder: 'Name, z. B. SMP' });
+        const host = h('input', { placeholder: 'Adresse, z. B. play.example.de', autocapitalize: 'none', inputmode: 'url' });
+        const port = h('input', { placeholder: '25565', inputmode: 'numeric' });
+        fill(body, [
+          servers.length
+            ? servers.map((x) => {
+                const who = assignedTo(x.id);
+                const online = rows.reduce((n, r) => n + r.sessions.filter((y) => y.serverId === x.id && y.state === 'ONLINE').length, 0);
+                return h('div', { class: 'row', onclick: () => serverSheet(x) },
+                  h('div', { class: 'avatar' }, x.name.slice(0, 2).toUpperCase()),
+                  h('div', { class: 'main' }, h('div', { class: 'name' }, x.name), h('div', { class: 'meta' }, `${x.host}${x.port !== 25565 ? `:${x.port}` : ''} · ${who.length} Identität(en)`)),
+                  h('span', { class: `pill ${online ? 'ok' : ''}` }, `${online} online`));
+              })
+            : h('div', { class: 'card muted' }, 'Noch keine Server.'),
+          h('div', { class: 'section-title' }, 'Neuer Server'),
+          h('div', { class: 'card' }, name, h('div', { style: { height: '8px' } }), host, h('div', { style: { height: '8px' } }), port,
+            h('button', { class: 'btn primary wide', style: { marginTop: '10px' }, onclick: () => act(async () => {
+              if (!name.value.trim() || !host.value.trim()) throw new Error('Name und Adresse eingeben');
+              const created = await pc('POST', '/api/servers', { name: name.value.trim(), host: host.value.trim(), port: Number(port.value) || 25565 });
+              serverSheet(created);
+            }, 'Server angelegt') }, 'Server anlegen'))]);
+      } catch (e) {
+        fill(body, h('div', { class: 'banner err' }, e.message));
+      }
+    };
+    void reload();
+  }
+
+  /** One server: tick the identities that should play there; start / stop them all there. */
+  function serverSheet(x) {
+    const body = h('div', null, h('div', { class: 'muted small' }, 'Lädt…'));
+    sheet(h('h2', null, x.name), h('div', { class: 'muted small' }, `${x.host}${x.port !== 25565 ? `:${x.port}` : ''}`), body);
+    const reload = async () => {
+      try {
+        const rows = (await pc('GET', '/api/dashboard')).rows;
+        const has = (r) => r.sessions.some((y) => y.serverId === x.id);
+        const change = (fn, ok) => act(async () => { await fn(); await reload(); }, ok);
+        const assigned = rows.filter(has);
+        fill(body, 
+          h('div', { class: 'section-title' }, `Identitäten auf diesem Server (${assigned.length}/${rows.length})`),
+          rows.length
+            ? rows.map((r) => {
+                const sess = r.sessions.find((y) => y.serverId === x.id);
+                const [cls, text] = sess ? stateOf(sess.state) : ['', 'nicht zugewiesen'];
+                const box = h('input', { type: 'checkbox', checked: !!sess, style: { width: '22px', height: '22px', flex: 'none' } });
+                box.addEventListener('change', () => change(
+                  () => (box.checked ? pc('PUT', `/api/identities/${r.id}/servers/${x.id}`, {}) : pc('DELETE', `/api/identities/${r.id}/servers/${x.id}`)),
+                  box.checked ? 'Zugewiesen' : 'Zuweisung entfernt'));
+                return h('label', { class: 'row', style: { margin: '0 0 8px' } }, box,
+                  h('div', { class: 'main' }, h('div', { class: 'name' }, r.label || r.minecraft.username || `#${r.number}`), h('div', { class: 'meta' }, r.minecraft.username || '')),
+                  h('span', { class: `pill ${cls}` }, text));
+              })
+            : h('div', { class: 'card muted' }, 'Keine Identitäten.'),
+          h('div', { class: 'btns' },
+            h('button', { class: 'btn', onclick: () => change(async () => { for (const r of rows.filter((r) => !has(r))) await pc('PUT', `/api/identities/${r.id}/servers/${x.id}`, {}); }, 'Alle zugewiesen') }, 'Alle zuweisen'),
+            assigned.length ? h('button', { class: 'btn primary', onclick: () => change(() => pc('POST', '/api/bulk', { action: 'startSessions', identityIds: assigned.map((r) => r.id), serverIds: [x.id] }), 'Starten auf diesem Server') }, 'Alle hier starten') : null,
+            assigned.length ? h('button', { class: 'btn', onclick: () => change(() => pc('POST', '/api/bulk', { action: 'stopSessions', identityIds: assigned.map((r) => r.id), serverIds: [x.id] }), 'Gestoppt') }, 'Alle hier stoppen') : null),
+          h('div', { class: 'btns' },
+            h('button', { class: 'btn danger small', onclick: () => confirm(`Server „${x.name}“ löschen? Alle Zuweisungen zu ihm werden entfernt.`) && act(async () => { await pc('DELETE', `/api/servers/${x.id}`); serversSheet(); }, 'Server gelöscht') }, 'Server löschen')));
+      } catch (e) {
+        fill(body, h('div', { class: 'banner err' }, e.message));
+      }
+    };
+    void reload();
+  }
+
+  /** Agent: online / paused, its sessions, pause / resume, which identities run there. */
+  function agentSheet(a) {
+    const body = h('div', null, h('div', { class: 'muted small' }, 'Lädt…'));
+    sheet(h('h2', null, a.name), body);
+    const reload = async () => {
+      try {
+        const [agents, rows] = await Promise.all([pc('GET', '/api/backend/agents'), pc('GET', '/api/dashboard').then((d) => d.rows)]);
+        const ag = agents.find((x) => x.id === a.id) || a;
+        const nameOfSid = (sid) => {
+          const r = rows.find((x) => String(x.id) === String(sid).split(':')[0]);
+          const sess = r?.sessions.find((x) => x.id === sid);
+          return `${r ? r.minecraft.username || r.label : sid}${sess ? ` · ${sess.serverName}` : ''}`;
+        };
+        const change = (fn, ok) => act(async () => { await fn(); setTimeout(reload, 700); }, ok);
+        fill(body, 
+          h('div', null, h('span', { class: `pill ${ag.online ? (ag.paused ? 'warn' : 'ok') : ''}` }, ag.online ? (ag.paused ? 'pausiert' : 'online') : 'offline'), ' ',
+            h('span', { class: 'muted small' }, [ag.info?.os, ag.ip].filter(Boolean).join(' · '))),
+          h('div', { class: 'kv' },
+            h('div', null, 'Sessions dort'), h('div', null, String(ag.sessions?.length ?? 0)),
+            ag.lastSeenAt ? [h('div', null, 'Zuletzt gesehen'), h('div', null, new Date(ag.lastSeenAt).toLocaleString('de-DE'))] : null),
+          ag.online
+            ? h('div', { class: 'btns' }, ag.paused
+                ? h('button', { class: 'btn primary', onclick: () => change(() => pc('POST', `/api/backend/agents/${ag.id}/pause`, { paused: false }), 'Agent fortgesetzt') }, 'Fortsetzen')
+                : h('button', { class: 'btn danger', onclick: () => confirm(`„${ag.name}“ pausieren? Die Sessions dort werden beendet und starten erst nach dem Fortsetzen wieder.`) && change(() => pc('POST', `/api/backend/agents/${ag.id}/pause`, { paused: true }), 'Agent pausiert') }, 'Pausieren'))
+            : h('p', { class: 'muted small' }, 'Offline – Sessions, die hier laufen sollen, warten, bis der Agent wieder online ist.'),
+          h('div', { class: 'section-title' }, 'Läuft gerade dort'),
+          ag.sessions?.length ? h('div', { class: 'card feed' }, ag.sessions.map((sid) => h('div', null, h('span', { class: 'dot ok' }), h('span', null, nameOfSid(sid))))) : h('div', { class: 'card muted' }, 'Nichts.'),
+          h('div', { class: 'section-title' }, 'Identitäten, die standardmäßig hier laufen'),
+          (() => {
+            const list = rows.filter((r) => r.agentId === ag.id);
+            return list.length ? h('div', { class: 'card feed' }, list.map((r) => h('div', null, h('span', null, r.label || r.minecraft.username)))) : h('div', { class: 'card muted small' }, 'Zuweisen: unter Identitäten → Identität antippen → „Läuft auf“.');
+          })());
+      } catch (e) {
+        fill(body, h('div', { class: 'banner err' }, e.message));
+      }
+    };
+    void reload();
   }
 
   function viewMacros() {
@@ -414,16 +677,16 @@
   function viewMore() {
     const agents = cache.agents || [];
     return h('div', null,
+      h('div', { class: 'section-title' }, 'Agents', h('span', { class: 'muted small' }, 'antippen zum Steuern')),
+      agents.length
+        ? agents.map((a) => h('div', { class: 'row', onclick: () => agentSheet(a) },
+            h('span', { class: `dot ${a.online ? (a.paused ? 'warn' : 'ok') : ''}` }),
+            h('div', { class: 'main' }, h('div', { class: 'name' }, a.name), h('div', { class: 'meta' }, `${a.online ? (a.paused ? 'pausiert' : 'online') : 'offline'}${a.sessions?.length ? ` · ${a.sessions.length} Session(s)` : ''}${a.info?.os ? ` · ${a.info.os}` : ''}`))))
+        : h('div', { class: 'card empty' }, 'Keine Agents – installiere den Hoelni Agent auf einem PC oder Handy und melde ihn mit diesem Konto an.'),
       h('div', { class: 'section-title' }, 'PCs dieses Kontos'),
       (status?.pcs || []).length
         ? status.pcs.map((p) => h('div', { class: 'row' }, h('span', { class: `dot ${p.active ? 'ok' : 'info'}` }), h('div', { class: 'main' }, h('div', { class: 'name' }, p.name), h('div', { class: 'meta' }, p.active ? 'aktiv – lässt die Sessions laufen' : 'Standby')), h('span', { class: `pill ${p.active ? 'ok' : ''}` }, p.active ? 'aktiv' : 'Standby')))
         : h('div', { class: 'card empty' }, 'Kein PC verbunden.'),
-      h('div', { class: 'section-title' }, 'Agents'),
-      agents.length
-        ? agents.map((a) => h('div', { class: 'row' },
-            h('span', { class: `dot ${a.online ? (a.paused ? 'warn' : 'ok') : ''}` }),
-            h('div', { class: 'main' }, h('div', { class: 'name' }, a.name), h('div', { class: 'meta' }, `${a.online ? (a.paused ? 'pausiert' : 'online') : 'offline'}${a.sessions?.length ? ` · ${a.sessions.length} Session(s)` : ''}${a.info?.os ? ` · ${a.info.os}` : ''}`))))
-        : h('div', { class: 'card empty' }, 'Keine Agents.'),
       h('div', { class: 'section-title' }, 'Konto'),
       h('div', { class: 'card' },
         h('div', { class: 'kv' }, h('div', null, 'Angemeldet als'), h('div', null, status?.user?.username || session.user), h('div', null, 'Gerät'), h('div', null, status?.device?.name || '–'), h('div', null, 'Backend'), h('div', null, location.host)),
@@ -491,7 +754,7 @@
   setInterval(() => session && mainEl && !document.hidden && refresh(true), 30_000);
   // the Android app opens a tab directly (widget buttons)
   const want = new URLSearchParams(location.search).get('tab');
-  if (want && ['home', 'sessions', 'people', 'macro', 'more'].includes(want)) tab = want;
+  if (want && ['home', 'sessions', 'chat', 'people', 'macro', 'more'].includes(want)) tab = want;
   if (session?.token) start();
   else viewLogin();
 })();

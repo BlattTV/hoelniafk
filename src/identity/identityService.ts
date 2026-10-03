@@ -14,6 +14,8 @@ export interface DashboardRow {
   label: string;
   health: HealthReport['level'];
   ready: boolean;
+  /** Agent this identity runs on by default (null = the PC of the suite). */
+  agentId: number | null;
   minecraft: { username: string | null; authStatus: string | null; online: number; sessions: number };
   sessions: Array<{ id: string; serverId: number; serverName: string; desired: string; state: string; lastError: string | null }>;
   discord: { state: string; linkState: string; username: string | null; pendingLinkCode: string | null };
@@ -133,6 +135,7 @@ export class IdentityService {
         label: identity.label,
         health: report.level,
         ready: report.ready,
+        agentId: identity.settings.agentId ?? null,
         minecraft: {
           username: mc?.username ?? null,
           authStatus: mc?.authStatus ?? null,
