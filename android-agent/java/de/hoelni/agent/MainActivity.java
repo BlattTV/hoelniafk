@@ -85,6 +85,31 @@ public class MainActivity extends Activity {
       }
     }
 
+    /** Start problems: the last start errors and the end of the agent log (no secrets are logged). */
+    @JavascriptInterface
+    public String diagnostics() {
+      File dir = AgentService.dataDir(a);
+      return "Android " + Build.VERSION.RELEASE + " (API " + Build.VERSION.SDK_INT + "), " + Build.MANUFACTURER + " " + Build.MODEL + ", ABI " + java.util.Arrays.toString(Build.SUPPORTED_ABIS)
+          + "\n\n" + tail(new File(dir, "start-error.txt"), 2000) + "\n" + tail(new File(dir, "agent.log"), 4000);
+    }
+
+    private String tail(File f, int max) {
+      try {
+        java.io.RandomAccessFile r = new java.io.RandomAccessFile(f, "r");
+        try {
+          long start = Math.max(0, r.length() - max);
+          byte[] b = new byte[(int) (r.length() - start)];
+          r.seek(start);
+          r.readFully(b);
+          return new String(b, "UTF-8");
+        } finally {
+          r.close();
+        }
+      } catch (Exception e) {
+        return "";
+      }
+    }
+
     @JavascriptInterface
     public boolean isEnabled() {
       return AgentService.enabled(a);

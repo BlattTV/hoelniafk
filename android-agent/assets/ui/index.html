@@ -50,10 +50,24 @@
   <div id="app"><section><p class="muted">Agent startet …</p></section></div>
 </main>
 <script>
+/* runs on every WebView (ES5): the UI below needs a WebView from 2017 or newer (async functions) */
+(function () {
+  var ok = true;
+  try { new Function('async function a(){ await 0; } var b = (c) => `${c}`;'); } catch (e) { ok = false; }
+  if (ok) return;
+  document.addEventListener('DOMContentLoaded', function () {
+    document.body.innerHTML = '<main style="padding:24px;font:16px sans-serif;color:#e6edf7;background:#0b1220;min-height:100vh">' +
+      '<h2>WebView zu alt</h2><p>Die Anzeige dieser App braucht eine neuere <b>Android System WebView</b>.</p>' +
+      '<p>Play Store öffnen → nach <b>Android System WebView</b> suchen → <b>Aktualisieren</b>. Danach die App neu öffnen.</p>' +
+      "</main>";
+  });
+})();
+</script>
+<script>
 'use strict';
 const app = window.HoelniApp; // bridge of the Android app
 const $ = (sel) => document.querySelector(sel);
-const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+const esc = (s) => String(s === null || s === undefined ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 let ctl = null;
 let last = null;
 let busy = false;
@@ -92,6 +106,7 @@ const STATE = {
   revoked: ['err', 'Gerät wurde im Backend abgemeldet'],
 };
 
+let startingSince = 0;
 function render(st, error) {
   const enabled = app.isEnabled();
   const root = $('#app');
@@ -101,10 +116,16 @@ function render(st, error) {
     return;
   }
   if (!st) {
-    root.innerHTML = `<section><div class="switch"><div><div class="state"><span class="dot warn"></span>Agent startet …</div><p class="muted">${error ? esc(error) : 'Einen Moment.'}</p></div><div class="toggle on" id="power"></div></div></section>`;
+    if (!startingSince) startingSince = Date.now();
+    const slow = Date.now() - startingSince > 25000;
+    const diag = slow && app.diagnostics ? app.diagnostics() : '';
+    root.innerHTML = `<section><div class="switch"><div><div class="state"><span class="dot warn"></span>Agent startet …</div><p class="muted">${error ? esc(error) : 'Einen Moment.'}</p></div><div class="toggle on" id="power"></div></div></section>` +
+      (slow ? `<section><h2>Startet nicht?</h2><p class="muted">Das hier hilft bei der Fehlersuche – kopieren und weitergeben (enthält keine Passwörter).</p><pre id="diag" style="white-space:pre-wrap;font-size:11px;max-height:40vh;overflow:auto">${esc(diag || 'Noch keine Einträge.')}</pre><div class="row"><button id="copydiag">Kopieren</button></div></section>` : '');
     $('#power').onclick = () => { app.setEnabled(false); ctl = null; render(null); };
+    if (slow) $('#copydiag').onclick = () => { const r = document.createRange(); r.selectNodeContents($('#diag')); const s = window.getSelection(); s.removeAllRanges(); s.addRange(r); try { document.execCommand('copy'); } catch (e) { /* select only */ } };
     return;
   }
+  startingSince = 0;
   if (!st.signedIn) return renderLogin(st);
   if (typing) return;
   const a = st.agent || { state: 'connecting', sessions: [], managerOnline: false };
@@ -152,8 +173,9 @@ function render(st, error) {
 function renderLogin(st, error) {
   const root = $('#app');
   if (root.querySelector('#login') && !error && !trust) return; // keep what is being typed
-  const keep = (id) => root.querySelector('#' + id)?.value;
-  const v = { user: keep('user') ?? '', name: keep('name') ?? app.deviceName(), backend: keep('backend') ?? st.backendUrl };
+  const keep = (id) => { const el = root.querySelector('#' + id); return el ? el.value : undefined; };
+  const or = (a, b) => (a === undefined || a === null ? b : a);
+  const v = { user: or(keep('user'), ''), name: or(keep('name'), app.deviceName()), backend: or(keep('backend'), st.backendUrl) };
   root.innerHTML = `
     <section id="login">
       <h2>Mit dem Hoelni-Konto anmelden</h2>

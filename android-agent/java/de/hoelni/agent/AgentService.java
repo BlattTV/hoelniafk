@@ -112,15 +112,31 @@ public class AgentService extends Service {
           code = NodeRunner.start(args);
         } catch (Throwable e) {
           Log.e(TAG, "agent could not start", e);
+          note(ctx, "start failed: " + e);
           code = -1;
         }
         Log.w(TAG, "agent ended with code " + code);
+        if (code != 0) note(ctx, "agent ended with code " + code);
         // Node runs only once per process: end the process, Android starts the service again
         // (START_STICKY) as long as the agent is switched on.
         System.exit(code == 0 ? 0 : 1);
       }
     }, "node", 16L * 1024 * 1024);
     t.start();
+  }
+
+  /** Why the agent did not start / ended – shown in the app ("Agent startet …" for too long). */
+  static void note(Context ctx, String text) {
+    try {
+      java.io.FileWriter w = new java.io.FileWriter(new File(dataDir(ctx), "start-error.txt"), true);
+      try {
+        w.write(new java.util.Date() + "  " + text + "  (Android " + Build.VERSION.RELEASE + ", API " + Build.VERSION.SDK_INT + ", " + Build.MODEL + ", " + java.util.Arrays.toString(Build.SUPPORTED_ABIS) + ")\n");
+      } finally {
+        w.close();
+      }
+    } catch (Exception ignored) {
+      // diagnostics only
+    }
   }
 
   static String deviceName() {
