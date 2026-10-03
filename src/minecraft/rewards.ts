@@ -25,6 +25,7 @@ export class RewardTracker {
   ) {}
 
   handleChatEvents(identityId: number, serverId: number, serverName: string, events: ChatEvent[], line = ''): void {
+    if (!this.counts(serverId)) return;
     const st = this.repo.getServerReward(identityId, serverId);
     const before = JSON.stringify(st);
     const hist: Array<[ServerRewardHistoryKind, number, string]> = [];
@@ -83,6 +84,7 @@ export class RewardTracker {
    * calibrates (history kind 'sync', not counted as gained); every later change is stars gained / spent.
    */
   handleScoreboard(identityId: number, serverId: number, serverName: string, stars: number, line: string): void {
+    if (!this.counts(serverId)) return;
     const key = `${identityId}:${serverId}`;
     this.scoreboardAt.set(key, Date.now());
     const known = this.scoreboardKnown.has(key) || this.repo.hasScoreboardHistory(identityId, serverId);
@@ -112,9 +114,26 @@ export class RewardTracker {
     return st;
   }
 
+  /** Stars are counted on this server (setting per server). */
+  private counts(serverId: number): boolean {
+    try {
+      return this.repo.getServer(serverId).trackStars;
+    } catch {
+      return false;
+    }
+  }
+
   recalc(identityId: number): void {
-    const all = this.repo.listServerRewards(identityId);
-    if (!all.length) return;
+    const counted = this.repo.starServerIds();
+    const all = this.repo.listServerRewards(identityId).filter((s) => counted.has(s.serverId));
+    if (!all.length) {
+      // no server with stars (any more): the total is 0
+      if (this.repo.getRewards(identityId).stars !== 0 && this.repo.listServerRewards(identityId).length) {
+        this.repo.db.prepare('UPDATE reward_states SET stars = 0, last_update = ? WHERE identity_id = ?').run(nowIso(), identityId);
+        this.bus.emit({ type: 'reward.changed', identityId, data: this.repo.getRewards(identityId) });
+      }
+      return;
+    }
     const stars = all.reduce((a, s) => a + s.stars, 0);
     const eligible = all.some((s) => s.eligible === true);
     const cur = this.repo.getRewards(identityId);

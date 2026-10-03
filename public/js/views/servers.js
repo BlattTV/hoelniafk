@@ -13,8 +13,10 @@ export async function serversView(root) {
       h('div', { class: 'page-head' }, h('div', null, h('h1', null, 'Minecraft Servers'), h('div', { class: 'sub' }, 'Your own servers / test environments. Identities are assigned per server; each identity can run sessions on several servers at once.'))),
       h('section', { class: 'card' },
         servers.length
-          ? h('table', null, h('thead', null, h('tr', null, ['Name', 'Host', 'Port', 'Version', ''].map((t) => h('th', null, t)))),
+          ? h('table', null, h('thead', null, h('tr', null, ['Name', 'Host', 'Port', 'Version', 'Count stars', ''].map((t) => h('th', null, t)))),
               h('tbody', null, servers.map((s) => h('tr', null, h('td', null, s.name), h('td', { class: 'mono' }, s.host), h('td', { class: 'mono' }, String(s.port)), h('td', null, s.version ?? 'auto'),
+                h('td', null, h('label', { class: 'row', style: { gap: '6px' }, title: 'Read stars on this server (chat messages and scoreboard) and count them in the statistics' },
+                  h('input', { type: 'checkbox', checked: s.trackStars !== false, onchange: (e) => guard(async () => { await api.patch(`/api/servers/${s.id}`, { trackStars: e.target.checked }); await render(); }, e.target.checked ? 'Stars are counted on this server' : 'Stars are no longer counted on this server') }))),
                 h('td', null, h('button', { class: 'small danger', onclick: () => confirm(`Delete server ${s.name}? Assignments are removed.`) && guard(async () => { await api.del(`/api/servers/${s.id}`); await render(); }) }, '✕'))))))
           : h('p', { class: 'muted' }, 'No servers yet.')),
       h('section', { class: 'card' }, h('h2', null, 'Add server'), f,

@@ -355,26 +355,29 @@ export function sessionsSection(ctx) {
     h('p', { class: 'muted' }, 'Desired state is maintained automatically: a session that should be online is reconnected according to the reconnect policy (rules.yaml).'),
     h('p', { class: 'muted' }, 'Runs on: each server can run on this PC or on its own agent (PC in another household). “Like the identity” uses the default under Settings.'),
     meta.servers.length
-      ? h('table', null,
-          h('thead', null, h('tr', null, ['Server', 'Assigned', 'Should be', 'Runs on', 'Network', 'State', 'Details', ''].map((t) => h('th', null, t)))),
-          h('tbody', null, meta.servers.map((s) => {
+      ? h('table', { class: 'assign-table' },
+          h('thead', null, h('tr', null, ['Server', 'Assigned', 'Should be', 'Runs on', 'Network', 'State'].map((t) => h('th', null, t)))),
+          h('tbody', null, meta.servers.flatMap((s) => {
             const a = byServer.get(s.id);
             const sess = sessionFor(s.id);
             const sid = `${id}:${s.id}`;
             const update = (patch) => guard(async () => { await api.put(`/api/identities/${id}/servers/${s.id}`, { enabled: a?.enabled ?? true, autoStart: a?.autoStart ?? false, networkProfileId: a?.networkProfileId ?? null, desiredState: a?.desiredState ?? 'OFFLINE', ...patch }); await reload(); });
             const st = sess?.stats;
-            return h('tr', null,
+            // main row: settings and state; the actions go into a row of their own below (no sideways scrolling)
+            const main = h('tr', { class: a ? 'has-actions' : '' },
               h('td', null, s.name, h('div', { class: 'muted' }, `${s.host}:${s.port}`)),
               h('td', null, h('input', { type: 'checkbox', title: 'Assign this server', checked: !!a && a.enabled, onchange: (e) => (e.target.checked ? update({ enabled: true }) : guard(async () => { await api.del(`/api/identities/${id}/servers/${s.id}`); await reload(); })) })),
               h('td', null, a ? select('desired', [['ONLINE', 'online'], ['OFFLINE', 'offline']], a.desiredState, { title: 'Desired state (SHOULD_BE_ONLINE / OFFLINE)', onchange: (e) => guard(async () => { await api.put(`/api/identities/${id}/servers/${s.id}/desired`, { state: e.target.value }); await reload(); }) }) : '–'),
               h('td', null, a ? placementSelect(a, data.identity.settings.agentId, (v) => guard(async () => { await api.put(`/api/identities/${id}/servers/${s.id}/placement`, { placement: v }); await reload(); }, 'Saved – the session moves there')) : '–'),
               h('td', null, a ? select('np', profileOpts, a.networkProfileId ?? '', { title: 'Per-session network override', onchange: (e) => update({ networkProfileId: e.target.value ? Number(e.target.value) : null }) }) : '–'),
-              h('td', null, sess ? stateBadge(sess.state, sess.lastError ?? '') : h('span', { class: 'muted' }, '–'), gameBadge(sess), scheduleNote(sess)),
-              h('td', { class: 'muted', style: { fontSize: '12px', maxWidth: '260px' } },
-                sess?.state === 'ONLINE' ? h('span', { dataset: { stats: sess.id } }, st ? statsText(st) : '') : null,
-                sess?.state === 'RECONNECTING' ? `next attempt ${relTime(sess.nextAttemptAt)} · failures ${sess.consecutiveFailures}` : null,
-                sess?.lastError && sess.state !== 'ONLINE' ? h('div', { class: sess.state === 'BLOCKED' ? 's-error' : '' }, sess.lastError) : null),
-              h('td', null, a ? h('div', { class: 'row-actions' },
+              h('td', null, sess ? stateBadge(sess.state, sess.lastError ?? '') : h('span', { class: 'muted' }, '–'), gameBadge(sess), scheduleNote(sess),
+                h('div', { class: 'muted', style: { fontSize: '12px', maxWidth: '280px' } },
+                  sess?.state === 'ONLINE' ? h('span', { dataset: { stats: sess.id } }, st ? statsText(st) : '') : null,
+                  sess?.state === 'RECONNECTING' ? `next attempt ${relTime(sess.nextAttemptAt)} · failures ${sess.consecutiveFailures}` : null,
+                  sess?.lastError && sess.state !== 'ONLINE' ? h('div', { class: sess.state === 'BLOCKED' ? 's-error' : '' }, sess.lastError) : null)),
+            );
+            if (!a) return [main];
+            return [main, h('tr', { class: 'actions-row' }, h('td', { colspan: '6' }, h('div', { class: 'toolbar' },
                 !sess || ['STOPPED', 'BLOCKED', 'RECONNECTING'].includes(sess.state)
                   ? h('button', { class: 'small primary', title: 'Set desired ONLINE and connect now', onclick: () => guard(async () => { await api.post(`/api/identities/${id}/sessions/${s.id}/start`); await reload(); }) }, 'Start')
                   : h('button', { class: 'small', title: 'Set desired OFFLINE and disconnect', onclick: () => guard(async () => { await api.post(`/api/sessions/${sid}/stop`); await reload(); }) }, 'Stop'),
@@ -383,12 +386,23 @@ export function sessionsSection(ctx) {
                 h('button', { class: 'small', title: 'Stable: the game signs in with its own login (the AFK session steps aside for a moment and comes back when you close the game)', onclick: () => openGame(api, sid, 'stable').then(reload) }, 'Stable'),
                 sess?.runtime === 'game' || (sess?.game && !['closed', 'failed'].includes(sess.game.status)) ? h('button', { class: 'small', title: 'Close / minimize the game – the account stays online in AFK mode', onclick: () => closeGame(api, sid).then(reload) }, 'Back to AFK') : null,
                 h('button', { class: 'small', onclick: () => openChat({ id: sid, serverName: s.name }, ctx) }, 'Chat'),
-                h('button', { class: 'small', onclick: () => openSessionLog(sid, `${s.name}`) }, 'Log')) : null),
-            );
+                h('button', { class: 'small', onclick: () => openSessionLog(sid, `${s.name}`) }, 'Log'),
+                h('button', { class: 'small', title: 'The sidebar scoreboard as the player sees it – what the star recognition reads', onclick: () => openScoreboard(sid, s.name) }, 'Scoreboard'))))];
           })),
         )
       : h('p', { class: 'muted' }, 'No servers defined yet – add them under “Server Profiles”.'),
   );
+}
+
+/** The sidebar scoreboard of a session (what the star recognition reads). */
+export async function openScoreboard(sessionId, title) {
+  const sb = await api.get(`/api/sessions/${encodeURIComponent(sessionId)}/scoreboard`).catch(() => null);
+  modal(`Scoreboard – ${title}`, h('div', null,
+    sb?.lines?.length
+      ? [sb.title ? h('p', null, h('strong', null, sb.title)) : null,
+          h('div', { class: 'chat', style: { height: 'auto', maxHeight: '420px' } }, sb.lines.map((l) => h('div', null, l.text || ' ', l.hidden ? null : h('span', { class: 'muted' }, `  (${l.value})`)))),
+          h('p', { class: 'muted' }, `${t('Read')} ${fmtTime(sb.at)}. ${t('Stars are recognised in lines like “Sterne: 1.234”, “⭐ 87” or “1500 Stars” (rules.yaml → scoreboard).')}`)]
+      : h('p', { class: 'muted' }, 'No scoreboard received from this session yet (the session must be online; agents need the current version).')));
 }
 
 export function openChat(sess, ctx) {

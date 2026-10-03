@@ -384,3 +384,38 @@ button.link-button:hover { color: var(--text); background: none; }
   padding: 10px 14px; border-radius: var(--radius); border: 1px solid var(--warning); background: var(--panel); box-shadow: 0 8px 28px rgba(0,0,0,.28); font-size: 13.5px; }
 .standby-banner[hidden] { display: none; }
 ul.plain { list-style: none; margin: 0; padding: 0; }
+/* identity → server assignments: compact selects, actions in their own row (no sideways scrolling) */
+.assign-table select { max-width: 200px; min-width: 96px; width: 100%; text-overflow: ellipsis; }
+.card select { max-width: 100%; }
+.assign-table tr.has-actions td { border-bottom: none; padding-bottom: 4px; }
+.assign-table tr.actions-row td { padding-top: 0; padding-bottom: 14px; }
+.assign-table tr.actions-row .toolbar { gap: 6px; }
+/* stars page */
+.stats-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 16px; }
+.stats-row .stat { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-lg); padding: 14px 16px; box-shadow: var(--shadow); }
+.stats-row .stat b { display: block; font-size: 22px; font-weight: 750; font-variant-numeric: tabular-nums; }
+.stats-row .stat.big b { font-size: 26px; }
+.stats-row .stat span { color: var(--muted); font-size: 13px; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 10px; padding: 2px; background: var(--panel-2); }
+.seg button { border: 0; background: none; color: var(--muted); padding: 5px 12px; border-radius: 8px; box-shadow: none; }
+.seg button.on { background: var(--panel); color: var(--text); }
+.stars-cap { min-height: 1.4em; margin: 6px 0 4px; }
+svg.stars-chart { display: block; width: 100%; height: 190px; }
+svg.stars-chart .bar { fill: var(--primary); }
+svg.stars-chart .grid { stroke: var(--line); stroke-dasharray: 3 4; }
+svg.stars-chart .axis { stroke: var(--line-strong); }
+svg.stars-chart .hit { fill: transparent; cursor: pointer; }
+svg.stars-chart .hit.on { fill: var(--hover); }
+.stars-x { display: flex; justify-content: space-between; font-size: 12px; margin-top: 4px; }
+/* sessions list: secondary columns (since, reconnects, traffic, mode) only when there is room */
+@media (max-width: 1350px) {
+  .sessions-table th:nth-child(5), .sessions-table td:nth-child(5),
+  .sessions-table th:nth-child(6), .sessions-table td:nth-child(6),
+  .sessions-table th:nth-child(8), .sessions-table td:nth-child(8),
+  .sessions-table th:nth-child(9), .sessions-table td:nth-child(9) { display: none; }
+  .sessions-table td:nth-child(10) { max-width: 200px !important; }
+}
+.assign-table th, .assign-table td { padding-left: 8px; padding-right: 8px; }
+/* long lists in tables (rules, addresses) wrap instead of widening the page */
+.card td.mono.wrap { white-space: normal; overflow-wrap: anywhere; }
+#view select { max-width: 100%; }

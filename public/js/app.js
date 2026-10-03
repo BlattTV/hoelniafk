@@ -17,6 +17,7 @@ import { auditView } from './views/audit.js';
 import { settingsView } from './views/settings.js';
 import { schedulesView } from './views/schedules.js';
 import { accountsView, agentsView, takeOver } from './views/remote.js';
+import { starsView } from './views/stars.js';
 import { proxiesView } from './views/proxies.js';
 import { quickView } from './views/quick.js';
 import { discordView } from './views/discord.js';
@@ -54,6 +55,7 @@ const routes = [
   [/^\/settings$/, 'settings', settingsView],
   [/^\/schedules$/, 'schedules', schedulesView],
   [/^\/agents$/, 'agents', agentsView],
+  [/^\/stars$/, 'stars', starsView],
   [/^\/proxies$/, 'proxies', proxiesView],
   [/^\/accounts$/, 'accounts', accountsView],
 ];

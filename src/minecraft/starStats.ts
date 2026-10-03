@@ -12,7 +12,7 @@ export interface StarStats {
   hourly: Array<{ t: string; gained: number }>;
   /** Gained per day, the last 30 days (oldest first, `day` = YYYY-MM-DD local time). */
   daily: Array<{ day: string; gained: number }>;
-  perIdentity: Array<{ id: number; name: string; stars: number; online: boolean; h24: number; d7: number; d30: number }>;
+  perIdentity: Array<{ id: number; name: string; stars: number; online: boolean; h24: number; d7: number; d30: number; servers?: Array<{ serverId: number; name: string; stars: number; source: 'scoreboard' | 'chat' | null }> }>;
   at: string;
 }
 
@@ -24,7 +24,7 @@ const dayKey = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d
 /** Star statistics from the reward history (calibrations and manual corrections do not count as gained). */
 export function starStats(
   repo: IdentityRepository,
-  identities: Array<{ id: number; name: string; stars: number; online: boolean }>,
+  identities: Array<{ id: number; name: string; stars: number; online: boolean; servers?: Array<{ serverId: number; name: string; stars: number; source: 'scoreboard' | 'chat' | null }> }>,
   now = new Date(),
 ): StarStats {
   const t = now.getTime();

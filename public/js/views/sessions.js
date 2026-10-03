@@ -37,7 +37,7 @@ export async function sessionsView(root) {
     patch(head, h('div', null, h('h1', null, 'Sessions'),
       h('div', { class: 'sub' }, `${by('ONLINE')} online · ${by('RECONNECTING')} reconnecting · ${by('BLOCKED')} blocked · ${sessions.filter((s) => s.desiredState === 'ONLINE').length} desired online · ${sessions.length} total`)));
     patch(wrap, list.length // only changed rows are replaced
-      ? h('table', null,
+      ? h('table', { class: 'sessions-table' },
           h('thead', null, h('tr', null, ['Identity', 'Server', 'Should be', 'State', 'Since', 'Reconnects', 'Ping', 'Traffic', 'Mode', 'Last error / next attempt', ''].map((label) => h('th', null, label)))),
           h('tbody', null, list.map((s) => h('tr', { 'data-key': s.id, oncontextmenu: (e) => menu(e, s) },
             h('td', null, h('a', { href: `#/identity/${s.identityId}/sessions` }, names.get(s.identityId) ?? `#${s.identityId}`), s.username ? h('div', { class: 'muted' }, s.username) : null),

@@ -446,6 +446,10 @@ const MIGRATIONS: string[] = [
   `
   ALTER TABLE proxies ADD COLUMN expected_ip TEXT;
   `,
+  // v12: stars are counted only on servers that have them (setting per server, on by default)
+  `
+  ALTER TABLE servers ADD COLUMN track_stars INTEGER NOT NULL DEFAULT 1;
+  `,
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.length;

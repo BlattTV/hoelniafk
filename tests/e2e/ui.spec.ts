@@ -80,9 +80,10 @@ test('identity: "Open game" hands the session to the real client and "Back to AF
   await page.goto('/#/identity/1/sessions');
   await waitOnline(page, 1);
   await page.goto('/#/identity/1/sessions');
-  const smpRow = page.locator('#sec-sessions tbody tr', { hasText: 'SMP' });
+  const smpRow = page.locator('#sec-sessions tbody tr.has-actions', { hasText: 'SMP' });
   await expect(smpRow).toContainText('ONLINE', { timeout: 30_000 });
-  await smpRow.locator('button', { hasText: 'Open game' }).click();
+  // the actions of a server are in the row below it
+  await smpRow.locator('xpath=following-sibling::tr[1]').locator('button', { hasText: 'Open game' }).click();
   await expect(page.locator('.toast').last()).toContainText(/Minecraft|game/i);
   // the session is now held by the game client (emulated binary in this environment)
   await page.goto('/#/sessions');

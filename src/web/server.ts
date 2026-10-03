@@ -416,10 +416,24 @@ export async function buildServer(suite: Suite, opts: ServerOptions = {}): Promi
   app.get('/api/stars', async () => {
     const online = new Set(suite.sessions.list().filter((x) => x.state === 'ONLINE').map((x) => x.identityId));
     const rows = suite.identities.dashboard();
-    return starStats(
-      suite.repo,
-      rows.map((r) => ({ id: r.id, name: r.minecraft.username || r.label || `#${r.id}`, stars: Number(r.stars) || 0, online: online.has(r.id) })),
-    );
+    const counted = suite.repo.starServerIds();
+    const names = new Map(suite.repo.listServers().map((s) => [s.id, s.name]));
+    return {
+      ...starStats(
+        suite.repo,
+        rows.map((r) => ({
+          id: r.id,
+          name: r.minecraft.username || r.label || `#${r.id}`,
+          stars: Number(r.stars) || 0,
+          online: online.has(r.id),
+          servers: suite.repo
+            .listServerRewards(r.id)
+            .filter((x) => counted.has(x.serverId))
+            .map((x) => ({ serverId: x.serverId, name: names.get(x.serverId) ?? `#${x.serverId}`, stars: x.stars, source: suite.repo.hasScoreboardHistory(r.id, x.serverId) ? ('scoreboard' as const) : x.stars ? ('chat' as const) : null })),
+        })),
+      ),
+      servers: suite.repo.listServers().map((s) => ({ id: s.id, name: s.name, trackStars: s.trackStars })),
+    };
   });
   // the sidebar scoreboard of a session as the player sees it (to set up the star recognition)
   app.get('/api/sessions/:sessionId/scoreboard', async (req: Req) => suite.sessions.getScoreboard(req.params.sessionId) ?? { title: '', lines: [], at: null });
@@ -797,7 +811,18 @@ export async function buildServer(suite: Suite, opts: ServerOptions = {}): Promi
     suite.audit.record(null, 'Server saved', { server: s.name });
     return s;
   });
-  app.patch('/api/servers/:id', async (req: Req) => suite.repo.upsertServer({ ...bodyOf(req), id: num(req.params.id) }));
+  app.patch('/api/servers/:id', async (req: Req) => {
+    const id = num(req.params.id);
+    const b = bodyOf(req);
+    let s = b.name !== undefined || b.host !== undefined ? suite.repo.upsertServer({ ...suite.repo.getServer(id), ...b, id }) : suite.repo.getServer(id);
+    if (typeof b.trackStars === 'boolean' && b.trackStars !== s.trackStars) {
+      s = suite.repo.setServerTrackStars(id, b.trackStars);
+      // totals only count servers with stars
+      for (const i of suite.repo.listIdentities()) suite.rewards.recalc(i.id);
+      suite.audit.record(null, b.trackStars ? 'Stars counted on server' : 'Stars no longer counted on server', { server: s.name });
+    }
+    return s;
+  });
   app.delete('/api/servers/:id', async (req: Req) => {
     suite.repo.deleteServer(num(req.params.id));
     return { ok: true };

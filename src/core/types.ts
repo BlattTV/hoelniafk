@@ -181,6 +181,8 @@ export interface MinecraftServer {
   host: string;
   port: number;
   version: string | null;
+  /** Stars are read on this server (chat rules + scoreboard) and counted in the statistics. */
+  trackStars: boolean;
 }
 
 export interface ServerAssignment {

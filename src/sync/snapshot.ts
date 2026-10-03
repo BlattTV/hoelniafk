@@ -131,7 +131,7 @@ export class SnapshotIO {
   async export(): Promise<Snapshot> {
     this.ensureSyncIds();
     const s = emptySnapshot();
-    for (const r of this.db.prepare('SELECT * FROM servers').all() as any[]) s.servers[r.sync_id] = { name: r.name, host: r.host, port: r.port, version: r.version ?? null };
+    for (const r of this.db.prepare('SELECT * FROM servers').all() as any[]) s.servers[r.sync_id] = { name: r.name, host: r.host, port: r.port, version: r.version ?? null, trackStars: r.track_stars !== 0 };
     for (const r of this.db.prepare('SELECT * FROM templates').all() as any[]) s.templates[r.sync_id] = { name: r.name, config: json(r.config_json) };
     for (const r of this.db.prepare('SELECT * FROM mail_accounts').all() as any[]) {
       s.mailAccounts[r.sync_id] = {
@@ -293,8 +293,9 @@ export class SnapshotIO {
     switch (kind) {
       case 'servers': {
         const id = this.idOf('servers', sid) ?? this.adopt('servers', 'name = ?', [e.name], sid);
-        if (id === null) db.prepare('INSERT INTO servers (name, host, port, version, sync_id) VALUES (?, ?, ?, ?, ?)').run(this.freeName('servers', e.name), e.host, e.port, e.version ?? null, sid);
-        else db.prepare('UPDATE servers SET name = ?, host = ?, port = ?, version = ? WHERE id = ?').run(this.freeName('servers', e.name, id), e.host, e.port, e.version ?? null, id);
+        const track = e.trackStars === false ? 0 : 1;
+        if (id === null) db.prepare('INSERT INTO servers (name, host, port, version, track_stars, sync_id) VALUES (?, ?, ?, ?, ?, ?)').run(this.freeName('servers', e.name), e.host, e.port, e.version ?? null, track, sid);
+        else db.prepare('UPDATE servers SET name = ?, host = ?, port = ?, version = ?, track_stars = ? WHERE id = ?').run(this.freeName('servers', e.name, id), e.host, e.port, e.version ?? null, track, id);
         return true;
       }
       case 'templates': {

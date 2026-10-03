@@ -105,3 +105,28 @@ describe('reward history and statistics', () => {
     await s.shutdown();
   });
 });
+
+describe('stars only on servers with "Count stars"', () => {
+  it('ignores servers without stars and leaves them out of totals and statistics', async () => {
+    const t = await createTestSuite();
+    const s = t.suite;
+    const hugo = s.repo.upsertServer({ name: 'Hugo', host: 'hugosmp.net', port: 25565 });
+    const lobby = s.repo.upsertServer({ name: 'Hoelni', host: 'hoelni.de', port: 25570 });
+    expect(s.repo.getServer(lobby.id).trackStars).toBe(true); // on by default
+    const id = s.identities.create({ label: 'Alt' }).identity.id;
+    s.rewards.handleScoreboard(id, hugo.id, 'Hugo', 100, 'Sterne: 100');
+    s.rewards.handleScoreboard(id, lobby.id, 'Hoelni', 40, 'Stars: 40');
+    expect(s.repo.getRewards(id).stars).toBe(140);
+    s.repo.setServerTrackStars(lobby.id, false);
+    s.rewards.recalc(id);
+    expect(s.repo.getRewards(id).stars).toBe(100); // only Hugo counts
+    s.rewards.handleScoreboard(id, lobby.id, 'Hoelni', 55, 'Stars: 55'); // ignored now
+    s.rewards.handleChatEvents(id, lobby.id, 'Hoelni', [{ kind: 'starsAdd', ruleSet: 'hoelni-rewards', delta: 5 }], 'Du hast 5 Sterne erhalten');
+    expect(s.repo.getServerReward(id, lobby.id).stars).toBe(40);
+    s.rewards.handleScoreboard(id, hugo.id, 'Hugo', 103, 'Sterne: 103');
+    const st = starStats(s.repo, [{ id, name: 'Alt', stars: s.repo.getRewards(id).stars, online: true }]);
+    expect(st.total).toBe(103);
+    expect(st.gained.h24).toBe(3);
+    await s.shutdown();
+  });
+});

@@ -179,6 +179,8 @@ function validIp(ip: string | null | undefined, field: string): string | null {
   return ip.trim();
 }
 
+const mapServer = (r: Row): MinecraftServer => ({ id: r.id, name: r.name, host: r.host, port: r.port, version: r.version ?? null, trackStars: r.track_stars !== 0 });
+
 export class IdentityRepository {
   constructor(readonly db: DB) {}
 
@@ -582,17 +584,30 @@ export class IdentityRepository {
   // ------------------------------------------------------------ servers & assignments
 
   listServers(): MinecraftServer[] {
-    return this.db.prepare('SELECT id, name, host, port, version FROM servers ORDER BY name').all() as MinecraftServer[];
+    return (this.db.prepare('SELECT id, name, host, port, version, track_stars FROM servers ORDER BY name').all() as Row[]).map(mapServer);
   }
 
   getServer(id: number): MinecraftServer {
-    const r = this.db.prepare('SELECT id, name, host, port, version FROM servers WHERE id = ?').get(id) as MinecraftServer | undefined;
+    const r = this.db.prepare('SELECT id, name, host, port, version, track_stars FROM servers WHERE id = ?').get(id) as Row | undefined;
     if (!r) throw new NotFoundError(`Server ${id} not found`);
-    return r;
+    return mapServer(r);
   }
 
   getServerByName(name: string): MinecraftServer | null {
-    return (this.db.prepare('SELECT id, name, host, port, version FROM servers WHERE name = ? COLLATE NOCASE').get(name) as MinecraftServer) ?? null;
+    const r = this.db.prepare('SELECT id, name, host, port, version, track_stars FROM servers WHERE name = ? COLLATE NOCASE').get(name) as Row | undefined;
+    return r ? mapServer(r) : null;
+  }
+
+  /** Stars on this server are counted (chat rules + scoreboard) – or not (e.g. a lobby without stars). */
+  setServerTrackStars(id: number, on: boolean): MinecraftServer {
+    this.getServer(id);
+    this.db.prepare('UPDATE servers SET track_stars = ? WHERE id = ?').run(on ? 1 : 0, id);
+    return this.getServer(id);
+  }
+
+  /** Servers whose stars count (statistics, totals). */
+  starServerIds(): Set<number> {
+    return new Set((this.db.prepare('SELECT id FROM servers WHERE track_stars = 1').all() as Row[]).map((r) => r.id));
   }
 
   upsertServer(input: { id?: number; name: string; host: string; port?: number; version?: string | null }): MinecraftServer {
@@ -720,7 +735,8 @@ export class IdentityRepository {
     return this.db
       .prepare(
         `SELECT identity_id AS identityId, server_id AS serverId, ts, delta FROM reward_history
-         WHERE kind = 'stars' AND server_id IS NOT NULL AND reason <> 'manual' AND delta <> 0 AND ts >= ? ORDER BY ts`,
+         WHERE kind = 'stars' AND server_id IS NOT NULL AND reason <> 'manual' AND delta <> 0 AND ts >= ?
+           AND server_id IN (SELECT id FROM servers WHERE track_stars = 1) ORDER BY ts`,
       )
       .all(since) as any[];
   }
