@@ -1363,5 +1363,8 @@ export default {
  "The sidebar scoreboard as the player sees it – what the star recognition reads": "Das Scoreboard rechts, wie der Spieler es sieht – das liest die Sternerkennung",
  "Scoreboard": "Scoreboard",
  "{0}–{1} o'clock": "{0}–{1} Uhr",
- "Actual star balance of {0} on {1}:": "Tatsächlicher Sternestand von {0} auf {1}:"
+ "Actual star balance of {0} on {1}:": "Tatsächlicher Sternestand von {0} auf {1}:",
+ "Direct (own IP of the device)": "Direkt (eigene IP des Geräts)",
+ "Direct connection – the session reconnects": "Direkte Verbindung – die Session verbindet neu",
+ "Direct (own IP)": "Direkt (eigene IP)"
 };

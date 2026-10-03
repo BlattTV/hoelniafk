@@ -347,7 +347,9 @@ export function sessionsSection(ctx) {
   const { id, data, meta } = ctx;
   const byServer = new Map(data.assignments.map((a) => [a.serverId, a]));
   const sessionFor = (sid) => data.sessions.find((s) => s.serverId === sid);
-  const profileOpts = [['', 'identity default'], ...data.networkProfiles.map((p) => [p.id, p.name])];
+  // "Direct": the device the session runs on (this PC / the agent) connects with its own IP – no proxy
+  const direct = data.networkProfiles.find((p) => p.kind === 'DIRECT');
+  const profileOpts = [['', 'identity default'], [direct ? direct.id : 'direct', 'Direct (own IP of the device)'], ...data.networkProfiles.filter((p) => p !== direct).map((p) => [p.id, p.name])];
   const reload = () => ctx.reload();
   return card(
     'sessions',
@@ -369,7 +371,7 @@ export function sessionsSection(ctx) {
               h('td', null, h('input', { type: 'checkbox', title: 'Assign this server', checked: !!a && a.enabled, onchange: (e) => (e.target.checked ? update({ enabled: true }) : guard(async () => { await api.del(`/api/identities/${id}/servers/${s.id}`); await reload(); })) })),
               h('td', null, a ? select('desired', [['ONLINE', 'online'], ['OFFLINE', 'offline']], a.desiredState, { title: 'Desired state (SHOULD_BE_ONLINE / OFFLINE)', onchange: (e) => guard(async () => { await api.put(`/api/identities/${id}/servers/${s.id}/desired`, { state: e.target.value }); await reload(); }) }) : '–'),
               h('td', null, a ? placementSelect(a, data.identity.settings.agentId, (v) => guard(async () => { await api.put(`/api/identities/${id}/servers/${s.id}/placement`, { placement: v }); await reload(); }, 'Saved – the session moves there')) : '–'),
-              h('td', null, a ? select('np', profileOpts, a.networkProfileId ?? '', { title: 'Per-session network override', onchange: (e) => update({ networkProfileId: e.target.value ? Number(e.target.value) : null }) }) : '–'),
+              h('td', null, a ? select('np', profileOpts, a.networkProfileId ?? '', { title: 'Per-session network override', onchange: (e) => (e.target.value === 'direct' ? guard(async () => { await api.post(`/api/identities/${id}/servers/${s.id}/direct`); await reload(); }, 'Direct connection – the session reconnects') : update({ networkProfileId: e.target.value ? Number(e.target.value) : null })) }) : '–'),
               h('td', null, sess ? stateBadge(sess.state, sess.lastError ?? '') : h('span', { class: 'muted' }, '–'), gameBadge(sess), scheduleNote(sess),
                 h('div', { class: 'muted', style: { fontSize: '12px', maxWidth: '280px' } },
                   sess?.state === 'ONLINE' ? h('span', { dataset: { stats: sess.id } }, st ? statsText(st) : '') : null,

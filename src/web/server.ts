@@ -827,6 +827,34 @@ export async function buildServer(suite: Suite, opts: ServerOptions = {}): Promi
     suite.repo.deleteServer(num(req.params.id));
     return { ok: true };
   });
+  /**
+   * This server's session without proxy / bind address: the device it runs on connects with its own IP
+   * (this PC or the agent). Uses the identity's "direct" network profile (created once, never its default).
+   */
+  app.post('/api/identities/:id/servers/:sid/direct', async (req: Req) => {
+    const id = num(req.params.id);
+    const sid = num(req.params.sid);
+    const a = suite.repo.getAssignment(id, sid);
+    if (!a) throw new ValidationError('This server is not assigned to the identity');
+    let p = suite.repo.listNetworkProfiles(id).find((x) => x.kind === 'DIRECT');
+    if (!p) {
+      const before = suite.repo.getIdentity(id).networkProfileId;
+      p = suite.repo.createNetworkProfile(id, { kind: 'DIRECT', name: 'Direct (own IP)' });
+      if (before === null) suite.repo.updateIdentity(id, { networkProfileId: null }); // stays a per-server choice
+    }
+    suite.repo.assignServer(id, { serverId: sid, enabled: a.enabled, autoStart: a.autoStart, networkProfileId: p.id, desiredState: a.desiredState });
+    suite.audit.record(id, 'Server uses the direct connection', { server: suite.repo.getServer(sid).name });
+    suite.bus.emit({ type: 'identity.changed', identityId: id });
+    // a running / retrying session switches right away
+    try {
+      const st = suite.sessions.getState(`${id}:${sid}`);
+      if (st && st.state !== 'STOPPED') await suite.sessions.reconnect(`${id}:${sid}`);
+    } catch {
+      /* no session yet */
+    }
+    void suite.sessions.reconcile();
+    return { ok: true, networkProfileId: p.id };
+  });
   app.put('/api/identities/:id/servers/:sid', async (req: Req) => {
     const id = num(req.params.id);
     const b = bodyOf(req);

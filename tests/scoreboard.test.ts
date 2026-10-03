@@ -24,6 +24,9 @@ describe('star balance in the sidebar (shipped rules)', () => {
     expect(stars([{ text: '⭐ Sterne', hidden: true }, { text: ' 42', hidden: true }, { text: 'Online: 3', hidden: true }])).toBe(42);
     // classic scoreboard: the label is the entry, the number is the score
     expect(stars([{ text: 'Sterne:', value: 950 }])).toBe(950);
+    // HugoSMP: resource-pack icons in front, "Stars" between money and gems, ping / playtime numbers around it
+    const hugo = ['ꐨ Geld 1,00k', 'ꐠ Gems 0', 'ꐲ Stars 23', 'ꐣ Kills 0', 'ꐡ Tode 0', 'ꐟ Clan ???', 'ꐦ Ping 51ms', 'ꐢ Keyall 35m 26s', 'ꐧ Spielzeit 1h 4m', ' ', 'ʜᴜɢᴏѕᴍᴘ.ɴᴇᴛ'];
+    expect(stars(hugo.map((text) => ({ text, hidden: true })))).toBe(23);
     // no stars on the sidebar → nothing (never the online count or the line numbers)
     expect(stars([{ text: 'Online: 5' }, { text: 'play.hoelni.de' }, { text: 'Kills', value: 3 }])).toBeNull();
   });
