@@ -10,7 +10,15 @@ import type { IdentityRepository } from '../identity/repository.js';
  * solely by chat rules (rules.yaml). The identity-level RewardState is the
  * aggregate (sum of stars, eligible on any server).
  */
+/** While the scoreboard showed the balance this recently, chat messages about stars do not change it. */
+const SCOREBOARD_FRESH_MS = 15 * 60_000;
+
 export class RewardTracker {
+  /** identity:server → when the scoreboard last showed the star balance. */
+  private readonly scoreboardAt = new Map<string, number>();
+  /** identity:server whose balance already came from the scoreboard once (later changes count as gained). */
+  private readonly scoreboardKnown = new Set<string>();
+
   constructor(
     private readonly repo: IdentityRepository,
     private readonly bus: EventBus,
@@ -20,7 +28,10 @@ export class RewardTracker {
     const st = this.repo.getServerReward(identityId, serverId);
     const before = JSON.stringify(st);
     const hist: Array<[ServerRewardHistoryKind, number, string]> = [];
+    // the scoreboard shows the real balance – a "+1 star" chat line would count it twice
+    const fromScoreboard = Date.now() - (this.scoreboardAt.get(`${identityId}:${serverId}`) ?? 0) < SCOREBOARD_FRESH_MS;
     for (const ev of events) {
+      if (fromScoreboard && (ev.kind === 'starsSet' || ev.kind === 'starsAdd')) continue;
       switch (ev.kind) {
         case 'starsSet':
           if (ev.stars !== st.stars) hist.push(['stars', ev.stars - st.stars, `${serverName}: balance ${ev.stars}`]);
@@ -67,6 +78,29 @@ export class RewardTracker {
     this.recalc(identityId);
   }
 
+  /**
+   * The balance as the sidebar scoreboard shows it. The very first reading of an identity × server only
+   * calibrates (history kind 'sync', not counted as gained); every later change is stars gained / spent.
+   */
+  handleScoreboard(identityId: number, serverId: number, serverName: string, stars: number, line: string): void {
+    const key = `${identityId}:${serverId}`;
+    this.scoreboardAt.set(key, Date.now());
+    const known = this.scoreboardKnown.has(key) || this.repo.hasScoreboardHistory(identityId, serverId);
+    const st = this.repo.getServerReward(identityId, serverId);
+    if (known && st.stars === stars) {
+      this.scoreboardKnown.add(key);
+      return;
+    }
+    const delta = stars - st.stars;
+    st.stars = stars;
+    st.lastChange = nowIso();
+    st.lastMessage = `Scoreboard: ${line}`.slice(0, 300);
+    this.repo.saveServerReward(st);
+    this.repo.addRewardHistory(identityId, serverId, known ? 'stars' : 'sync', delta, stars, `scoreboard: ${serverName}: ${line}`);
+    this.scoreboardKnown.add(key);
+    this.recalc(identityId);
+  }
+
   /** Manual correction from the UI. */
   setServerState(identityId: number, serverId: number, patch: Partial<Pick<ServerRewardState, 'stars' | 'eligible' | 'received' | 'waiting' | 'discordLinked'>>): ServerRewardState {
     const st = this.repo.getServerReward(identityId, serverId);
@@ -97,4 +131,4 @@ export class RewardTracker {
   }
 }
 
-type ServerRewardHistoryKind = 'stars' | 'eligible' | 'received' | 'waiting' | 'discordLinked';
+type ServerRewardHistoryKind = 'stars' | 'sync' | 'eligible' | 'received' | 'waiting' | 'discordLinked';

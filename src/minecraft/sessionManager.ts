@@ -26,7 +26,7 @@ import type { EventBus } from '../core/events.js';
 import { nowIso } from '../core/db.js';
 import { NotFoundError, ValidationError } from '../core/errors.js';
 import { createLogger } from '../core/logger.js';
-import { decideReconnect, parseChatLine, type RulesConfig } from '../core/rules.js';
+import { decideReconnect, parseChatLine, parseScoreboard, type RulesConfig } from '../core/rules.js';
 import type { ChatLine, DesiredState, SessionInfo, SessionState } from '../core/types.js';
 import { describeSchedule, nextScheduleChange, scheduleActive } from '../core/schedule.js';
 import type { IdentityRepository } from '../identity/repository.js';
@@ -104,6 +104,8 @@ export class SessionRecord {
   /** Releases the concurrent-start slot taken by launch(). */
   releaseStart: (() => void) | null = null;
   readonly chat: ChatLine[] = [];
+  /** The sidebar scoreboard as the player sees it (latest). */
+  scoreboard: { title: string; lines: Array<{ text: string; value: number; hidden?: boolean }>; at: string } | null = null;
   /** Last raw chat components as the server sent them (diagnosis only, never stored). */
   readonly rawChat: Array<{ ts: string; position?: string; text: string; raw?: string }> = [];
   /** Serialises start/stop/reconnect of this session. */
@@ -295,6 +297,11 @@ export class SessionManager {
 
   getState(sessionId: string): SessionInfo {
     return this.info(this.get(sessionId));
+  }
+
+  /** The sidebar scoreboard of a session as the player sees it (to set up the star recognition). */
+  getScoreboard(sessionId: string): { title: string; lines: Array<{ text: string; value: number; hidden?: boolean }>; at: string } | null {
+    return this.records.get(sessionId)?.scoreboard ?? null;
   }
 
   /** The last chat messages with their raw components (to see why a line looks wrong). */
@@ -832,6 +839,18 @@ export class SessionManager {
         r.stats = e.stats;
         this.bus.emit({ type: 'session.stats', identityId: r.identityId, data: { sessionId: r.id, stats: e.stats } });
         return;
+      case 'scoreboard': {
+        r.scoreboard = { title: e.title, lines: e.lines, at: new Date().toISOString() };
+        let parsers: string[];
+        try {
+          parsers = this.repo.getIdentity(r.identityId).settings.parsers;
+        } catch {
+          return;
+        }
+        const hit = parseScoreboard(this.getRules(), parsers, e.lines);
+        if (hit) this.rewards.handleScoreboard(r.identityId, r.serverId, r.serverName, hit.stars, hit.line);
+        return;
+      }
       case 'chat':
         r.rawChat.push({ ts: e.ts, position: e.position, text: e.text, raw: e.raw });
         if (r.rawChat.length > 40) r.rawChat.splice(0, r.rawChat.length - 40);

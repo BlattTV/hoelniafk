@@ -512,6 +512,10 @@ Möglich sind:
 * **Öffentliche IPs** aller PCs und Agents (Tab *Agents*, antippen kopiert). Auch in der Suite unter
   *Agents → Öffentliche IPs*. Jedes Gerät ermittelt seine IP selbst (beim Start und alle 30 Minuten);
   Sessions ohne Proxy verbinden sich mit genau dieser IP, Sessions mit Proxy mit der des Proxys.
+* **Sterne:** Stand aller Identitäten und der gerade online, dazu gewonnen in 24 h / 7 / 30 Tagen / 1 Jahr
+  mit Diagramm (pro Stunde bzw. pro Tag) und einer Tabelle pro Identität. Der Stand wird aus dem
+  Scoreboard rechts im Spiel gelesen (Muster unter `scoreboard` in `config/rules.yaml`), sonst aus
+  Chat-Meldungen. Die Session-Ansicht zeigt das Scoreboard so, wie die Suite es liest.
 * Makros ausführen und stoppen, mit Protokoll
 * PCs des Kontos ansehen
 

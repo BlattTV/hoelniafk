@@ -705,6 +705,26 @@ export class IdentityRepository {
       .run(identityId, serverId, nowIso(), kind, delta, stars, reason.slice(0, 300));
   }
 
+  /** True once the star balance of this identity × server came from the scoreboard. */
+  hasScoreboardHistory(identityId: number, serverId: number): boolean {
+    return !!this.db
+      .prepare("SELECT 1 FROM reward_history WHERE identity_id = ? AND server_id = ? AND kind IN ('stars', 'sync') AND reason LIKE 'scoreboard:%' LIMIT 1")
+      .get(identityId, serverId);
+  }
+
+  /**
+   * Stars gained (and spent) over time, from the per-server history: calibrations ('sync') and manual
+   * corrections do not count. `since` limits the rows read (ISO time).
+   */
+  starHistory(since: string): Array<{ identityId: number; serverId: number; ts: string; delta: number }> {
+    return this.db
+      .prepare(
+        `SELECT identity_id AS identityId, server_id AS serverId, ts, delta FROM reward_history
+         WHERE kind = 'stars' AND server_id IS NOT NULL AND reason <> 'manual' AND delta <> 0 AND ts >= ? ORDER BY ts`,
+      )
+      .all(since) as any[];
+  }
+
   rewardHistory(identityId: number, limit = 50, serverId?: number): RewardHistoryEntry[] {
     const where = serverId === undefined ? '' : ' AND server_id = ?';
     const params: unknown[] = serverId === undefined ? [identityId, limit] : [identityId, serverId, limit];

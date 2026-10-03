@@ -215,7 +215,8 @@ export interface RewardHistoryEntry {
   identityId: number;
   serverId: number | null;
   ts: string;
-  kind: 'stars' | 'eligible' | 'received' | 'waiting' | 'discordLinked';
+  /** 'sync' = first reading of a balance (e.g. from the scoreboard) – not counted as stars gained. */
+  kind: 'stars' | 'sync' | 'eligible' | 'received' | 'waiting' | 'discordLinked';
   delta: number;
   stars: number;
   reason: string;

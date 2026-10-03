@@ -438,6 +438,10 @@ const MIGRATIONS: string[] = [
   CREATE UNIQUE INDEX accounts_sync ON accounts(sync_id) WHERE sync_id IS NOT NULL;
   CREATE UNIQUE INDEX mail_accounts_sync ON mail_accounts(sync_id) WHERE sync_id IS NOT NULL;
   `,
+  // v10: star statistics (gained per day / week / month) read the reward history by time
+  `
+  CREATE INDEX IF NOT EXISTS reward_history_ts ON reward_history(ts);
+  `,
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.length;

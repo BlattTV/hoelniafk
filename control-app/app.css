@@ -130,3 +130,26 @@ details summary { color: var(--muted); font-size: 13px; cursor: pointer; margin-
 .nav button { font-size: 11px; }
 .section-title button.link { background: none; border: 0; color: var(--blue); font: inherit; font-size: 12px; letter-spacing: .5px; text-transform: none; cursor: pointer; padding: 0; }
 .pill.ip { border: 0; font-family: ui-monospace, 'Cascadia Mono', monospace; font-size: 12.5px; cursor: pointer; color: #dbeafe; background: rgba(59, 130, 246, .16); }
+.stat.tap { text-align: left; font: inherit; color: inherit; cursor: pointer; }
+.stat em { display: block; font-style: normal; font-size: 11.5px; color: #86efac; margin-top: 2px; }
+.card.stars { padding: 14px; }
+.stars-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+.seg { display: inline-flex; background: #0d1628; border: 1px solid var(--line); border-radius: 11px; padding: 2px; flex: none; }
+.seg button { border: 0; background: none; color: var(--muted); font: inherit; font-size: 12.5px; padding: 5px 10px; border-radius: 9px; cursor: pointer; }
+.seg button.on { background: #1e2a44; color: #fff; }
+.kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin: 12px 0 8px; }
+.kpis b { display: block; font-size: 17px; font-weight: 750; }
+.kpis span { font-size: 11.5px; color: var(--muted); }
+.chart-cap { font-size: 12.5px; color: var(--muted); min-height: 1.4em; margin-bottom: 4px; }
+svg.chart { display: block; width: 100%; height: 110px; overflow: visible; }
+svg.chart .bar { fill: #3b82f6; }
+svg.chart .grid { stroke: rgba(148, 163, 184, .14); stroke-width: 1; stroke-dasharray: 3 4; }
+svg.chart .axis { stroke: rgba(148, 163, 184, .35); stroke-width: 1; }
+svg.chart .hit { fill: transparent; cursor: pointer; }
+svg.chart .hit.on { fill: rgba(148, 163, 184, .10); }
+.chart-x { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin-top: 4px; }
+.tbl { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 13.5px; }
+.tbl th { text-align: left; color: var(--muted); font-weight: 600; font-size: 12px; padding: 6px 4px; border-bottom: 1px solid var(--line); }
+.tbl td { padding: 8px 4px; border-bottom: 1px solid rgba(30, 42, 68, .6); }
+.tbl td:not(:first-child), .tbl th:not(:first-child) { text-align: right; font-variant-numeric: tabular-nums; }
+.tbl .dot { display: inline-block; width: 7px; height: 7px; }

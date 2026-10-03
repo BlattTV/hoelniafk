@@ -14,6 +14,7 @@ import type { JavaSession, RuntimeEvent, RuntimeSessionSpec, SessionStats } from
 import { StateCache, TakeoverServer } from './takeover.js';
 import { MacroEngine } from '../../macros/engine.js';
 import { chatLine } from '../../minecraft/vanillaCompat.js';
+import { watchSidebar } from './sidebar.js';
 
 /** The subset of a mineflayer bot the host uses (fakes in tests implement parts of it). */
 export interface HostBot extends EventEmitter {
@@ -60,6 +61,8 @@ interface HostSession {
   cache: StateCache | null;
   takeover: TakeoverServer | null;
   macros: MacroEngine | null;
+  /** Stops reading the sidebar scoreboard. */
+  sidebarOff: (() => void) | null;
 }
 
 /** How long a game waits for its session to come back before it is disconnected. */
@@ -221,7 +224,11 @@ export class RuntimeHostCore {
       this.emit({ type: 'ended', sessionId: spec.sessionId, reason: 'startFailed', kicked: false, error: (e as Error).message });
       return;
     }
-    const s: HostSession = { spec, bot, afkTimer: null, statsTimer: null, ended: false, kicked: false, lastError: null, cache: null, takeover: null, macros: null };
+    const s: HostSession = { spec, bot, afkTimer: null, statsTimer: null, ended: false, kicked: false, lastError: null, cache: null, takeover: null, macros: null, sidebarOff: null };
+    // sidebar scoreboard (e.g. the star balance) – sent to the suite whenever it changes
+    if (typeof (bot as any)._client?.on === 'function') {
+      s.sidebarOff = watchSidebar(bot, (sb) => this.emit({ type: 'scoreboard', sessionId: spec.sessionId, title: sb.title, lines: sb.lines }));
+    }
     // Macro builder: macros pause during a server switch; while the real game is open they keep running
     // (chat, commands, logic) but leave movement and actions to the player.
     s.macros = new MacroEngine(
@@ -317,6 +324,7 @@ export class RuntimeHostCore {
     if (s.ended) return;
     s.ended = true;
     s.macros?.dispose();
+    s.sidebarOff?.();
     if (s.afkTimer) clearInterval(s.afkTimer);
     if (s.statsTimer) clearInterval(s.statsTimer);
     if (s.takeover?.hasGame) {

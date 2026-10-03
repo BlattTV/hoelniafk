@@ -92,6 +92,15 @@ chatRules:
     add:
       - "You (have )?(received|earned|got) (?<delta>\\d+) stars?"
       - "Du hast (?<delta>\\d+) (Sterne?|Stars?)\\b[\\s!.]*(erhalten|bekommen|verdient)"
+    # Balance in the sidebar scoreboard ("Sterne: 1.234", "⭐ 1234", "1234 Stars") – read regularly from
+    # every online session; when the scoreboard shows the stars, it is the source of the balance.
+    scoreboard:
+      - "(Sterne|Stars?)\\s*[:»>|=\\-–]*\\s*(?<stars>\\d[\\d.,']*)"
+      - "(?<stars>\\d[\\d.,']*)\\s*(Sterne|Stars?)\\b"
+      - "[⭐★✦✧✪✯☆]\\s*[:»>|=\\-–]*\\s*(?<stars>\\d[\\d.,']*)"
+    # a line that is only the label – the balance is the number in the line below
+    scoreboardLabel:
+      - "^\\W*(Sterne|Stars?)\\W*$"
     eligible:
       - "You are eligible for rewards"
     notEligible:

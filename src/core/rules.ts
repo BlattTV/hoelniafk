@@ -39,6 +39,10 @@ export interface RewardRuleSet {
   set: string[];
   /** Regex with named group "delta" – adds stars. */
   add: string[];
+  /** Regexes for sidebar scoreboard lines, named group "stars" – the balance as the server shows it. */
+  scoreboard: string[];
+  /** Sidebar line that is only the label ("⭐ Sterne") – the balance is the number in the line below. */
+  scoreboardLabel: string[];
   eligible: string[];
   notEligible: string[];
   /** Reward was handed out. */
@@ -140,6 +144,8 @@ export function parseRules(text: string): RulesConfig {
         type: 'rewards',
         set: arr(r.set).map((p) => checkRegex(p, `chatRules.${id}.set`)),
         add: arr(r.add).map((p) => checkRegex(p, `chatRules.${id}.add`)),
+        scoreboard: arr(r.scoreboard).map((p) => checkRegex(p, `chatRules.${id}.scoreboard`)),
+        scoreboardLabel: arr(r.scoreboardLabel).map((p) => checkRegex(p, `chatRules.${id}.scoreboardLabel`)),
         eligible: arr(r.eligible).map((p) => checkRegex(p, `chatRules.${id}.eligible`)),
         notEligible: arr(r.notEligible).map((p) => checkRegex(p, `chatRules.${id}.notEligible`)),
         received: arr(r.received).map((p) => checkRegex(p, `chatRules.${id}.received`)),
@@ -304,6 +310,53 @@ export function parseChatLine(rules: RulesConfig, activeRuleSets: string[], rawL
     }
   }
   return out;
+}
+
+/** One sidebar line: its text and the score number (hidden = the server shows no number). */
+export interface ScoreboardLine {
+  text: string;
+  value: number;
+  hidden?: boolean;
+}
+
+/** Number as servers print it ("1.234", "1,234", "1 234", "12k" is not a number of stars). */
+function starsNumber(s: string): number | null {
+  const digits = s.replace(/[.,\s']/g, '');
+  if (!/^\d{1,12}$/.test(digits)) return null;
+  return Number(digits);
+}
+
+/**
+ * The star balance shown in the sidebar scoreboard (first matching line). Each line is tried as the
+ * player sees it ("Sterne: 1.234") and – when the server shows the score number – with the number
+ * appended ("Sterne" with score 1234).
+ */
+export function parseScoreboard(rules: RulesConfig, activeRuleSets: string[], lines: ScoreboardLine[]): { stars: number; ruleSet: string; line: string } | null {
+  for (const rs of rules.chatRules) {
+    if (rs.type !== 'rewards' || !activeRuleSets.includes(rs.id)) continue;
+    const res = (rs.scoreboard ?? []).map((p) => new RegExp(p, 'i'));
+    const labels = (rs.scoreboardLabel ?? []).map((p) => new RegExp(p, 'i'));
+    const clean = (s: string) => stripFormatting(s).replace(/\s+/g, ' ').trim();
+    for (const [i, l] of lines.entries()) {
+      const text = clean(l.text);
+      // "⭐ Sterne" with the number in the next line
+      if (labels.some((re) => re.test(text)) && lines[i + 1]) {
+        const next = clean(lines[i + 1].text);
+        const n = starsNumber(next.replace(/^[^\d]*/, '').replace(/[^\d.,' ]+.*$/, '').trim());
+        if (n !== null) return { stars: n, ruleSet: rs.id, line: `${text} ${next}`.slice(0, 200) };
+      }
+      const tries = l.hidden ? [text] : [text, `${text} ${l.value}`];
+      for (const t of tries) {
+        for (const re of res) {
+          const m = re.exec(t);
+          const v = m?.groups?.stars ?? m?.[1];
+          const n = v === undefined ? null : starsNumber(v);
+          if (n !== null) return { stars: n, ruleSet: rs.id, line: t.slice(0, 200) };
+        }
+      }
+    }
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------- reconnect policy

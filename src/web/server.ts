@@ -14,6 +14,7 @@ import { DISCORD_APP_URL, isDiscordUrl, type DiscordTarget } from '../discord/di
 import { isMicrosoftUrl, type MicrosoftTarget } from '../identity/microsoftAccount.js';
 import type { BulkAction } from '../ops/bulk.js';
 import { refs } from '../vault/refs.js';
+import { starStats } from '../minecraft/starStats.js';
 
 const log = createLogger('web');
 const PUBLIC_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../public');
@@ -402,9 +403,22 @@ export async function buildServer(suite: Suite, opts: ServerOptions = {}): Promi
       identities: { total: rows.length, ready: rows.filter((r) => r.ready).length },
       agents: { online: st.agents.filter((a) => a.online).length, total: st.agents.length },
       stars: rows.reduce((a, r) => a + (Number(r.stars) || 0), 0),
+      starsGained24h: suite.repo.starHistory(new Date(Date.now() - 86_400_000).toISOString()).reduce((a, x) => a + Math.max(0, x.delta), 0),
       at: new Date().toISOString(),
     };
   });
+
+  // Star statistics: balance of all / the online identities, gained per 24 h / 7 / 30 / 365 days, charts
+  app.get('/api/stars', async () => {
+    const online = new Set(suite.sessions.list().filter((x) => x.state === 'ONLINE').map((x) => x.identityId));
+    const rows = suite.identities.dashboard();
+    return starStats(
+      suite.repo,
+      rows.map((r) => ({ id: r.id, name: r.minecraft.username || r.label || `#${r.id}`, stars: Number(r.stars) || 0, online: online.has(r.id) })),
+    );
+  });
+  // the sidebar scoreboard of a session as the player sees it (to set up the star recognition)
+  app.get('/api/sessions/:sessionId/scoreboard', async (req: Req) => suite.sessions.getScoreboard(req.params.sessionId) ?? { title: '', lines: [], at: null });
 
   app.get('/api/identities/:id', async (req: Req) => {
     const id = num(req.params.id);

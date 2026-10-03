@@ -76,7 +76,8 @@ public class StatusWidget extends AppWidgetProvider {
       v.setTextViewText(R.id.big, sessions.optInt("online") + "/" + sessions.optInt("wanted"));
       int problems = sessions.optInt("problems");
       v.setTextViewText(R.id.label, problems > 0 ? "online · " + problems + " mit Problemen" : "Sessions online");
-      v.setTextViewText(R.id.pc, s.optString("pc", "Hoelni") + " · " + s.optInt("stars") + " ★");
+      int gained = s.optInt("starsGained24h");
+      v.setTextViewText(R.id.pc, s.optString("pc", "Hoelni") + " · " + s.optInt("stars") + " ★" + (gained > 0 ? " (+" + gained + " in 24 h)" : ""));
       JSONArray list = sessions.optJSONArray("list");
       for (int i = 0; list != null && i < Math.min(ROWS.length, list.length()); i++) {
         JSONObject x = list.getJSONObject(i);

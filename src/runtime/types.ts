@@ -70,6 +70,8 @@ export type RuntimeEvent =
   | { type: 'phase'; sessionId: string; phase: RuntimeSessionPhase }
   | { type: 'spawned'; sessionId: string; username: string; uuid: string | null; version: string | null }
   | { type: 'chat'; sessionId: string; text: string; ts: string; /** Raw chat component (diagnosis, capped). */ raw?: string; position?: string }
+  /** The sidebar scoreboard as the player sees it (lines top to bottom) – sent when it changed. */
+  | { type: 'scoreboard'; sessionId: string; title: string; lines: Array<{ text: string; value: number; hidden?: boolean }> }
   | { type: 'ended'; sessionId: string; reason: string; kicked: boolean; error: string | null }
   | { type: 'stats'; sessionId: string; stats: SessionStats }
   /** Diagnostic entry for the session log (server switch, held chat, library errors). */

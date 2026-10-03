@@ -209,7 +209,7 @@
         paint();
         return;
       }
-      if (tab === 'home') cache.summary = await pc('GET', '/api/summary');
+      if (tab === 'home') [cache.summary, cache.stars] = await Promise.all([pc('GET', '/api/summary'), pc('GET', '/api/stars').catch(() => null)]);
       if (tab === 'sessions' || tab === 'home' || tab === 'chat') cache.sessions = await pc('GET', '/api/sessions');
       if (tab === 'people' || tab === 'sessions' || !cache.rows) cache.rows = (await pc('GET', '/api/dashboard')).rows;
       if (tab === 'chat') cache.chat = await pc('GET', '/api/chat?limit=200');
@@ -259,7 +259,9 @@
       h('div', { class: 'stats' },
         h('div', { class: 'stat' }, h('b', null, `${s.identities.ready}/${s.identities.total}`), h('span', null, 'Identitäten bereit')),
         h('div', { class: 'stat' }, h('b', null, `${s.agents.online}`), h('span', null, `Agents online`)),
-        h('div', { class: 'stat' }, h('b', null, String(s.stars)), h('span', null, 'Sterne gesamt'))),
+        h('button', { class: 'stat tap', onclick: () => starsSheet() }, h('b', null, fmtNum(cache.stars?.total ?? s.stars)), h('span', null, 'Sterne gesamt'),
+          cache.stars?.gained.h24 ? h('em', null, `+${fmtNum(cache.stars.gained.h24)} in 24 h`) : null)),
+      cache.stars ? starsCard(cache.stars) : null,
       h('div', { class: 'section-title' }, 'Schnellaktionen'),
       h('div', { class: 'actions' },
         h('button', { class: 'action', onclick: () => bulk('startSessions', 'Alle Sessions werden gestartet') }, icon('play'), 'Alle online'),
@@ -269,6 +271,105 @@
       s.sessions.list.length ? s.sessions.list.map((x) => sessionRow((cache.sessions || []).find((y) => y.id === x.id) || { id: x.id, state: x.state, serverName: x.server, username: x.name })) : h('div', { class: 'card empty' }, 'Keine Session soll online sein.'),
       h('div', { class: 'section-title' }, 'Live'),
       h('div', { class: 'card feed' }, feed.length ? feed.slice(0, 10).map((f) => h('div', null, h('time', null, timeOf(f.at)), h('span', null, f.text))) : h('span', { class: 'muted' }, live ? 'Wartet auf Ereignisse…' : 'Live-Verbindung wird aufgebaut…')));
+  }
+
+  // ------------------------------------------------------------------ stars
+  const fmtNum = (n) => Number(n || 0).toLocaleString('de-DE');
+  let starsRange = 'day';
+
+  /** Bars of stars gained (one series, one hue); tap a bar for its value. */
+  function starsChart(points, label, caption) {
+    const W = 300;
+    const HGT = 96;
+    const max = Math.max(1, ...points.map((p) => p.gained));
+    const step = W / points.length;
+    const bw = Math.max(2, step - 2); // 2px gap between bars
+    const NS = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(NS, 'svg');
+    svg.setAttribute('viewBox', `0 0 ${W} ${HGT + 1}`);
+    svg.setAttribute('class', 'chart');
+    svg.setAttribute('role', 'img');
+    svg.setAttribute('aria-label', `${caption.textContent}`);
+    const el = (tag, attrs) => {
+      const e = document.createElementNS(NS, tag);
+      for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, String(v));
+      return e;
+    };
+    // recessive guide at the maximum
+    svg.append(el('line', { x1: 0, x2: W, y1: 8, y2: 8, class: 'grid' }));
+    const def = caption.textContent;
+    points.forEach((p, i) => {
+      const x = i * step + (step - bw) / 2;
+      const hgt = p.gained ? Math.max(3, (p.gained / max) * (HGT - 10)) : 0;
+      const r = Math.min(4, bw / 2, hgt);
+      if (hgt) {
+        // rounded top (4px), square on the baseline
+        const y = HGT - hgt;
+        svg.append(el('path', { class: 'bar', d: `M${x},${HGT} V${y + r} Q${x},${y} ${x + r},${y} H${x + bw - r} Q${x + bw},${y} ${x + bw},${y + r} V${HGT} Z` }));
+      }
+      const hit = el('rect', { x: i * step, y: 0, width: step, height: HGT, class: 'hit' });
+      const show = () => {
+        caption.textContent = `${label(p)}: +${fmtNum(p.gained)} ★`;
+        svg.querySelectorAll('.hit.on').forEach((n) => n.classList.remove('on'));
+        hit.classList.add('on');
+      };
+      hit.addEventListener('pointerenter', show);
+      hit.addEventListener('click', show);
+      svg.append(hit);
+    });
+    svg.addEventListener('pointerleave', () => {
+      caption.textContent = def;
+      svg.querySelectorAll('.hit.on').forEach((n) => n.classList.remove('on'));
+    });
+    svg.append(el('line', { x1: 0, x2: W, y1: HGT + 0.5, y2: HGT + 0.5, class: 'axis' }));
+    return svg;
+  }
+
+  function starsCard(st) {
+    const daily = starsRange === 'day';
+    const pts = daily ? st.hourly : st.daily;
+    const sum = pts.reduce((a, p) => a + p.gained, 0);
+    const caption = h('div', { class: 'chart-cap' }, daily ? `+${fmtNum(sum)} ★ in den letzten 24 Stunden` : `+${fmtNum(sum)} ★ in den letzten 30 Tagen`);
+    const label = daily
+      ? (p) => `${pad2(new Date(p.t).getHours())}–${pad2((new Date(p.t).getHours() + 1) % 24)} Uhr`
+      : (p) => new Date(`${p.day}T12:00:00`).toLocaleDateString('de-DE', { weekday: 'short', day: 'numeric', month: 'numeric' });
+    const kpi = (v, t) => h('div', null, h('b', null, `+${fmtNum(v)}`), h('span', null, t));
+    return h('div', { class: 'card stars' },
+      h('div', { class: 'stars-head' },
+        h('div', null, h('div', { class: 'name' }, h('b', null, 'Sterne')), h('div', { class: 'muted small' }, `${fmtNum(st.online)} ★ auf den Accounts, die gerade online sind`)),
+        h('div', { class: 'seg' },
+          h('button', { class: daily ? 'on' : '', onclick: () => { starsRange = 'day'; paint(); } }, '24 h'),
+          h('button', { class: daily ? '' : 'on', onclick: () => { starsRange = 'month'; paint(); } }, '30 Tage'))),
+      h('div', { class: 'kpis' }, kpi(st.gained.h24, '24 Stunden'), kpi(st.gained.d7, '7 Tage'), kpi(st.gained.d30, '30 Tage'), kpi(st.gained.d365, '1 Jahr')),
+      caption,
+      starsChart(pts, label, caption),
+      h('div', { class: 'chart-x' }, h('span', null, daily ? 'vor 24 h' : 'vor 30 Tagen'), h('span', null, daily ? 'jetzt' : 'heute')),
+      h('button', { class: 'btn wide', style: { marginTop: '10px' }, onclick: () => starsSheet() }, 'Sterne pro Identität'));
+  }
+
+  async function starsSheet() {
+    const body = h('div', null, h('div', { class: 'muted small' }, 'Lädt…'));
+    sheet(h('h2', null, 'Sterne pro Identität'), body);
+    try {
+      const st = await pc('GET', '/api/stars');
+      cache.stars = st;
+      fill(body,
+        h('div', { class: 'kv' },
+          h('div', null, 'Alle Identitäten'), h('div', null, `${fmtNum(st.total)} ★`),
+          h('div', null, 'Gerade online'), h('div', null, `${fmtNum(st.online)} ★`),
+          h('div', null, 'Ausgegeben (30 Tage)'), h('div', null, `${fmtNum(st.spent.d30)} ★`)),
+        h('table', { class: 'tbl' },
+          h('thead', null, h('tr', null, h('th', null, 'Identität'), h('th', null, 'Stand'), h('th', null, '24 h'), h('th', null, '7 T'), h('th', null, '30 T'))),
+          h('tbody', null, st.perIdentity.map((i) => h('tr', null,
+            h('td', null, h('span', { class: `dot ${i.online ? 'ok' : ''}` }), ' ', i.name),
+            h('td', null, fmtNum(i.stars)),
+            h('td', null, i.h24 ? `+${fmtNum(i.h24)}` : '–'),
+            h('td', null, i.d7 ? `+${fmtNum(i.d7)}` : '–'),
+            h('td', null, i.d30 ? `+${fmtNum(i.d30)}` : '–'))))),
+        h('p', { class: 'muted small' }, 'Der Stand kommt aus dem Scoreboard rechts im Spiel (bzw. aus Chat-Meldungen, wenn der Server keins zeigt). Die erste Ablesung zählt nicht als gewonnen.'));
+    } catch (e) {
+      fill(body, h('div', { class: 'banner err' }, e.message));
+    }
   }
 
   async function bulk(action, ok) {
@@ -322,6 +423,7 @@
     const [identityId, serverId] = String(s.id).split(':');
     let close;
     const run = (fn, ok) => act(async () => { await fn(); close(); }, ok);
+    const sbBox = h('div');
     close = sheet(
       h('h2', null, nameOf(s)),
       h('div', null, h('span', { class: `pill ${cls}` }, text), ' ', h('span', { class: 'muted small' }, s.serverName || '')),
@@ -337,7 +439,16 @@
           : h('button', { class: 'btn primary', onclick: () => run(() => pc('POST', `/api/identities/${identityId}/sessions/${serverId}/start`), 'Session startet') }, 'Starten'),
         online ? h('button', { class: 'btn', onclick: () => run(() => pc('POST', `/api/sessions/${s.id}/reconnect`), 'Verbindet neu') }, 'Neu verbinden') : null,
         s.runtime === 'game' || s.takeover !== 'none' ? h('button', { class: 'btn', onclick: () => run(() => pc('DELETE', `/api/sessions/${s.id}/game`), 'Zurück zu AFK') }, 'Zurück zu AFK') : null,
-        h('button', { class: 'btn', onclick: () => chatSheet(s) }, 'Chat')));
+        h('button', { class: 'btn', onclick: () => chatSheet(s) }, 'Chat')),
+      sbBox);
+    // the sidebar as the player sees it – shows what the star recognition reads
+    pc('GET', `/api/sessions/${s.id}/scoreboard`)
+      .then((sb) => {
+        if (!sb?.lines?.length) return;
+        fill(sbBox, h('div', { class: 'section-title' }, 'Scoreboard', sb.title ? h('span', { class: 'muted small' }, sb.title) : null),
+          h('div', { class: 'card feed' }, sb.lines.map((l) => h('div', null, h('span', null, l.text || ' '), l.hidden ? null : h('time', { style: { marginLeft: 'auto' } }, String(l.value))))));
+      })
+      .catch(() => undefined);
   }
 
   function chatSheet(s) {
