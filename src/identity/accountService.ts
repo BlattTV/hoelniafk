@@ -40,7 +40,31 @@ export class AccountService {
     private readonly bus: EventBus,
   ) {}
 
-  list(kind?: AccountKind): Array<Account & { identityLabel: string | null; minecraftStatus: string | null }> {
+  /**
+   * Accounts that came to this PC through the settings sync: their window (browser profile) is new
+   * here, so they still need one sign-in on this PC. Kept per PC (app setting), never synchronized.
+   */
+  loginPending(id: number): boolean {
+    return this.repo.getSetting(`login.pending.${id}`) === '1';
+  }
+
+  /** Moved to a new PC: every account in use goes on the "sign in on this PC" list. Returns how many. */
+  markAllLoginPending(): number {
+    let n = 0;
+    for (const a of this.repo.listAccounts()) {
+      if (!a.ready && a.identityId === null) continue;
+      this.repo.setSetting(`login.pending.${a.id}`, '1');
+      n++;
+    }
+    return n;
+  }
+
+  /** The user signed in to this account's window on this PC (or does not need it here). */
+  loginDone(id: number): void {
+    this.repo.setSetting(`login.pending.${id}`, '');
+  }
+
+  list(kind?: AccountKind): Array<Account & { identityLabel: string | null; minecraftStatus: string | null; loginPending: boolean }> {
     return this.repo.listAccounts(kind).map((a) => {
       let identityLabel: string | null = null;
       let minecraftStatus: string | null = null;
@@ -52,7 +76,7 @@ export class AccountService {
         }
         if (a.kind === 'microsoft') minecraftStatus = this.repo.getMinecraft(a.identityId)?.authStatus ?? null;
       }
-      return { ...a, identityLabel, minecraftStatus };
+      return { ...a, identityLabel, minecraftStatus, loginPending: this.loginPending(a.id) };
     });
   }
 

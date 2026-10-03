@@ -77,6 +77,11 @@ describe('settings sync: merge', () => {
     // account library entry linked to Beta, with its own (new) browser profile
     const acc = b.suite.repo.listAccounts().find((x) => x.email === 'alt07@outlook.com')!;
     expect(acc.identityId).toBe(beta);
+    // its window is new on this PC: listed under "Sign in on this PC" (never on the PC it came from)
+    expect(b.suite.accounts.list().find((x) => x.id === acc.id)!.loginPending).toBe(true);
+    expect(a.suite.accounts.list().every((x) => !x.loginPending)).toBe(true);
+    b.suite.accounts.loginDone(acc.id);
+    expect(b.suite.accounts.list().find((x) => x.id === acc.id)!.loginPending).toBe(false);
     // proxy with its password, macro mapped to the local ids
     const proxy = b.suite.proxies.list()[0];
     expect(proxy).toMatchObject({ host: '203.0.113.9', port: 1080 });

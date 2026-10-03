@@ -374,7 +374,7 @@ export function sessionsSection(ctx) {
                 sess?.state === 'ONLINE' ? h('span', { dataset: { stats: sess.id } }, st ? statsText(st) : '') : null,
                 sess?.state === 'RECONNECTING' ? `next attempt ${relTime(sess.nextAttemptAt)} · failures ${sess.consecutiveFailures}` : null,
                 sess?.lastError && sess.state !== 'ONLINE' ? h('div', { class: sess.state === 'BLOCKED' ? 's-error' : '' }, sess.lastError) : null),
-              h('td', null, a ? h('div', { class: 'toolbar' },
+              h('td', null, a ? h('div', { class: 'row-actions' },
                 !sess || ['STOPPED', 'BLOCKED', 'RECONNECTING'].includes(sess.state)
                   ? h('button', { class: 'small primary', title: 'Set desired ONLINE and connect now', onclick: () => guard(async () => { await api.post(`/api/identities/${id}/sessions/${s.id}/start`); await reload(); }) }, 'Start')
                   : h('button', { class: 'small', title: 'Set desired OFFLINE and disconnect', onclick: () => guard(async () => { await api.post(`/api/sessions/${sid}/stop`); await reload(); }) }, 'Stop'),

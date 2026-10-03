@@ -104,18 +104,40 @@ export async function loginsView(root) {
         : h('p', { class: 'muted' }, kind === 'microsoft' ? 'No Microsoft account yet.' : 'No Discord account yet.'));
   };
 
+  /** Accounts that came here through the settings sync: their window still needs one sign-in on this PC. */
+  const pendingCard = () => {
+    const list = accounts.filter((a) => a.loginPending);
+    if (!list.length) return null;
+    const done = (a) => guard(async () => { await api.post(`/api/accounts/${a.id}/login-done`); await load(); }, 'Done');
+    return h('section', { class: 'card', 'data-key': 'pending' },
+      h('h2', null, t('Sign in on this PC'), ` (${list.length})`),
+      h('p', { class: 'muted' }, 'These accounts came from your other PC. Their windows are new here, so each one needs one sign-in on this PC (Discord: scan the QR code on the login page with the Discord app on your phone). After that the login stays saved here. Minecraft does not need this – its login came along.'),
+      h('table', null,
+        h('thead', null, h('tr', null, ['Account', 'Identity', ''].map((x) => h('th', null, x)))),
+        h('tbody', null, list.map((a) => h('tr', { 'data-key': `p${a.id}` },
+          h('td', null, h('strong', null, a.kind === 'microsoft' ? `Microsoft · ${a.email ?? a.label}` : `Discord · ${a.username ? `@${a.username}` : a.label || `#${a.id}`}`)),
+          h('td', null, a.identityLabel ?? h('span', { class: 'muted' }, '–')),
+          h('td', null, h('div', { class: 'toolbar' },
+            h('button', { class: 'small primary', onclick: () => openAccount(a.id, a.kind === 'microsoft' ? 'outlook' : 'login') }, 'Sign in'),
+            h('button', { class: 'small', title: 'Signed in in its window (or not needed on this PC)', onclick: () => done(a) }, 'Done'))))))));
+  };
+
   const body = h('div');
   const forms = h('div', { class: 'card' },
     h('h2', null, 'Add'),
     h('p', { class: 'muted' }, 'Each account gets its own window with its own login. Add it here, sign in there, then link it to an identity – or link it later.'),
     addForm('microsoft'),
-    addForm('discord'));
+    addForm('discord'),
+    h('p', { class: 'muted', style: { marginTop: '12px' } },
+      t('Moved the suite to a new PC?'), ' ',
+      h('button', { class: 'small', title: 'Lists every account in use under “Sign in on this PC” – the windows on this PC need one sign-in each', onclick: () => guard(async () => { const r = await api.post('/api/accounts/login-pending'); await load(); toast(`${r.count} ${t('accounts listed')}`, 'ok'); }) }, 'List the sign-ins for this PC')));
 
   const load = async () => {
     const [acc, dash] = await Promise.all([api.get('/api/accounts'), api.get('/api/dashboard')]);
     accounts = acc;
     identities = dash.rows;
     patch(body,
+      pendingCard(),
       card('microsoft', 'Microsoft accounts', 'Minecraft and Outlook with one login. Linking moves the Minecraft login to the identity – sessions of that identity use it.'),
       card('discord', 'Discord accounts', 'Own Discord login per account. The suite never automates Discord – you register and sign in yourself in the account\'s window.'));
   };

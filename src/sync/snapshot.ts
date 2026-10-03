@@ -336,6 +336,8 @@ export class SnapshotIO {
           // the browser profile (window login) belongs to this PC: a new account gets its own
           const partition = `persist:hoelni-${e.kind === 'microsoft' ? 'ms' : 'discord'}-acc-${crypto.randomBytes(6).toString('hex')}`;
           id = db.prepare('INSERT INTO accounts (kind, label, email, username, partition, ready, identity_id, created_at, updated_at, sync_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(e.kind, e.label ?? '', e.email ?? null, e.username ?? null, partition, e.ready ? 1 : 0, identityId, e.createdAt ?? now, now, sid).lastInsertRowid;
+          // its window (browser profile) is new on this PC: one sign-in here is still needed
+          if (e.ready || identityId !== null) db.prepare("INSERT INTO app_settings (key, value) VALUES (?, '1') ON CONFLICT(key) DO UPDATE SET value = '1'").run(`login.pending.${id}`);
         } else db.prepare('UPDATE accounts SET kind = ?, label = ?, email = ?, username = ?, ready = ?, identity_id = ?, updated_at = ? WHERE id = ?').run(e.kind, e.label ?? '', e.email ?? null, e.username ?? null, e.ready ? 1 : 0, identityId, now, id);
         await replaceSecrets(this.store, `vault://app/accounts/${id}/`, e.secrets);
         return true;

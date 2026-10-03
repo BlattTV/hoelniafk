@@ -1320,5 +1320,12 @@ export default {
  "The agent fetches the newest version now and restarts into it – its sessions reconnect within a minute": "Der Agent holt jetzt die neueste Version und startet damit neu – seine Sessions verbinden sich innerhalb einer Minute wieder",
  "Update in the agent app on the phone": "Am Handy in der Agent-App aktualisieren",
  "Update \"{0}\" now? Its sessions reconnect after the restart.": "„{0}“ jetzt aktualisieren? Die Sessions dort verbinden sich nach dem Neustart neu.",
- "This suite is on build {0}": "Diese Suite hat Build {0}"
+ "This suite is on build {0}": "Diese Suite hat Build {0}",
+ "Sign in on this PC": "Auf diesem PC anmelden",
+ "These accounts came from your other PC. Their windows are new here, so each one needs one sign-in on this PC (Discord: scan the QR code on the login page with the Discord app on your phone). After that the login stays saved here. Minecraft does not need this – its login came along.": "Diese Konten kommen von deinem anderen PC. Ihre Fenster sind hier neu, deshalb braucht jedes einmal eine Anmeldung auf diesem PC (Discord: den QR-Code auf der Login-Seite mit der Discord-App am Handy scannen). Danach bleibt die Anmeldung hier gespeichert. Minecraft braucht das nicht – die Anmeldung ist mitgekommen.",
+ "Signed in in its window (or not needed on this PC)": "Im Fenster angemeldet (oder auf diesem PC nicht nötig)",
+ "Moved the suite to a new PC?": "Suite auf einen neuen PC umgezogen?",
+ "List the sign-ins for this PC": "Anmeldungen für diesen PC auflisten",
+ "accounts listed": "Konten aufgelistet",
+ "Lists every account in use under “Sign in on this PC” – the windows on this PC need one sign-in each": "Listet alle genutzten Konten unter „Auf diesem PC anmelden“ auf – die Fenster auf diesem PC brauchen je einmal eine Anmeldung"
 };

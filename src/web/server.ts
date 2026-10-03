@@ -692,6 +692,11 @@ export async function buildServer(suite: Suite, opts: ServerOptions = {}): Promi
     return suite.accounts.link(num(req.params.id), target === null || target === undefined || target === '' ? null : num(target));
   });
   /** Window data for the desktop program (browser profile of the account). */
+  app.post('/api/accounts/login-pending', async () => ({ count: suite.accounts.markAllLoginPending() }));
+  app.post('/api/accounts/:id/login-done', async (req: Req) => {
+    suite.accounts.loginDone(num(req.params.id));
+    return { ok: true };
+  });
   app.get('/api/accounts/:id/window', async (req: Req) => suite.accounts.window(num(req.params.id)));
   /** Desktop program: the window of an identity's account (created for Discord / an existing Microsoft e-mail). */
   app.post('/api/identities/:id/accounts/:kind/window', async (req: Req) => {
