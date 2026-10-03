@@ -57,7 +57,7 @@ export async function settingsView(root) {
             const min = h('input', { type: 'number', min: 0, max: 600, value: gap.min, style: { width: '90px' } });
             const max = h('input', { type: 'number', min: 0, max: 600, value: gap.max, style: { width: '90px' } });
             return h('section', { class: 'card' }, h('h2', null, 'Session starts'),
-              h('p', { class: 'muted' }, 'After a restart, an update or "all online" the accounts join one after another with a random gap – not all at the same second. A click on "Start" of a single session is never delayed. 0 = all at once.'),
+              h('p', { class: 'muted' }, 'After a restart, an update or "all online" the accounts join one after another with a random gap – not all at the same second; "all offline" lets them leave the same way. Clicking "Start" or "Stop" on a single session is never delayed. 0 = all at once.'),
               h('div', { class: 'row', style: { gap: '10px', alignItems: 'center', flexWrap: 'wrap' } },
                 h('span', null, 'Gap between'), min, h('span', null, 'and'), max, h('span', null, 'seconds'),
                 h('button', { class: 'primary', onclick: () => guard(async () => { const r = await api.put('/api/settings/start-spacing', { min: Number(min.value), max: Number(max.value) }); min.value = r.min; max.value = r.max; }, 'Saved') }, 'Save')),

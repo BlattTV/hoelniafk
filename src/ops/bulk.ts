@@ -86,15 +86,9 @@ export class BulkOperations {
             return { identityId, ok: targets.length > 0, message: targets.length ? `${targets.length} session(s) set online` : 'No enabled assignments' };
           }
           case 'stopSessions': {
+            // desired OFFLINE – the reconciler lets online accounts leave one after another (start spacing)
             const targets = this.repo.listAssignments(identityId).filter((a) => !opts.serverIds || opts.serverIds.includes(a.serverId));
-            for (const a of targets) {
-              const id = `${identityId}:${a.serverId}`;
-              try {
-                await this.sessions.stopSession(id);
-              } catch {
-                this.sessions.setDesired(identityId, a.serverId, 'OFFLINE');
-              }
-            }
+            for (const a of targets) this.sessions.setDesired(identityId, a.serverId, 'OFFLINE');
             return { identityId, ok: true, message: `${targets.length} session(s) set offline` };
           }
           case 'reconnect': {

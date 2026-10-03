@@ -35,6 +35,16 @@ describe('start spacing', () => {
     await s.sessions.startSession(ids[0], lobby.id);
     await waitFor(() => t.bots.length === before + 1, 3000, 'manual start');
     expect(Date.now() - t0).toBeLessThan(3000); // not 60 s
+    // "all offline": the online accounts leave one after another
+    for (const b of t.bots) b.join?.();
+    await waitFor(() => s.sessions.list().filter((x) => x.state === 'ONLINE').length === 4, 5000, 'all online');
+    s.sessions.setStartSpacing(1, 1);
+    await new Promise((r) => setTimeout(r, 1100)); // the last start is more than the gap ago
+    await s.bulk.run('stopSessions', ids);
+    await new Promise((r) => setTimeout(r, 400));
+    const online = () => s.sessions.list().filter((x) => x.state === 'ONLINE').length;
+    expect(online()).toBe(3); // the first one left at once …
+    await waitFor(() => online() === 0, 8000, 'all offline one by one'); // … the others with a gap
 
     await s.shutdown();
   }, 20_000);

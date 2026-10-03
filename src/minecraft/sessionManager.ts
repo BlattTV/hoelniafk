@@ -132,6 +132,9 @@ export class SessionManager {
   private nextAutoStartAt = 0;
   /** Reconcile again when the next spaced start is due. */
   private spacingTimer: NodeJS.Timeout | null = null;
+  /** The same for leaving: online sessions set offline go one after another. */
+  private nextAutoStopAt = 0;
+  private stopSpacingTimer: NodeJS.Timeout | null = null;
   private chatQueue: Array<{ ts: string; sessionId: string; identityId: number; serverId: number; text: string }> = [];
   private chatTimer: NodeJS.Timeout | null = null;
   private stopped = false;
@@ -211,6 +214,7 @@ export class SessionManager {
   async shutdown(): Promise<void> {
     this.stopped = true;
     if (this.spacingTimer) clearTimeout(this.spacingTimer);
+    if (this.stopSpacingTimer) clearTimeout(this.stopSpacingTimer);
     if (this.reconcileTimer) clearInterval(this.reconcileTimer);
     this.reconcileTimer = null;
     this.flushChat();
@@ -563,7 +567,25 @@ export class SessionManager {
       if (wanted.has(r.id)) continue;
       const a = this.repo.getAssignment(r.identityId, r.serverId);
       const why = this.standbyReason ? `Standby – ${this.standbyReason}` : a?.enabled && a.desiredState === 'ONLINE' ? 'Outside schedule' : 'Desired state offline';
-      if (ACTIVE.includes(r.state) && r.state !== 'STOPPING') void this.withLock(r, () => this.halt(r, why));
+      if (ACTIVE.includes(r.state) && r.state !== 'STOPPING') {
+        // "all offline" / schedules: online accounts leave one after another (another PC taking over: at once)
+        const gap = this.startSpacing();
+        if (r.state === 'ONLINE' && !this.standbyReason && gap.max > 0) {
+          const t = Date.now();
+          if (t < this.nextAutoStopAt) {
+            if (!this.stopSpacingTimer) {
+              this.stopSpacingTimer = setTimeout(() => {
+                this.stopSpacingTimer = null;
+                void this.reconcile();
+              }, this.nextAutoStopAt - t + 50);
+              this.stopSpacingTimer.unref?.();
+            }
+            continue;
+          }
+          this.nextAutoStopAt = t + Math.round((gap.min + Math.random() * (gap.max - gap.min)) * 1000);
+        }
+        void this.withLock(r, () => this.halt(r, why));
+      }
       else if (r.state === 'RECONNECTING' || r.state === 'BLOCKED') this.setState(r, 'STOPPED');
     }
   }

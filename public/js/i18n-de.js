@@ -1368,7 +1368,7 @@ export default {
  "Direct connection – the session reconnects": "Direkte Verbindung – die Session verbindet neu",
  "Direct (own IP)": "Direkt (eigene IP)",
  "Session starts": "Session-Starts",
- "After a restart, an update or \"all online\" the accounts join one after another with a random gap – not all at the same second. A click on \"Start\" of a single session is never delayed. 0 = all at once.": "Nach einem Neustart, einem Update oder „Alle online“ joinen die Accounts nacheinander mit zufälligem Abstand – nicht alle in derselben Sekunde. Ein Klick auf „Starten“ bei einer einzelnen Session wird nie verzögert. 0 = alle auf einmal.",
+ "After a restart, an update or \"all online\" the accounts join one after another with a random gap – not all at the same second; \"all offline\" lets them leave the same way. Clicking \"Start\" or \"Stop\" on a single session is never delayed. 0 = all at once.": "Nach einem Neustart, einem Update oder „Alle online“ joinen die Accounts nacheinander mit zufälligem Abstand – nicht alle in derselben Sekunde; „Alle offline“ lässt sie genauso nacheinander gehen. Ein Klick auf „Starten“ oder „Stoppen“ bei einer einzelnen Session wird nie verzögert. 0 = alle auf einmal.",
  "Gap between": "Abstand zwischen",
  "and": "und",
  "Example": "Beispiel",
