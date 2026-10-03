@@ -348,7 +348,11 @@ export async function buildServer(suite: Suite, opts: ServerOptions = {}): Promi
   app.post('/api/updates/install', async () => suite.updater.install());
   app.post('/api/updates/rollback', async () => suite.updater.rollback());
 
-  app.get('/api/settings', async () => ({ automation: suite.config.automation }));
+  app.get('/api/settings', async () => ({ automation: suite.config.automation, startSpacing: suite.sessions.startSpacing() }));
+  app.put('/api/settings/start-spacing', async (req: Req) => {
+    const b = bodyOf(req);
+    return suite.sessions.setStartSpacing(Number(b.min), Number(b.max));
+  });
 
   // UI language (the desktop tray menu follows it too)
   app.get('/api/settings/ui', async () => ({ language: suite.repo.getSetting('ui.language') === 'de' ? 'de' : 'en' }));

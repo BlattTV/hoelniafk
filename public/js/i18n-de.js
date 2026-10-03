@@ -1366,5 +1366,11 @@ export default {
  "Actual star balance of {0} on {1}:": "Tatsächlicher Sternestand von {0} auf {1}:",
  "Direct (own IP of the device)": "Direkt (eigene IP des Geräts)",
  "Direct connection – the session reconnects": "Direkte Verbindung – die Session verbindet neu",
- "Direct (own IP)": "Direkt (eigene IP)"
+ "Direct (own IP)": "Direkt (eigene IP)",
+ "Session starts": "Session-Starts",
+ "After a restart, an update or \"all online\" the accounts join one after another with a random gap – not all at the same second. A click on \"Start\" of a single session is never delayed. 0 = all at once.": "Nach einem Neustart, einem Update oder „Alle online“ joinen die Accounts nacheinander mit zufälligem Abstand – nicht alle in derselben Sekunde. Ein Klick auf „Starten“ bei einer einzelnen Session wird nie verzögert. 0 = alle auf einmal.",
+ "Gap between": "Abstand zwischen",
+ "and": "und",
+ "Example": "Beispiel",
+ "16 accounts at 8–25 s are all online after about 4–5 minutes.": "16 Accounts mit 8–25 s sind nach etwa 4–5 Minuten alle online."
 };

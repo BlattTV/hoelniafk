@@ -128,6 +128,10 @@ export class SessionManager {
   private reconciling = false;
   private reconcileAgain = false;
   private startsInFlight = 0;
+  /** Automatic starts (reconciler) come one after another with a random gap – see startSpacing(). */
+  private nextAutoStartAt = 0;
+  /** Reconcile again when the next spaced start is due. */
+  private spacingTimer: NodeJS.Timeout | null = null;
   private chatQueue: Array<{ ts: string; sessionId: string; identityId: number; serverId: number; text: string }> = [];
   private chatTimer: NodeJS.Timeout | null = null;
   private stopped = false;
@@ -159,6 +163,27 @@ export class SessionManager {
     this.offRuntime = runtime.onEvent((e) => this.onRuntimeEvent('lightweight', e));
   }
 
+  /**
+   * Gap between automatic session starts in seconds (random between min and max; 0 = off). Setting
+   * sessions.startSpacing ("min-max"), HOELNI_START_SPACING overrides it (tests). A click on "Start"
+   * of one session is never delayed.
+   */
+  startSpacing(): { min: number; max: number } {
+    const raw = process.env.HOELNI_START_SPACING ?? this.repo.getSetting('sessions.startSpacing') ?? '8-25';
+    const [a, b] = String(raw).split('-').map((x) => Math.max(0, Math.min(600, Number(x) || 0)));
+    const min = a;
+    const max = b === undefined ? a : Math.max(a, b);
+    return { min, max };
+  }
+
+  setStartSpacing(min: number, max: number): { min: number; max: number } {
+    const lo = Math.max(0, Math.min(600, Math.round(min) || 0));
+    const hi = Math.max(lo, Math.min(600, Math.round(max) || 0));
+    this.repo.setSetting('sessions.startSpacing', `${lo}-${hi}`);
+    this.nextAutoStartAt = Math.min(this.nextAutoStartAt, Date.now() + hi * 1000);
+    return { min: lo, max: hi };
+  }
+
   /** Enables "Open game" with the real Minecraft client. */
   attachGameClient(game: GameClientRuntime): void {
     this.game = game;
@@ -185,6 +210,7 @@ export class SessionManager {
 
   async shutdown(): Promise<void> {
     this.stopped = true;
+    if (this.spacingTimer) clearTimeout(this.spacingTimer);
     if (this.reconcileTimer) clearInterval(this.reconcileTimer);
     this.reconcileTimer = null;
     this.flushChat();
@@ -510,6 +536,21 @@ export class SessionManager {
       }
       if (r.state === 'RECONNECTING' && r.nextAttemptAt && r.nextAttemptAt > now) continue;
       if (this.startsInFlight >= this.opts.maxConcurrentStarts) continue;
+      // after a restart / update / "all online" the accounts join one after another, not all at once
+      const gap = this.startSpacing();
+      if (gap.max > 0) {
+        if (now < this.nextAutoStartAt) {
+          if (!this.spacingTimer) {
+            this.spacingTimer = setTimeout(() => {
+              this.spacingTimer = null;
+              void this.reconcile();
+            }, this.nextAutoStartAt - now + 50);
+            this.spacingTimer.unref?.();
+          }
+          continue;
+        }
+        this.nextAutoStartAt = now + Math.round((gap.min + Math.random() * (gap.max - gap.min)) * 1000);
+      }
       void this.withLock(r, async () => {
         if (!ACTIVE.includes(r.state) && r.state !== 'BLOCKED') {
           if (r.state === 'RECONNECTING') r.reconnects++;
