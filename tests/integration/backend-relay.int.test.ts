@@ -210,7 +210,28 @@ describe('backend relay: manager and agent of the same account', () => {
     await waitFor(() => suite.backend.status().agents.find((a) => a.id === agentId)?.paused === true, 5000, 'paused visible');
     suite.backend.pauseAgent(agentId, false);
     await waitFor(() => agent.status.state === 'online', 5000, 'agent resumed');
+    // "update now" reaches the agent (the installed agent then fetches and installs the update)
+    let asked = 0;
+    agent.onUpdateRequest = async () => {
+      asked++;
+      return 'already up to date';
+    };
+    suite.backend.updateAgent(agentId);
+    await waitFor(() => asked === 1, 5000, 'update request at the agent');
     await waitFor(() => mc.players().includes('Remote01'), 30_000, 'session back on the agent');
+  }, 60_000);
+
+  it('reads the star balance from the scoreboard of a session on the agent', async () => {
+    const sid = `${identityId}:${serverId}`;
+    await waitFor(() => suite.sessions.getState(sid).state === 'ONLINE' && !!suite.runtime.isRemoteSession?.(sid) && mc.players().includes('Remote01'), 30_000, 'online on the agent');
+    // a classic sidebar (1.20.1): the label is the entry, the stars are its score
+    mc.write('Remote01', 'scoreboard_objective', { name: 'side', action: 0, displayText: JSON.stringify({ text: 'HugoSMP' }), type: 0 });
+    mc.write('Remote01', 'scoreboard_display_objective', { position: 1, name: 'side' });
+    mc.write('Remote01', 'scoreboard_score', { itemName: 'Sterne:', action: 0, scoreName: 'side', value: 77 });
+    await waitFor(() => suite.repo.getServerReward(identityId, serverId).stars === 77, 10_000, 'stars from the agent');
+    expect(suite.sessions.getScoreboard(sid)?.lines).toEqual([{ text: 'Sterne:', value: 77 }]);
+    mc.write('Remote01', 'scoreboard_score', { itemName: 'Sterne:', action: 0, scoreName: 'side', value: 80 });
+    await waitFor(() => suite.repo.getServerReward(identityId, serverId).stars === 80, 10_000, 'update from the agent');
   }, 60_000);
 
   it('shows the public IPs of this PC and its agents (each device reports its own)', async () => {

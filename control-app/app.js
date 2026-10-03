@@ -755,6 +755,11 @@
                 ? h('button', { class: 'btn primary', onclick: () => change(() => pc('POST', `/api/backend/agents/${ag.id}/pause`, { paused: false }), 'Agent fortgesetzt') }, 'Fortsetzen')
                 : h('button', { class: 'btn danger', onclick: () => confirm(`„${ag.name}“ pausieren? Die Sessions dort werden beendet und starten erst nach dem Fortsetzen wieder.`) && change(() => pc('POST', `/api/backend/agents/${ag.id}/pause`, { paused: true }), 'Agent pausiert') }, 'Pausieren'))
             : h('p', { class: 'muted small' }, 'Offline – Sessions, die hier laufen sollen, warten, bis der Agent wieder online ist.'),
+          ag.outdated ? h('div', { class: 'banner', style: { marginTop: '10px' } }, `Älterer Stand als die Suite (Build ${ag.suiteBuild}).${/android/i.test(ag.info?.os ?? '') ? ' Am Handy in der Agent-App auf „Herunterladen & installieren“ tippen.' : ''}`) : null,
+          ag.online && !/android/i.test(ag.info?.os ?? '')
+            ? h('button', { class: 'btn wide', style: { marginTop: '8px' }, onclick: () => confirm(`„${ag.name}“ jetzt aktualisieren? Die Sessions dort verbinden sich nach dem Neustart neu.`) && change(() => pc('POST', `/api/backend/agents/${ag.id}/update`), 'Update angefordert – der Agent startet gleich neu') }, 'Jetzt aktualisieren')
+            : null,
+          ag.info?.version ? h('p', { class: 'muted small' }, `Version: ${ag.info.version}`) : null,
           h('div', { class: 'section-title' }, 'Läuft gerade dort'),
           ag.sessions?.length ? h('div', { class: 'card feed' }, ag.sessions.map((sid) => h('div', null, h('span', { class: 'dot ok' }), h('span', null, nameOfSid(sid))))) : h('div', { class: 'card muted' }, 'Nichts.'),
           h('div', { class: 'section-title' }, 'Identitäten, die standardmäßig hier laufen'),
@@ -814,7 +819,8 @@
       agents.length
         ? agents.map((a) => h('div', { class: 'row', onclick: () => agentSheet(a) },
             h('span', { class: `dot ${a.online ? (a.paused ? 'warn' : 'ok') : ''}` }),
-            h('div', { class: 'main' }, h('div', { class: 'name' }, a.name), h('div', { class: 'meta' }, `${a.online ? (a.paused ? 'pausiert' : 'online') : 'offline'}${a.sessions?.length ? ` · ${a.sessions.length} Session(s)` : ''}${a.info?.os ? ` · ${a.info.os}` : ''}`))))
+            h('div', { class: 'main' }, h('div', { class: 'name' }, a.name), h('div', { class: 'meta' }, `${a.online ? (a.paused ? 'pausiert' : 'online') : 'offline'}${a.sessions?.length ? ` · ${a.sessions.length} Session(s)` : ''}${a.info?.os ? ` · ${a.info.os}` : ''}`)),
+            a.outdated ? h('span', { class: 'pill warn' }, 'veraltet') : null))
         : h('div', { class: 'card empty' }, 'Keine Agents – installiere den Hoelni Agent auf einem PC oder Handy und melde ihn mit diesem Konto an.'),
       ipSection(),
       h('div', { class: 'section-title' }, 'PCs dieses Kontos'),

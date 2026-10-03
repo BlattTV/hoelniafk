@@ -1313,5 +1313,12 @@ export default {
  "{0} (last known)": "{0} (zuletzt bekannt)",
  "Not reported yet – address of its backend connection": "Noch nicht gemeldet – Adresse seiner Verbindung zum Backend",
  "Checks the public IP of this PC again (agents check theirs every 30 minutes)": "Prüft die öffentliche IP dieses PCs erneut (Agents prüfen ihre alle 30 Minuten)",
- "The address each device has on the internet. Sessions without a proxy or network profile connect to the Minecraft servers with it – sessions with a proxy use the proxy's IP instead (see Network).": "Die Adresse, die jedes Gerät im Internet hat. Sessions ohne Proxy oder Netzwerkprofil verbinden sich damit zu den Minecraft-Servern – Sessions mit Proxy nutzen stattdessen die IP des Proxys (siehe Netzwerk)."
+ "The address each device has on the internet. Sessions without a proxy or network profile connect to the Minecraft servers with it – sessions with a proxy use the proxy's IP instead (see Network).": "Die Adresse, die jedes Gerät im Internet hat. Sessions ohne Proxy oder Netzwerkprofil verbinden sich damit zu den Minecraft-Servern – Sessions mit Proxy nutzen stattdessen die IP des Proxys (siehe Netzwerk).",
+ "older version": "älterer Stand",
+ "Update now": "Jetzt aktualisieren",
+ "Update requested – the agent restarts in a moment": "Update angefordert – der Agent startet gleich neu",
+ "The agent fetches the newest version now and restarts into it – its sessions reconnect within a minute": "Der Agent holt jetzt die neueste Version und startet damit neu – seine Sessions verbinden sich innerhalb einer Minute wieder",
+ "Update in the agent app on the phone": "Am Handy in der Agent-App aktualisieren",
+ "Update \"{0}\" now? Its sessions reconnect after the restart.": "„{0}“ jetzt aktualisieren? Die Sessions dort verbinden sich nach dem Neustart neu.",
+ "This suite is on build {0}": "Diese Suite hat Build {0}"
 };

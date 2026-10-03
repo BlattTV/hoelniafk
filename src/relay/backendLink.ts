@@ -17,6 +17,7 @@ import { createLogger } from '../core/logger.js';
 import type { IdentityRepository } from '../identity/repository.js';
 import type { MineflayerRuntime } from '../runtime/mineflayerRuntime.js';
 import type { HostToMain, MainToHost } from '../runtime/protocol.js';
+import { appRoot, currentBuild } from '../ops/updater.js';
 import { refs } from '../vault/refs.js';
 import type { Vault } from '../vault/vault.js';
 import { DEFAULT_BACKEND, normalizeBackendUrl, openWebSocket, probeCertificate, requestJson, type ServerCertificate, type TransportOptions } from '../agent/transport.js';
@@ -323,7 +324,7 @@ export class BackendLink {
   }
 
   /** All agents of this account (also offline ones) with live state – for "Run on" and the Agents page. */
-  async agentList(): Promise<Array<AgentInfo & { sessions: string[]; lastSeenAt: string | null }>> {
+  async agentList(): Promise<Array<AgentInfo & { sessions: string[]; lastSeenAt: string | null; outdated: boolean; suiteBuild: number | null }>> {
     await this.ready;
     const token = await this.token();
     const known = token
@@ -332,7 +333,12 @@ export class BackendLink {
     const out = new Map<number, AgentInfo & { sessions: string[]; lastSeenAt: string | null }>();
     for (const d of known) out.set(d.id, { id: d.id, name: d.name, info: d.info ?? {}, paused: false, ip: d.lastIp, connectedAt: null, online: false, sessions: [], lastSeenAt: d.lastSeenAt });
     for (const a of this.agents.values()) out.set(a.id, { ...(out.get(a.id) ?? { lastSeenAt: null }), ...a, sessions: this.runtime?.agentSessions(a.id) ?? [] });
-    return [...out.values()].sort((a, b) => Number(b.online) - Number(a.online) || a.name.localeCompare(b.name));
+    // an agent on an older build than this suite (e.g. still waiting for its automatic update)
+    const own = currentBuild(appRoot()).build;
+    const buildOf = (v: string | undefined) => Number(/build (\d+)/.exec(v ?? '')?.[1] ?? 0);
+    return [...out.values()]
+      .map((a) => ({ ...a, outdated: own > 0 && buildOf(a.info?.version) > 0 && buildOf(a.info?.version) < own, suiteBuild: own || null }))
+      .sort((a, b) => Number(b.online) - Number(a.online) || a.name.localeCompare(b.name));
   }
 
   /** The account owner pauses / resumes one of the account's agents (its sessions stop / may start again). */
@@ -341,6 +347,14 @@ export class BackendLink {
     if (!a?.online) throw new SuiteError('The agent is offline', 409);
     this.sendTo(agentId, { t: 'host', m: { cmd: paused ? 'agent.pause' : 'agent.resume' } });
     this.audit.record(null, paused ? 'Agent paused' : 'Agent resumed', { agent: a.name });
+  }
+
+  /** The account owner updates an agent now (it restarts into the new version; its sessions reconnect). */
+  updateAgent(agentId: number): void {
+    const a = this.agents.get(agentId);
+    if (!a?.online) throw new SuiteError('The agent is offline', 409);
+    this.sendTo(agentId, { t: 'host', m: { cmd: 'agent.update' } });
+    this.audit.record(null, 'Agent update requested', { agent: a.name });
   }
 
   /** Account administration (admins only) – proxied to the backend's admin API. */

@@ -33,6 +33,8 @@ export interface LocalServer {
   broadcast(text: string): void;
   say(username: string, text: string): boolean;
   kick(username: string, reason: string): boolean;
+  /** Sends a raw protocol packet to a player (e.g. a sidebar scoreboard). */
+  write(username: string, packet: string, data: Record<string, unknown>): boolean;
   /**
    * Moves a player to "another server" the way Velocity does on 1.20.2+: start_configuration →
    * configuration phase (registries, a cookie request) → finish → a fresh join (login, chunks,
@@ -186,6 +188,12 @@ export async function startLocalServer(opts: LocalServerOptions): Promise<LocalS
       const p = findPlayer(username);
       if (!p) return false;
       p.kick(reason);
+      return true;
+    },
+    write: (username, packet, data) => {
+      const p = findPlayer(username);
+      if (!p) return false;
+      p._client.write(packet, data);
       return true;
     },
     switchServer: async (username) => {

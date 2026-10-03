@@ -132,6 +132,17 @@ export class AgentUpdater {
     }
   }
 
+  /** The owner asked for it: check now and install right away (sessions reconnect after the restart). */
+  async updateNow(): Promise<string> {
+    const staged = await this.check();
+    if (!staged) return this.error ? `check failed: ${this.error}` : 'already up to date';
+    if (this.o.gameOpen()) return 'update ready – installed when the game window is closed';
+    this.state = 'restarting';
+    this.o.log?.('installing the update now (requested by the account owner – sessions reconnect in a moment)');
+    this.o.restart();
+    return 'installing';
+  }
+
   /** Restarts into a staged update when the moment is right. */
   maybeInstall(now = Date.now()): boolean {
     if (this.state !== 'staged' || this.o.gameOpen()) return false;

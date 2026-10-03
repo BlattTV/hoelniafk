@@ -312,6 +312,15 @@ describe('updates through the backend (https://afk.hoelni.de/updates)', () => {
       expect(await busy.check()).toBe(true);
       expect(busy.maybeInstall()).toBe(false);
       expect(busy.maybeInstall(Date.now() + 2000)).toBe(true);
+      // the account owner says "update now": installed right away even with sessions running …
+      const now = mk();
+      const before = restarts;
+      expect(await now.updateNow()).toBe('installing');
+      expect(restarts).toBe(before + 1);
+      // … but never while the game window is open
+      game = true;
+      expect(await mk().updateNow()).toMatch(/game window/);
+      game = false;
       // the agent app installs it while the agent is not running
       expect(applyPendingUpdate(root).applied).toBe(true);
       expect(currentBuild(root).build).toBeGreaterThan(0);

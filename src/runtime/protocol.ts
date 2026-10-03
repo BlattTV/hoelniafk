@@ -18,6 +18,8 @@ export type MainToHost =
   | { cmd: 'macro.stop'; sessionId: string; macroId: number }
   /** Agents only: the account owner pauses / resumes this agent (like the household's pause button). */
   | { cmd: 'agent.pause' }
+  /** The account owner asks the agent to update now (sessions reconnect after the restart). */
+  | { cmd: 'agent.update' }
   | { cmd: 'agent.resume' }
   | { cmd: 'crash' } // test hook: simulates a runtime crash
   | { cmd: 'shutdown' };

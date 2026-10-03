@@ -111,6 +111,8 @@ async function run(): Promise<void> {
       log: (m) => console.log(`${new Date().toISOString()} ${m}`),
     });
     updater.start();
+    const u = updater;
+    agent.onUpdateRequest = () => u.updateNow();
   }
   process.on('message', (m: any) => {
     if (m?.cmd === 'pause') agent.pause();

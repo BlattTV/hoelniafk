@@ -61,7 +61,7 @@ const REMOTE_DENY = [
 export function remoteAllowed(method: string, path: string): boolean {
   if (!path.startsWith('/api/') || path.includes('..')) return false;
   if (method === 'GET' && /^\/api\/backend\/agents(\?|$)/.test(path)) return true; // the agents list is fine to see
-  if (method === 'POST' && /^\/api\/backend\/agents\/\d+\/pause$/.test(path)) return true; // the owner pauses / resumes an agent
+  if (method === 'POST' && /^\/api\/backend\/agents\/\d+\/(pause|update)$/.test(path)) return true; // the owner pauses / resumes / updates an agent
   if (REMOTE_DENY.some((r) => (r.source.includes('rules') ? method !== 'GET' && r.test(path) : r.test(path)))) return false;
   // opening the game window on another PC makes no sense remotely ("Back to AFK" does)
   if (method === 'POST' && /\/game(\?|$)/.test(path)) return false;
@@ -189,6 +189,10 @@ export async function buildServer(suite: Suite, opts: ServerOptions = {}): Promi
   // ------------------------------------------------------------------ backend (afk.hoelni.de): sign-in, agents, account administration
   app.get('/api/backend', async () => suite.backend.status());
   app.get('/api/backend/agents', async () => suite.backend.agentList());
+  app.post('/api/backend/agents/:id/update', async (req: Req) => {
+    suite.backend.updateAgent(num(req.params.id));
+    return { ok: true };
+  });
   app.post('/api/backend/agents/:id/pause', async (req: Req) => {
     suite.backend.pauseAgent(num(req.params.id), bodyOf(req).paused !== false);
     return { ok: true };

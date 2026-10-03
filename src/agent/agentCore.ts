@@ -65,6 +65,8 @@ export class AgentCore {
   /** Manager commands run strictly in order (each is checked asynchronously first). */
   private queue: Promise<void> = Promise.resolve();
   status: AgentStatus;
+  /** Set by the installed agent: check for an update now and install it right away. */
+  onUpdateRequest: (() => Promise<string>) | null = null;
   private readonly ipWatch = new PublicIpWatcher((s) => {
     this.status = { ...this.status, publicIp: s.ip };
     this.onStatus(this.status);
@@ -193,6 +195,13 @@ export class AgentCore {
   }
 
   private async handle(m: MainToHost): Promise<void> {
+    if (m.cmd === 'agent.update') {
+      if (!this.onUpdateRequest) return void console.log(`${new Date().toISOString()} update requested – this agent updates through its app (Android: "Neue Version" in the agent app)`);
+      return void this.onUpdateRequest().then(
+        (msg) => console.log(`${new Date().toISOString()} update requested: ${msg}`),
+        (e) => console.log(`${new Date().toISOString()} update requested, failed: ${(e as Error).message}`),
+      );
+    }
     if (m.cmd === 'agent.pause') return this.pause();
     if (m.cmd === 'agent.resume') return this.resume();
     if (m.cmd === 'start' || m.cmd === 'game.open') {
