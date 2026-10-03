@@ -84,12 +84,14 @@ chatRules:
 
   hoelni-rewards:
     type: rewards
+    # Balance ("Du hast 12 Sterne") – not when the line reports stars just received ("… erhalten")
     set:
-      - "You have (?<stars>\\d+) stars?"
-      - "Du hast (?<stars>\\d+) Sterne?"
+      - "You have (?<stars>\\d+) stars?\\b(?![\\s!.]*(received|earned))"
+      - "Du hast (?<stars>\\d+) (Sterne?|Stars?)\\b(?![\\s!.]*(erhalten|bekommen|verdient))"
+    # Stars received ("[HugoSMP] Du hast 1 Star erhalten!") – added to the balance
     add:
-      - "You (received|earned) (?<delta>\\d+) stars?"
-      - "Du hast (?<delta>\\d+) Sterne? erhalten"
+      - "You (have )?(received|earned|got) (?<delta>\\d+) stars?"
+      - "Du hast (?<delta>\\d+) (Sterne?|Stars?)\\b[\\s!.]*(erhalten|bekommen|verdient)"
     eligible:
       - "You are eligible for rewards"
     notEligible:

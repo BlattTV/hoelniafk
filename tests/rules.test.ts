@@ -89,3 +89,20 @@ describe('reconnect policy', () => {
     expect(decideReconnect(p, 'x', 8, true).delaySec).toBeLessThanOrEqual(12); // crash: no escalation
   });
 });
+
+describe('shipped star rules (config/rules.yaml)', () => {
+  it('a balance sets the stars, stars received are added – never both for one line', async () => {
+    const { loadRules } = await import('../src/core/rules.js');
+    const rules = loadRules('config/rules.yaml');
+    const ev = (line: string) => parseChatLine(rules, ['hoelni-rewards'], line).filter((e) => e.kind === 'starsSet' || e.kind === 'starsAdd');
+    expect(ev('[HugoSMP] Du hast 1 Star erhalten!')).toEqual([{ kind: 'starsAdd', ruleSet: 'hoelni-rewards', delta: 1 }]);
+    expect(ev('[HugoSMP] Du hast 5 Stars erhalten!')).toEqual([{ kind: 'starsAdd', ruleSet: 'hoelni-rewards', delta: 5 }]);
+    expect(ev('Du hast 5 Sterne erhalten')).toEqual([{ kind: 'starsAdd', ruleSet: 'hoelni-rewards', delta: 5 }]);
+    expect(ev('§6[HugoSMP] §eDu hast §a3 §eSterne bekommen.')).toEqual([{ kind: 'starsAdd', ruleSet: 'hoelni-rewards', delta: 3 }]);
+    expect(ev('Du hast 12 Sterne')).toEqual([{ kind: 'starsSet', ruleSet: 'hoelni-rewards', stars: 12 }]);
+    expect(ev('[HugoSMP] Du hast 12 Stars.')).toEqual([{ kind: 'starsSet', ruleSet: 'hoelni-rewards', stars: 12 }]);
+    expect(ev('You have 7 stars')).toEqual([{ kind: 'starsSet', ruleSet: 'hoelni-rewards', stars: 7 }]);
+    expect(ev('You received 2 stars')).toEqual([{ kind: 'starsAdd', ruleSet: 'hoelni-rewards', delta: 2 }]);
+    expect(ev('Du hast 3 Starts gewonnen')).toEqual([]);
+  });
+});
