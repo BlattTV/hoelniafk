@@ -116,6 +116,7 @@ function render(st, error) {
     <section>
       <div class="switch"><div class="state"><span class="dot ${cls}"></span>${esc(text)}</div><div class="toggle on" id="power" title="Agent ausschalten"></div></div>
       <p class="muted">${esc(st.username)} · ${esc(st.name)} · <code>${esc(st.backendUrl)}</code></p>
+      <p class="muted">Öffentliche IP: ${a.publicIp ? `<code>${esc(a.publicIp)}</code>` : 'wird ermittelt…'}</p>
       ${a.state === 'online' && !a.managerOnline ? '<p class="muted">Die Suite des Kontos ist gerade nicht verbunden – Sessions starten, sobald sie wieder online ist.</p>' : ''}
       ${a.lastError && a.state !== 'online' ? `<p class="err">${esc(a.lastError)}</p>` : ''}
       ${battery ? `<div class="box warn"><b>Akku-Optimierung ist an.</b> Android kann den Agent dann bei ausgeschaltetem Bildschirm anhalten.<div class="row"><button class="primary" id="bat">Im Hintergrund erlauben</button></div></div>` : ''}

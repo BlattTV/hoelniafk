@@ -214,7 +214,7 @@
       if (tab === 'people' || tab === 'sessions' || !cache.rows) cache.rows = (await pc('GET', '/api/dashboard')).rows;
       if (tab === 'chat') cache.chat = await pc('GET', '/api/chat?limit=200');
       if (tab === 'macro') cache.macros = await pc('GET', '/api/macros');
-      if (tab === 'more') cache.agents = await pc('GET', '/api/backend/agents').catch(() => []);
+      if (tab === 'more') [cache.agents, cache.ips] = await Promise.all([pc('GET', '/api/backend/agents').catch(() => []), pc('GET', '/api/public-ips').catch(() => null)]);
       cache.error = null;
       try {
         bridge?.refreshWidgets();
@@ -634,8 +634,9 @@
         const change = (fn, ok) => act(async () => { await fn(); setTimeout(reload, 700); }, ok);
         fill(body, 
           h('div', null, h('span', { class: `pill ${ag.online ? (ag.paused ? 'warn' : 'ok') : ''}` }, ag.online ? (ag.paused ? 'pausiert' : 'online') : 'offline'), ' ',
-            h('span', { class: 'muted small' }, [ag.info?.os, ag.ip].filter(Boolean).join(' · '))),
+            h('span', { class: 'muted small' }, ag.info?.os || '')),
           h('div', { class: 'kv' },
+            h('div', null, 'Öffentliche IP'), h('div', { style: { fontFamily: 'ui-monospace, monospace' } }, ag.info?.publicIp || (ag.ip ? `${ag.ip} (Verbindung)` : 'unbekannt')),
             h('div', null, 'Sessions dort'), h('div', null, String(ag.sessions?.length ?? 0)),
             ag.lastSeenAt ? [h('div', null, 'Zuletzt gesehen'), h('div', null, new Date(ag.lastSeenAt).toLocaleString('de-DE'))] : null),
           ag.online
@@ -674,6 +675,27 @@
       m.log?.length ? [h('div', { class: 'section-title' }, 'Protokoll'), h('div', { class: 'card feed' }, m.log.slice(0, 12).map((l) => h('div', null, h('time', null, timeOf(l.ts)), h('span', null, `${m.macros.find((x) => x.id === l.macroId)?.name ?? `#${l.macroId}`}: ${l.status}${l.message ? ` – ${l.message}` : ''}`))))] : null);
   }
 
+  /** Public IPs of the PCs and agents – sessions without proxy connect to the servers with them. */
+  function ipSection() {
+    const ips = cache.ips;
+    if (!ips) return null;
+    const copyIp = (ip) => (e) => {
+      e.stopPropagation();
+      navigator.clipboard?.writeText(ip).then(() => toast('IP kopiert', 'ok'), () => toast(ip));
+    };
+    const row = (name, kind, ip, fallback, dot) => h('div', { class: 'row' },
+      h('span', { class: `dot ${dot}` }),
+      h('div', { class: 'main' }, h('div', { class: 'name' }, name), h('div', { class: 'meta' }, kind)),
+      ip ? h('button', { class: 'pill ip', title: 'Kopieren', onclick: copyIp(ip) }, ip) : h('span', { class: 'pill' }, fallback || 'unbekannt'));
+    return [
+      h('div', { class: 'section-title' }, 'Öffentliche IPs',
+        h('button', { class: 'link', onclick: () => act(async () => { cache.ips = await pc('POST', '/api/public-ips/refresh'); paint(); }, 'Geprüft') }, 'neu prüfen')),
+      ...ips.pcs.map((p) => row(p.name, p.active ? 'PC · lässt die Sessions laufen' : 'PC · Standby', p.publicIp, p.seenIp, p.active ? 'ok' : 'info')),
+      ...ips.agents.map((a) => row(a.name, `Agent · ${a.online ? (a.paused ? 'pausiert' : 'online') : 'offline'}`, a.online ? a.publicIp : null, a.online ? a.seenIp : a.publicIp ? `${a.publicIp} (zuletzt)` : 'offline', a.online ? (a.paused ? 'warn' : 'ok') : '')),
+      h('p', { class: 'muted small', style: { margin: '6px 4px 0' } }, 'Mit dieser IP verbinden sich Sessions ohne Proxy zu den Servern. Sessions mit Proxy nutzen die IP des Proxys.'),
+    ];
+  }
+
   function viewMore() {
     const agents = cache.agents || [];
     return h('div', null,
@@ -683,6 +705,7 @@
             h('span', { class: `dot ${a.online ? (a.paused ? 'warn' : 'ok') : ''}` }),
             h('div', { class: 'main' }, h('div', { class: 'name' }, a.name), h('div', { class: 'meta' }, `${a.online ? (a.paused ? 'pausiert' : 'online') : 'offline'}${a.sessions?.length ? ` · ${a.sessions.length} Session(s)` : ''}${a.info?.os ? ` · ${a.info.os}` : ''}`))))
         : h('div', { class: 'card empty' }, 'Keine Agents – installiere den Hoelni Agent auf einem PC oder Handy und melde ihn mit diesem Konto an.'),
+      ipSection(),
       h('div', { class: 'section-title' }, 'PCs dieses Kontos'),
       (status?.pcs || []).length
         ? status.pcs.map((p) => h('div', { class: 'row' }, h('span', { class: `dot ${p.active ? 'ok' : 'info'}` }), h('div', { class: 'main' }, h('div', { class: 'name' }, p.name), h('div', { class: 'meta' }, p.active ? 'aktiv – lässt die Sessions laufen' : 'Standby')), h('span', { class: `pill ${p.active ? 'ok' : ''}` }, p.active ? 'aktiv' : 'Standby')))

@@ -96,7 +96,9 @@ export class BackendLink {
   private readonly rpcWaiting = new Map<number, { resolve: (r: RemoteResponse) => void; timer: NodeJS.Timeout }>();
   private readonly statsSentAt = new Map<string, number>();
   /** Other suites (PCs) of this account connected to the backend right now. */
-  private managers: Array<{ deviceId: number; name: string; ip: string | null; connectedAt: string; active: boolean; self: boolean }> = [];
+  private managers: Array<{ deviceId: number; name: string; ip: string | null; publicIp: string | null; connectedAt: string; active: boolean; self: boolean }> = [];
+  /** Public IP of this PC (own detection), told to the backend for the account's other devices. */
+  private publicIp: string | null = null;
   state: LinkState = 'signed-out';
   lastError: string | null = null;
 
@@ -151,6 +153,13 @@ export class BackendLink {
       activePc: this.standbyFor(),
       pcs: this.managers,
     };
+  }
+
+  /** This PC's public IP changed (or became known) – the backend shows it to the account's devices. */
+  setPublicIp(ip: string | null): void {
+    if (!ip || ip === this.publicIp) return;
+    this.publicIp = ip;
+    if (this.ws?.readyState === 1) this.ws.send(JSON.stringify({ t: 'info', publicIp: ip }));
   }
 
   /** Name of the PC that runs the sessions while this one is in standby (null = this PC is active). */
@@ -375,6 +384,7 @@ export class BackendLink {
       log.info(`Connected to the backend ${this.url}`);
       this.changed();
       this.onConnected();
+      if (this.publicIp) ws.send(JSON.stringify({ t: 'info', publicIp: this.publicIp }));
       // Role may have changed on the backend (e.g. admin revoked) – the admin pages follow it.
       void requestJson<{ user: { username: string; role: 'admin' | 'user' } }>(`${this.url}/api/me`, 'GET', undefined, this.transport(), { Authorization: `Bearer ${token}` })
         .then((me) => {
@@ -480,7 +490,7 @@ export class BackendLink {
         break;
       case 'managers':
         this.managers = Array.isArray(f.list)
-          ? f.list.slice(0, 20).map((m: any) => ({ deviceId: Number(m.deviceId), name: String(m.name ?? ''), ip: m.ip ?? null, connectedAt: String(m.connectedAt ?? ''), active: !!m.active, self: Number(m.deviceId) === Number(f.self) }))
+          ? f.list.slice(0, 20).map((m: any) => ({ deviceId: Number(m.deviceId), name: String(m.name ?? ''), ip: m.ip ?? null, publicIp: typeof m.publicIp === 'string' ? m.publicIp : null, connectedAt: String(m.connectedAt ?? ''), active: !!m.active, self: Number(m.deviceId) === Number(f.self) }))
           : [];
         break;
       case 'sync':

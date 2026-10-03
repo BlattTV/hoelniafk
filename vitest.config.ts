@@ -8,5 +8,7 @@ export default defineConfig({
     hookTimeout: 60000,
     // Integration tests start real servers and child processes.
     fileParallelism: false,
+    // never ask the real IP echo services from tests (refused at once; tests that need an IP start their own)
+    env: { HOELNI_IP_ENDPOINTS: 'http://127.0.0.1:9/ip' },
   },
 });

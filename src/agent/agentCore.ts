@@ -17,6 +17,7 @@ import { mineflayerBotFactory } from '../minecraft/mineflayerBot.js';
 import { RuntimeHostCore, type HostBotFactory } from '../runtime/host/hostCore.js';
 import type { HostChannel, HostToMain, MainToHost } from '../runtime/protocol.js';
 import type { RuntimeEvent } from '../runtime/types.js';
+import { PublicIpWatcher } from '../network/publicIpWatcher.js';
 import { refuseReason, sortMacros } from './guard.js';
 import { openWebSocket, type TransportOptions } from './transport.js';
 
@@ -46,6 +47,8 @@ export interface AgentStatus {
   lastError: string | null;
   sessions: Array<{ sessionId: string; server: string; username: string; phase: string }>;
   game: { sessionId: string; status: string } | null;
+  /** Public IP of this device (direct, as Minecraft servers see sessions without a proxy). */
+  publicIp: string | null;
 }
 
 export class AgentCore {
@@ -62,6 +65,11 @@ export class AgentCore {
   /** Manager commands run strictly in order (each is checked asynchronously first). */
   private queue: Promise<void> = Promise.resolve();
   status: AgentStatus;
+  private readonly ipWatch = new PublicIpWatcher((s) => {
+    this.status = { ...this.status, publicIp: s.ip };
+    this.onStatus(this.status);
+    this.sendHello();
+  });
 
   constructor(
     private readonly cfg: AgentConfig,
@@ -69,7 +77,7 @@ export class AgentCore {
     private readonly botFactory: HostBotFactory = mineflayerBotFactory,
     private readonly gameOptions: { javaPath?: string; mirrors?: Record<string, string> } = {},
   ) {
-    this.status = { state: 'connecting', managerOnline: false, backendUrl: cfg.backendUrl, name: cfg.name, since: new Date().toISOString(), lastError: null, sessions: [], game: null };
+    this.status = { state: 'connecting', managerOnline: false, backendUrl: cfg.backendUrl, name: cfg.name, since: new Date().toISOString(), lastError: null, sessions: [], game: null, publicIp: null };
   }
 
   private set(state: AgentState, error: string | null = this.status.lastError): void {
@@ -87,7 +95,24 @@ export class AgentCore {
 
   start(): void {
     this.stopped = false;
+    this.ipWatch.start();
     this.connect();
+  }
+
+  /** Who this agent is (shown to the account's PCs and the control app); sent again when its IP changes. */
+  private sendHello(): void {
+    const ip = this.ipWatch.state;
+    this.send({
+      t: 'hello',
+      info: {
+        version: this.cfg.version ?? '',
+        os: `${os.platform()} ${os.release()}`,
+        hostname: os.hostname(),
+        node: process.version,
+        ...(ip.ip ? { publicIp: ip.ip } : {}),
+        ...(ip.checkedAt ? { publicIpAt: ip.checkedAt } : {}),
+      },
+    });
   }
 
   private connect(): void {
@@ -103,7 +128,8 @@ export class AgentCore {
     this.ws = ws;
     ws.on('open', () => {
       this.retry = 1000;
-      this.send({ t: 'hello', info: { version: this.cfg.version ?? '', os: `${os.platform()} ${os.release()}`, hostname: os.hostname(), node: process.version } });
+      this.sendHello();
+      void this.ipWatch.refresh();
       this.createCore();
       this.set('online', null);
     });
@@ -322,6 +348,7 @@ export class AgentCore {
 
   async stop(): Promise<void> {
     this.stopped = true;
+    this.ipWatch.stop();
     clearTimeout(this.timer!);
     for (const id of [...this.sessions.keys()]) this.toCore?.({ cmd: 'stop', sessionId: id, reason: 'Agent closed' });
     await new Promise((r) => setTimeout(r, this.sessions.size ? 1500 : 0));

@@ -192,6 +192,38 @@ export async function buildServer(suite: Suite, opts: ServerOptions = {}): Promi
     suite.backend.pauseAgent(num(req.params.id), bodyOf(req).paused !== false);
     return { ok: true };
   });
+  // Public IPs of this PC, the account's other PCs and its agents (sessions without proxy use them)
+  const publicIps = () => {
+    const st = suite.backend.status();
+    const own = suite.publicIp.state;
+    const pcs = st.pcs.map((p) => ({
+      deviceId: p.deviceId,
+      name: p.name,
+      active: p.active,
+      responding: p.self,
+      publicIp: p.self ? own.ip ?? p.publicIp : p.publicIp,
+      seenIp: p.ip,
+      checkedAt: p.self ? own.checkedAt : null,
+      error: p.self ? own.error : null,
+    }));
+    if (!pcs.some((p) => p.responding)) pcs.unshift({ deviceId: 0, name: os.hostname(), active: true, responding: true, publicIp: own.ip, seenIp: null, checkedAt: own.checkedAt, error: own.error });
+    const agents = st.agents.map((a) => ({
+      id: a.id,
+      name: a.name,
+      online: a.online,
+      paused: a.paused,
+      publicIp: a.info?.publicIp ?? null,
+      seenIp: a.ip,
+      checkedAt: a.info?.publicIpAt ?? null,
+      sessions: a.sessions.length,
+    }));
+    return { pcs, agents };
+  };
+  app.get('/api/public-ips', async () => publicIps());
+  app.post('/api/public-ips/refresh', async () => {
+    await suite.publicIp.refresh();
+    return publicIps();
+  });
   app.post('/api/backend/certificate', async () => suite.backend.checkCertificate());
   app.post('/api/backend/login', async (req: Req) => {
     const b = bodyOf(req);

@@ -18,7 +18,8 @@ export interface SuiteEvent {
     | 'auth.devicecode'
     | 'reward.changed'
     | 'audit'
-    | 'macro';
+    | 'macro'
+    | 'publicip.changed';
   identityId?: number | null;
   data?: unknown;
 }

@@ -30,6 +30,7 @@ function renderStatus(st) {
   $('state').className = `state s-${st.state}`;
   text($('manager'), st.state === 'online' ? (st.managerOnline ? 'Verwaltung verbunden' : 'Verwaltung gerade offline – es läuft nichts') : '');
   text($('lasterror'), st.lastError || '–');
+  text($('publicip'), st.publicIp || 'wird ermittelt…');
   $('pause-btn').hidden = st.state === 'paused' || st.state === 'revoked';
   $('resume-btn').hidden = st.state !== 'paused';
   const list = $('session-list');

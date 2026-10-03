@@ -101,7 +101,7 @@ export class Relay {
   }
 
   managerView(c, g) {
-    return { deviceId: c.device.id, name: c.device.name, ip: c.ip, connectedAt: c.connectedAt, active: g.active === c };
+    return { deviceId: c.device.id, name: c.device.name, ip: c.ip, publicIp: c.publicIp ?? null, connectedAt: c.connectedAt, active: g.active === c };
   }
 
   announceManagers(userId) {
@@ -158,6 +158,15 @@ export class Relay {
       }
       if (f?.t === 'claim') {
         if (g.list.has(conn)) this.activate(device.userId, conn);
+        return;
+      }
+      if (f?.t === 'info') {
+        // the PC's own view of its public IP (sessions without proxy connect with it)
+        const ip = typeof f.publicIp === 'string' && /^[0-9a-f.:]{3,45}$/i.test(f.publicIp) ? f.publicIp : null;
+        if (ip && ip !== conn.publicIp) {
+          conn.publicIp = ip;
+          this.announceManagers(device.userId);
+        }
         return;
       }
       if (f?.t === 'rpc.res') {

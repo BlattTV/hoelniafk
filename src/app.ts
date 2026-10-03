@@ -23,6 +23,7 @@ import type { HostBotFactory } from './runtime/host/hostCore.js';
 import type { MinecraftRuntime } from './runtime/types.js';
 import { NetworkService, type IpDetector } from './network/networkService.js';
 import { detectPublicIp } from './network/publicIp.js';
+import { ipEndpoints, PublicIpWatcher } from './network/publicIpWatcher.js';
 import { BulkOperations } from './ops/bulk.js';
 import { MetricsCollector } from './core/metrics.js';
 import { Updater } from './ops/updater.js';
@@ -167,6 +168,14 @@ export function createSuite(deps: SuiteDeps) {
   // remote control: the active PC sends live events to its controllers; a standby PC shows those of the active one
   bus.on((ev) => backend.forwardEvent(ev as any));
   backend.onRemoteEvent = (ev) => bus.emit({ ...(ev as any), remote: true });
+  // public IP of this PC (sessions without proxy / network profile use it) – shown to the account's other devices
+  const publicIp = new PublicIpWatcher(
+    (s) => {
+      backend.setPublicIp(s.ip);
+      bus.emit({ type: 'publicip.changed', data: s });
+    },
+    { detect: () => (deps.ipDetector ?? detectPublicIp)(null, null, process.env.HOELNI_IP_ENDPOINTS ? ipEndpoints() : network.endpoints) },
+  );
   if (repo.getSetting('backend.standbyFor') && repo.getSetting('backend.username')) sessions.setStandby(`the sessions run on "${repo.getSetting('backend.standbyFor')}"`);
   const sync = new SyncService(
     new SnapshotIO(db, vault.store, { deleteIdentity: (id) => identities.delete(id) }),
@@ -225,6 +234,7 @@ export function createSuite(deps: SuiteDeps) {
     updater.start(config.updates?.checkHours ?? 6);
     void backend.start();
     sync.start();
+    publicIp.start();
   }
 
   let closed = false;
@@ -235,6 +245,7 @@ export function createSuite(deps: SuiteDeps) {
     metrics.stop();
     updater.stop();
     sync.stop();
+    publicIp.stop();
     backend.shutdown();
     await sessions.shutdown();
     db.close();
@@ -260,6 +271,7 @@ export function createSuite(deps: SuiteDeps) {
     updater,
     backend,
     sync,
+    publicIp,
     sessions,
     mail,
     discord,

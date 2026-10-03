@@ -1298,5 +1298,20 @@ export default {
  "Copy raw data": "Rohdaten kopieren",
  "Copies the last chat messages exactly as the server sent them – to find out why a line looks wrong": "Kopiert die letzten Chatnachrichten genau so, wie der Server sie geschickt hat – um herauszufinden, warum eine Zeile falsch aussieht",
  "No raw data yet – it is collected from now on while the session is online": "Noch keine Rohdaten – sie werden ab jetzt gesammelt, solange die Session online ist",
- "Raw chat data copied": "Chat-Rohdaten kopiert"
+ "Raw chat data copied": "Chat-Rohdaten kopiert",
+ "Public IP": "Öffentliche IP",
+ "Public IPs": "Öffentliche IPs",
+ "Checked": "Geprüft",
+ "Check again": "Neu prüfen",
+ "Public IP checked": "Öffentliche IP geprüft",
+ "PC (suite)": "PC (Suite)",
+ "runs the sessions": "lässt die Sessions laufen",
+ "check failed": "Prüfung fehlgeschlagen",
+ "unknown": "unbekannt",
+ "IP copied": "IP kopiert",
+ "{0} (connection)": "{0} (Verbindung)",
+ "{0} (last known)": "{0} (zuletzt bekannt)",
+ "Not reported yet – address of its backend connection": "Noch nicht gemeldet – Adresse seiner Verbindung zum Backend",
+ "Checks the public IP of this PC again (agents check theirs every 30 minutes)": "Prüft die öffentliche IP dieses PCs erneut (Agents prüfen ihre alle 30 Minuten)",
+ "The address each device has on the internet. Sessions without a proxy or network profile connect to the Minecraft servers with it – sessions with a proxy use the proxy's IP instead (see Network).": "Die Adresse, die jedes Gerät im Internet hat. Sessions ohne Proxy oder Netzwerkprofil verbinden sich damit zu den Minecraft-Servern – Sessions mit Proxy nutzen stattdessen die IP des Proxys (siehe Netzwerk)."
 };

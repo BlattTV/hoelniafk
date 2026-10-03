@@ -168,9 +168,35 @@ export function downloadHint(st) {
 
 // ---------------------------------------------------------------- Agents page
 
+/** Public IPs of this PC, the account's other PCs and its agents – sessions without proxy connect with them. */
+function publicIpCard(ips, st, rerender) {
+  const selfId = st.pcs?.find((p) => p.self)?.deviceId;
+  const ipCell = (ip, seen) => ip
+    ? h('span', { class: 'row', style: { gap: '6px' } }, h('span', { class: 'mono' }, ip), h('button', { class: 'small', title: 'Copy', onclick: () => copy(ip, 'IP copied') }, 'Copy'))
+    : h('span', { class: 'muted', title: seen ? 'Not reported yet – address of its backend connection' : '' }, seen ? `${seen} (connection)` : 'unknown');
+  const rows = [
+    ...ips.pcs.map((p) => h('tr', null,
+      h('td', null, h('strong', null, p.name), p.deviceId === selfId || (!selfId && p.responding) ? h('span', { class: 'tag' }, 'this PC') : null),
+      h('td', null, 'PC (suite)', ' ', h('span', { class: `badge ${p.active ? 'ok' : 'skipped'}` }, p.active ? 'runs the sessions' : 'standby')),
+      h('td', null, ipCell(p.publicIp, p.seenIp)),
+      h('td', { class: 'muted' }, p.error ? h('span', { class: 'badge warn', title: p.error }, 'check failed') : p.checkedAt ? relTime(p.checkedAt) : '–'))),
+    ...ips.agents.map((a) => h('tr', null,
+      h('td', null, h('strong', null, a.name)),
+      h('td', null, 'Agent', ' ', h('span', { class: `badge ${!a.online ? 'skipped' : a.paused ? 'warn' : 'ok'}` }, !a.online ? 'offline' : a.paused ? 'paused' : 'online')),
+      h('td', null, a.online ? ipCell(a.publicIp, a.seenIp) : h('span', { class: 'muted' }, a.publicIp ? `${a.publicIp} (last known)` : '–')),
+      h('td', { class: 'muted' }, a.checkedAt ? relTime(a.checkedAt) : '–'))),
+  ];
+  return h('section', { class: 'card' },
+    h('div', { class: 'row', style: { justifyContent: 'space-between' } },
+      h('h2', null, 'Public IPs'),
+      h('button', { class: 'small', title: 'Checks the public IP of this PC again (agents check theirs every 30 minutes)', onclick: () => guard(async () => { await api.post('/api/public-ips/refresh'); await rerender(); }, 'Public IP checked') }, 'Check again')),
+    h('p', { class: 'muted' }, 'The address each device has on the internet. Sessions without a proxy or network profile connect to the Minecraft servers with it – sessions with a proxy use the proxy\'s IP instead (see Network).'),
+    h('table', null, h('thead', null, h('tr', null, ['Device', 'Kind', 'Public IP', 'Checked'].map((t) => h('th', null, t)))), h('tbody', null, rows)));
+}
+
 export async function agentsView(root) {
   const render = async () => {
-    const [st, agents, sessions] = await Promise.all([api.get('/api/backend'), api.get('/api/backend/agents'), api.get('/api/sessions').catch(() => [])]);
+    const [st, agents, sessions, ips] = await Promise.all([api.get('/api/backend'), api.get('/api/backend/agents'), api.get('/api/sessions').catch(() => []), api.get('/api/public-ips').catch(() => null)]);
     const sessionName = (sid) => {
       const s = sessions.find((x) => x.id === sid);
       return s ? `${s.username ?? sid} @ ${s.serverName}` : sid;
@@ -181,23 +207,24 @@ export async function agentsView(root) {
         ? h('section', { class: 'card' }, h('p', null, 'Not signed in to the backend.'), h('a', { class: 'btn-link', href: '#/settings' }, 'Sign in under Settings'))
         : agents.length
           ? h('section', { class: 'card' }, h('table', null,
-              h('thead', null, h('tr', null, ['Agent', 'State', 'Sessions here', 'Address', 'System', 'Last seen'].map((t) => h('th', null, t)))),
+              h('thead', null, h('tr', null, ['Agent', 'State', 'Sessions here', 'Public IP', 'System', 'Last seen'].map((t) => h('th', null, t)))),
               h('tbody', null, agents.map((a) => h('tr', null,
                 h('td', null, h('strong', null, a.name), h('div', { class: 'muted mono' }, `#${a.id}`)),
                 h('td', null, !a.online ? h('span', { class: 'badge skipped' }, 'offline') : a.paused ? h('span', { class: 'badge warn', title: 'Paused – no sessions start there' }, 'paused') : h('span', { class: 'badge ok' }, 'online'),
                   a.online ? h('div', null, h('button', { class: 'small', title: a.paused ? 'Sessions may start there again' : 'Stops the sessions there; none start until resumed', onclick: () => guard(async () => { await api.post(`/api/backend/agents/${a.id}/pause`, { paused: !a.paused }); setTimeout(render, 700); }, a.paused ? 'Agent resumed' : 'Agent paused') }, a.paused ? 'Resume' : 'Pause')) : null),
                 h('td', null, a.sessions.length ? a.sessions.map((sid) => h('div', null, sessionName(sid))) : h('span', { class: 'muted' }, '–')),
-                h('td', { class: 'mono' }, a.ip ?? '–'),
+                h('td', { class: 'mono' }, a.info?.publicIp ?? a.ip ?? '–'),
                 h('td', { class: 'muted' }, [a.info?.hostname, a.info?.os, a.info?.version ? `agent ${a.info.version}` : null].filter(Boolean).join(' · ') || '–'),
                 h('td', { class: 'muted' }, a.online ? `since ${relTime(a.connectedAt)}` : relTime(a.lastSeenAt)))))))
           : h('section', { class: 'card' }, h('p', null, 'No agent signed in yet.'),
               h('p', { class: 'muted' }, 'Install "Hoelni Agent" on the other PC and sign in with this account. It then shows up here; choose it under an identity → Identity Settings → "Run on".')),
+      ips ? publicIpCard(ips, st, render) : null,
       downloadHint(st),
       h('p', { class: 'muted' }, 'An agent can only run the sessions you assign to it (start/stop, chat, game window). It cannot run commands or access files on that PC; the household can pause it at any time.'));
   };
   await render();
   let t;
-  return { onEvent: (ev) => { if (ev.type === 'agents.changed' || ev.type === 'session.state') { clearTimeout(t); t = setTimeout(() => whenIdle(root, render), 500); } } };
+  return { onEvent: (ev) => { if (ev.type === 'agents.changed' || ev.type === 'session.state' || ev.type === 'publicip.changed') { clearTimeout(t); t = setTimeout(() => whenIdle(root, render), 500); } } };
 }
 
 // ---------------------------------------------------------------- Accounts page (admins only)

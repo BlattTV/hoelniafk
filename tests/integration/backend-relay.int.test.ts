@@ -213,6 +213,33 @@ describe('backend relay: manager and agent of the same account', () => {
     await waitFor(() => mc.players().includes('Remote01'), 30_000, 'session back on the agent');
   }, 60_000);
 
+  it('shows the public IPs of this PC and its agents (each device reports its own)', async () => {
+    const http = await import('node:http');
+    // a local IP echo service (like api.ipify.org) answering with a test address
+    const echo = http.createServer((_req, res) => res.end('203.0.113.7'));
+    await new Promise<void>((r) => echo.listen(0, '127.0.0.1', () => r()));
+    const before = process.env.HOELNI_IP_ENDPOINTS;
+    process.env.HOELNI_IP_ENDPOINTS = `http://127.0.0.1:${(echo.address() as net.AddressInfo).port}/`;
+    try {
+      await (agent as any).ipWatch.refresh();
+      expect(agent.status.publicIp).toBe('203.0.113.7');
+      await suite.publicIp.refresh();
+      const { buildServer } = await import('../../src/web/server.js');
+      const { app } = await buildServer(suite, { apiToken: 'ip-test' });
+      const get = async () => (await app.inject({ method: 'GET', url: '/api/public-ips', headers: { 'x-hoelni-token': 'ip-test', host: `127.0.0.1:${suite.config.port}` } })).json();
+      await waitFor(async () => (await get()).agents?.find((a: any) => a.id === agentId)?.publicIp === '203.0.113.7', 5000, 'agent IP reported');
+      const ips = await get();
+      expect(ips.pcs.find((p: any) => p.responding)).toMatchObject({ publicIp: '203.0.113.7', active: true });
+      expect(ips.agents.find((a: any) => a.id === agentId)).toMatchObject({ online: true, publicIp: '203.0.113.7' });
+      // the backend passes the PC's IP on to the account's devices (standby PCs, control app)
+      await waitFor(() => suite.backend.status().pcs.find((p) => p.self)?.publicIp === '203.0.113.7', 5000, 'PC IP at the backend');
+      await app.close();
+    } finally {
+      process.env.HOELNI_IP_ENDPOINTS = before;
+      echo.close();
+    }
+  }, 30_000);
+
   it('"Run on" changed while running: the session moves (this PC ↔ agent) without two logins at once', async () => {
     const sid = `${identityId}:${serverId}`;
     const joins = () => mc.joins.filter((j) => j.username === 'Remote01').length;

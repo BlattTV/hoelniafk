@@ -191,7 +191,11 @@ test('backend: account administration is only shown to admins; agents appear', a
 
   await page.goto('/#/agents');
   await expect(page.locator('#view')).toContainText('Demo agent');
-  await expect(page.locator('#view tbody')).toContainText('online');
+  await expect(page.locator('#view tbody').first()).toContainText('online');
+  // public IPs: this PC and the agent are listed
+  await expect(page.locator('#view')).toContainText('Public IPs');
+  await expect(page.locator('#view tbody').nth(1)).toContainText('this PC');
+  await expect(page.locator('#view tbody').nth(1)).toContainText('Demo agent');
 
   await page.goto('/#/accounts');
   await expect(page.locator('#view')).toContainText('friend');

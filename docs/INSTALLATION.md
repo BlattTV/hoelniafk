@@ -509,6 +509,9 @@ Möglich sind:
 * **Server:** unter *Identitäten → Server & Zuweisungen* Server anlegen und löschen, Identitäten per
   Haken einem Server zuweisen („Alle zuweisen“), alle Sessions eines Servers starten oder stoppen
 * **Agents:** Status, laufende Sessions, Identitäten dort; Agent pausieren und fortsetzen
+* **Öffentliche IPs** aller PCs und Agents (Tab *Agents*, antippen kopiert). Auch in der Suite unter
+  *Agents → Öffentliche IPs*. Jedes Gerät ermittelt seine IP selbst (beim Start und alle 30 Minuten);
+  Sessions ohne Proxy verbinden sich mit genau dieser IP, Sessions mit Proxy mit der des Proxys.
 * Makros ausführen und stoppen, mit Protokoll
 * PCs des Kontos ansehen
 

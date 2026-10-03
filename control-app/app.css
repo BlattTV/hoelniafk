@@ -128,3 +128,5 @@ details summary { color: var(--muted); font-size: 13px; cursor: pointer; margin-
 .chat-head label { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .chat-head select { width: 100%; min-width: 0; }
 .nav button { font-size: 11px; }
+.section-title button.link { background: none; border: 0; color: var(--blue); font: inherit; font-size: 12px; letter-spacing: .5px; text-transform: none; cursor: pointer; padding: 0; }
+.pill.ip { border: 0; font-family: ui-monospace, 'Cascadia Mono', monospace; font-size: 12.5px; cursor: pointer; color: #dbeafe; background: rgba(59, 130, 246, .16); }
