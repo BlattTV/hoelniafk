@@ -10,6 +10,12 @@ TARGET=/opt/hoelni-agent
 DATA=/var/lib/hoelni-agent
 
 if [ "$(id -u)" != 0 ]; then echo "Please run with sudo: sudo ./install.sh" >&2; exit 1; fi
+if ! "$SRC/node/bin/node" -e "" >/dev/null 2>&1; then
+  case "$(uname -m)" in x86_64|amd64) want=x64 ;; aarch64|arm64) want=arm64 ;; *) want="$(uname -m)" ;; esac
+  echo "This package is for another processor type – this computer needs the linux-$want package:" >&2
+  echo "  rm -rf hoelni-agent && curl -fL https://afk.hoelni.de/download/latest/linux-$want | tar xz && sudo hoelni-agent/install.sh" >&2
+  exit 1
+fi
 command -v systemctl >/dev/null 2>&1 || { echo "No systemd found. Without a service: ./hoelni-agent login … and ./hoelni-agent run" >&2; exit 1; }
 
 echo "› service user hoelni-agent"

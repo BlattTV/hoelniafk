@@ -120,8 +120,10 @@ section{background:#0f172a;border:1px solid #1e293b;border-radius:16px;padding:1
 <body><main>${logo() ? `<img class="logo" src="${logo()}" alt="Hoelni AFK Client">` : ''}<h1>Hoelni herunterladen</h1><p class="sub">Einmal installieren – danach aktualisieren sich die Programme selbst.</p>
 ${card(items.suite, 'Hoelni Client Suite', 'Das Hauptprogramm für deinen PC: Identitäten, AFK-Sessions, Discord, Outlook und das Minecraft-Fenster.')}
 ${card(items.agent, 'Hoelni Agent', `Für PCs in anderen Haushalten: installieren, mit dem Hoelni-Konto anmelden, fertig. Startet mit Windows im Hintergrund.${publicUrl ? ` Verbindet sich mit <code>${esc(publicUrl)}</code>.` : ''}`)}
-${card(items['linux-x64'], 'Hoelni Agent für Linux (x64)', `Für Server, VMs und Mini-PCs ohne Bildschirm – läuft als Dienst und aktualisiert sich selbst:<br><code>curl -fL ${esc(publicUrl ? publicUrl.replace(/\/+$/, '') : '')}/download/latest/linux-x64 | tar xz &amp;&amp; sudo hoelni-agent/install.sh</code><br>danach <code>sudo hoelni-agent login --user NAME</code>.`)}
-${card(items['linux-arm64'], 'Hoelni Agent für Linux (ARM64, z. B. Raspberry Pi 4/5)', `Wie oben, für 64-Bit-ARM:<br><code>curl -fL ${esc(publicUrl ? publicUrl.replace(/\/+$/, '') : '')}/download/latest/linux-arm64 | tar xz &amp;&amp; sudo hoelni-agent/install.sh</code>`)}
+${items['linux-x64'] || items['linux-arm64'] ? `<section><h2>Hoelni Agent für Linux</h2><p>Für Server, VMs, Mini-PCs und Raspberry Pi (64 Bit) – läuft als Dienst und aktualisiert sich selbst. Dieser Befehl lädt automatisch das passende Paket für den Rechner:</p>
+<p><code>curl -fL ${esc(publicUrl ? publicUrl.replace(/\/+$/, '') : '')}/download/latest/linux-$(uname -m) | tar xz &amp;&amp; sudo hoelni-agent/install.sh</code><br>danach <code>sudo hoelni-agent login --user NAME</code>.</p></section>` : ''}
+${card(items['linux-x64'], 'Linux x64 (Intel/AMD)', 'Paket für Intel- und AMD-Rechner – auch die meisten VMs.')}
+${card(items['linux-arm64'], 'Linux ARM64 (z. B. Raspberry Pi 4/5)', 'Paket für 64-Bit-ARM.')}
 ${card(items['android-control'], 'Hoelni Control (Android)', `Steuert deine Suite vom Handy aus: Sessions starten und stoppen, Chat, Makros, Agents – mit Widgets für den Startbildschirm. Die Sessions laufen dabei weiter auf deinem PC. Ohne App geht es auch im Browser: <a href="/app/">${esc(publicUrl ? `${publicUrl.replace(/\/+$/, '')}/app` : '/app')}</a>.`)}
 ${card(items.android, 'Hoelni Agent für Android', 'Das Handy als Agent: APK auf dem Handy herunterladen und öffnen (Installation aus dieser Quelle einmal erlauben), mit dem Hoelni-Konto anmelden – die AFK-Sessions laufen dann im Hintergrund, auch bei ausgeschaltetem Bildschirm. Am besten am Ladekabel und im WLAN. Neue Versionen meldet die App selbst.')}
 <p class="meta">Windows zeigt bei nicht signierten Programmen evtl. „Der Computer wurde durch Windows geschützt“ → <b>Weitere Informationen</b> → <b>Trotzdem ausführen</b>.</p>
@@ -200,9 +202,11 @@ export function createBackendServer({ accounts, relay, config, version = '1.0.0'
         return send(res, 200, { items });
       }
       // stable link for scripts: /download/latest/linux-x64 → the current file
-      if (req.method === 'GET' && /^\/download\/latest\/[a-z0-9-]{1,40}$/.test(p)) {
+      if (req.method === 'GET' && /^\/download\/latest\/[a-z0-9_-]{1,40}$/.test(p)) {
         const data = config.updatesUpstream ? await upstreamJson(`${config.updatesUpstream.replace(/\/+$/, '')}/api/downloads`) : null;
-        const it = data?.items?.[p.slice('/download/latest/'.length)];
+        const ALIAS = { 'linux-x86_64': 'linux-x64', 'linux-amd64': 'linux-x64', 'linux-aarch64': 'linux-arm64' };
+        const kind = p.slice('/download/latest/'.length);
+        const it = data?.items?.[ALIAS[kind] ?? kind];
         if (!it?.file) throw new HttpError(404, 'Not built yet');
         res.writeHead(302, { Location: `/download/${encodeURIComponent(it.file)}`, 'Cache-Control': 'no-store' });
         return res.end();

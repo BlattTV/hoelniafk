@@ -706,7 +706,7 @@ aktualisiert sich selbst, wie unter Windows. Pakete gibt es für **x64** und **A
 liegen auf `https://afk.hoelni.de/download`.
 
 ```bash
-curl -fL https://afk.hoelni.de/download/latest/linux-x64 | tar xz      # Raspberry Pi: linux-arm64
+curl -fL https://afk.hoelni.de/download/latest/linux-$(uname -m) | tar xz   # wählt x64 / ARM64 selbst
 sudo hoelni-agent/install.sh
 sudo hoelni-agent login --user DEIN-NAME --name "Server im Keller"
 ```

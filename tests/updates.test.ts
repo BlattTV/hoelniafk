@@ -398,8 +398,11 @@ describe('updates through the backend (https://afk.hoelni.de/updates)', () => {
       expect(apkDl.headers.get('content-type')).toBe('application/vnd.android.package-archive');
       expect((await apkDl.arrayBuffer()).byteLength).toBe(1000);
       // Linux: on the page with the one-line install, a stable "latest" link, the file itself
-      expect(html).toContain('Hoelni Agent für Linux (x64)');
-      expect(html).toContain('curl -fL https://afk.example.org/download/latest/linux-x64 | tar xz');
+      expect(html).toContain('Linux x64 (Intel/AMD)');
+      expect(html).toContain('curl -fL https://afk.example.org/download/latest/linux-$(uname -m) | tar xz');
+      // "uname -m" names lead to the right package
+      const byUname = await fetch(`${b}/download/latest/linux-x86_64`, { redirect: 'manual' });
+      expect(byUname.headers.get('location')).toBe('/download/Hoelni-Agent-Linux-x64-9.9.9-8.tar.gz');
       const latest = await fetch(`${b}/download/latest/linux-x64`, { redirect: 'manual' });
       expect(latest.status).toBe(302);
       expect(latest.headers.get('location')).toBe('/download/Hoelni-Agent-Linux-x64-9.9.9-8.tar.gz');
