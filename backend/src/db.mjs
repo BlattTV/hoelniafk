@@ -77,17 +77,28 @@ export function openDb(file) {
   const db = new DatabaseSync(file);
   db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
   db.exec('CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)');
-  let v = db.prepare('SELECT version FROM schema_version').get()?.version;
-  if (v === undefined) {
-    db.prepare('INSERT INTO schema_version (version) VALUES (0)').run();
-    v = 0;
-  }
-  while (v < MIGRATIONS.length) {
-    db.exec('BEGIN');
-    db.exec(MIGRATIONS[v]);
-    db.prepare('UPDATE schema_version SET version = ?').run(v + 1);
-    db.exec('COMMIT');
-    v++;
+  // The service and a CLI command (e.g. the installer's "user list") may open the database at the
+  // same time: each step locks first (IMMEDIATE) and reads the version inside the lock, so a
+  // migration never runs twice.
+  for (;;) {
+    db.exec('BEGIN IMMEDIATE');
+    let v = db.prepare('SELECT version FROM schema_version').get()?.version;
+    if (v === undefined) {
+      db.prepare('INSERT INTO schema_version (version) VALUES (0)').run();
+      v = 0;
+    }
+    if (v >= MIGRATIONS.length) {
+      db.exec('COMMIT');
+      break;
+    }
+    try {
+      db.exec(MIGRATIONS[v]);
+      db.prepare('UPDATE schema_version SET version = ?').run(v + 1);
+      db.exec('COMMIT');
+    } catch (e) {
+      db.exec('ROLLBACK');
+      throw e;
+    }
   }
   return db;
 }

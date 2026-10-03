@@ -191,8 +191,18 @@ systemctl daemon-reload
 systemctl enable --quiet hoelni-backend
 systemctl restart hoelni-backend
 
-# First admin account (asked interactively – also works with "curl … | bash" through /dev/tty)
-if ! hoelni-backend user list 2>/dev/null | grep -q $'\tadmin\t'; then
+# First admin account (asked interactively – also works with "curl … | bash" through /dev/tty).
+# The service was just restarted and may still be upgrading the database: retry the user list
+# instead of mistaking a busy database for "no admin yet".
+USERS=""
+for i in 1 2 3 4 5 6 7 8 9 10; do
+  if USERS="$(hoelni-backend user list 2>&1)"; then break; fi
+  USERS="__error__ $USERS"
+  sleep 2
+done
+if [ "${USERS#__error__}" != "$USERS" ]; then
+  echo "Could not read the accounts (${USERS#__error__ }) – an existing admin is kept; create one if needed: hoelni-backend user add <name> --admin"
+elif ! printf '%s\n' "$USERS" | grep -q $'\tadmin\t'; then
   if (exec </dev/tty) 2>/dev/null; then
     if [ -z "$ADMIN" ]; then
       printf '\nName of your admin account: ' >/dev/tty
