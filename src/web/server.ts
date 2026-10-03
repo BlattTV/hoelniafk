@@ -15,6 +15,7 @@ import { isMicrosoftUrl, type MicrosoftTarget } from '../identity/microsoftAccou
 import type { BulkAction } from '../ops/bulk.js';
 import { refs } from '../vault/refs.js';
 import { starStats } from '../minecraft/starStats.js';
+import { parseScoreboard } from '../core/rules.js';
 
 const log = createLogger('web');
 const PUBLIC_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../public');
@@ -440,7 +441,33 @@ export async function buildServer(suite: Suite, opts: ServerOptions = {}): Promi
     };
   });
   // the sidebar scoreboard of a session as the player sees it (to set up the star recognition)
-  app.get('/api/sessions/:sessionId/scoreboard', async (req: Req) => suite.sessions.getScoreboard(req.params.sessionId) ?? { title: '', lines: [], at: null });
+  app.get('/api/sessions/:sessionId/scoreboard', async (req: Req) => {
+    const sb = suite.sessions.getScoreboard(req.params.sessionId) ?? { title: '', lines: [], at: null };
+    // why the stars are (not) taken over – shown under the scoreboard
+    const [identityId, serverId] = String(req.params.sessionId).split(':').map(Number);
+    let recognition: { stars: number | null; line: string | null; stored: number | null; problem: string | null } = { stars: null, line: null, stored: null, problem: null };
+    try {
+      const server = suite.repo.getServer(serverId);
+      const parsers = suite.repo.getIdentity(identityId).settings.parsers;
+      const rewardSets = suite.getRules().chatRules.filter((r) => r.type === 'rewards').map((r) => r.id);
+      const hit = sb.lines.length ? parseScoreboard(suite.getRules(), parsers, sb.lines) : null;
+      recognition = {
+        stars: hit?.stars ?? null,
+        line: hit?.line ?? null,
+        stored: suite.repo.getServerReward(identityId, serverId).stars,
+        problem: !server.trackStars
+          ? 'Stars are not counted on this server (Servers → Count stars).'
+          : !parsers.some((p) => rewardSets.includes(p))
+            ? `The identity has no star rules active (active: ${parsers.join(', ') || 'none'}; star rules: ${rewardSets.join(', ') || 'none in rules.yaml'}).`
+            : sb.lines.length && !hit
+              ? 'No line with stars recognised (rules.yaml → scoreboard).'
+              : null,
+      };
+    } catch {
+      /* session of a removed identity / server */
+    }
+    return { ...sb, recognition };
+  });
 
   app.get('/api/identities/:id', async (req: Req) => {
     const id = num(req.params.id);

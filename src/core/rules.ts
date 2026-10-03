@@ -106,6 +106,14 @@ function checkRegex(src: string, where: string): string {
   return src;
 }
 
+/** Star balance in the sidebar – used when a rules.yaml has no "scoreboard" section (same as the shipped file). */
+export const DEFAULT_SCOREBOARD = [
+  "(Sterne|Stars?)\\s*[:»>|=\\-–]*\\s*(?<stars>\\d[\\d.,']*)",
+  "(?<stars>\\d[\\d.,']*)\\s*(Sterne|Stars?)\\b",
+  "[⭐★✦✧✪✯☆]\\s*[:»>|=\\-–]*\\s*(?<stars>\\d[\\d.,']*)",
+];
+export const DEFAULT_SCOREBOARD_LABEL = ['^\\W*(Sterne|Stars?)\\W*$'];
+
 export function parseRules(text: string): RulesConfig {
   const raw = (YAML.parse(text) ?? {}) as Record<string, any>;
   const mailRules: MailRule[] = [];
@@ -144,8 +152,9 @@ export function parseRules(text: string): RulesConfig {
         type: 'rewards',
         set: arr(r.set).map((p) => checkRegex(p, `chatRules.${id}.set`)),
         add: arr(r.add).map((p) => checkRegex(p, `chatRules.${id}.add`)),
-        scoreboard: arr(r.scoreboard).map((p) => checkRegex(p, `chatRules.${id}.scoreboard`)),
-        scoreboardLabel: arr(r.scoreboardLabel).map((p) => checkRegex(p, `chatRules.${id}.scoreboardLabel`)),
+        // an older rules.yaml (kept because it was edited) has no scoreboard section: built-in patterns
+        scoreboard: (r.scoreboard === undefined ? DEFAULT_SCOREBOARD : arr(r.scoreboard)).map((p) => checkRegex(p, `chatRules.${id}.scoreboard`)),
+        scoreboardLabel: (r.scoreboardLabel === undefined ? DEFAULT_SCOREBOARD_LABEL : arr(r.scoreboardLabel)).map((p) => checkRegex(p, `chatRules.${id}.scoreboardLabel`)),
         eligible: arr(r.eligible).map((p) => checkRegex(p, `chatRules.${id}.eligible`)),
         notEligible: arr(r.notEligible).map((p) => checkRegex(p, `chatRules.${id}.notEligible`)),
         received: arr(r.received).map((p) => checkRegex(p, `chatRules.${id}.received`)),

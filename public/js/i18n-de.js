@@ -1372,5 +1372,10 @@ export default {
  "Gap between": "Abstand zwischen",
  "and": "und",
  "Example": "Beispiel",
- "16 accounts at 8–25 s are all online after about 4–5 minutes.": "16 Accounts mit 8–25 s sind nach etwa 4–5 Minuten alle online."
+ "16 accounts at 8–25 s are all online after about 4–5 minutes.": "16 Accounts mit 8–25 s sind nach etwa 4–5 Minuten alle online.",
+ "Recognised": "Erkannt",
+ "stored": "gespeichert",
+ "Stars are not counted on this server (Servers → Count stars).": "Auf diesem Server werden keine Sterne gezählt (Server → Sterne zählen).",
+ "No line with stars recognised (rules.yaml → scoreboard).": "Keine Zeile mit Sternen erkannt (rules.yaml → scoreboard).",
+ "The identity has no star rules active (active: {0}; star rules: {1}).": "Bei der Identität sind keine Sterne-Regeln aktiv (aktiv: {0}; Sterne-Regeln: {1})."
 };

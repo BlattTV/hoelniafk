@@ -133,3 +133,25 @@ describe('stars only on servers with "Count stars"', () => {
     await s.shutdown();
   });
 });
+
+describe('older rules.yaml without a scoreboard section', () => {
+  it('uses the built-in scoreboard patterns (an edited rules.yaml is kept by updates)', async () => {
+    const { parseRules } = await import('../src/core/rules.js');
+    const old = parseRules(`chatRules:
+  hoelni-rewards:
+    type: rewards
+    set: ["Du hast (?<stars>\\\\d+) Sterne?"]
+    add: []
+`);
+    const lines = ['ꐨ Geld 1,00k', 'ꐠ Gems 0', 'ꐲ Stars 45', 'ꐦ Ping 52ms'].map((text) => ({ text, value: 0, hidden: true }));
+    expect(parseScoreboard(old, ['hoelni-rewards'], lines)?.stars).toBe(45);
+    // an explicit empty list switches the scoreboard off
+    const off = parseRules(`chatRules:
+  hoelni-rewards:
+    type: rewards
+    scoreboard: []
+    scoreboardLabel: []
+`);
+    expect(parseScoreboard(off, ['hoelni-rewards'], lines)).toBeNull();
+  });
+});

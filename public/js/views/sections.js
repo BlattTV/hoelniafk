@@ -403,6 +403,11 @@ export async function openScoreboard(sessionId, title) {
     sb?.lines?.length
       ? [sb.title ? h('p', null, h('strong', null, sb.title)) : null,
           h('div', { class: 'chat', style: { height: 'auto', maxHeight: '420px' } }, sb.lines.map((l) => h('div', null, l.text || ' ', l.hidden ? null : h('span', { class: 'muted' }, `  (${l.value})`)))),
+          sb.recognition?.problem
+            ? h('p', { class: 's-error' }, sb.recognition.problem)
+            : sb.recognition?.stars !== null && sb.recognition?.stars !== undefined
+              ? h('p', { class: 's-ok' }, `${t('Recognised')}: ${sb.recognition.stars} ★ („${sb.recognition.line}“) · ${t('stored')}: ${sb.recognition.stored} ★`)
+              : null,
           h('p', { class: 'muted' }, `${t('Read')} ${fmtTime(sb.at)}. ${t('Stars are recognised in lines like “Sterne: 1.234”, “⭐ 87” or “1500 Stars” (rules.yaml → scoreboard).')}`)]
       : h('p', { class: 'muted' }, 'No scoreboard received from this session yet (the session must be online; agents need the current version).')));
 }
