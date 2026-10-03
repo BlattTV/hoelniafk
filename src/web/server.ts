@@ -832,6 +832,7 @@ export async function buildServer(suite: Suite, opts: ServerOptions = {}): Promi
       before: req.query.before ? num(req.query.before, 'before') : undefined,
     }),
   );
+  app.get('/api/sessions/:sessionId/chat/raw', async (req: Req) => suite.sessions.getRawChat(req.params.sessionId));
   app.post('/api/sessions/:sessionId/chat', async (req: Req) => {
     await suite.sessions.sendChat(req.params.sessionId, String(bodyOf(req).text ?? ''));
     return { ok: true };

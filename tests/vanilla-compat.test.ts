@@ -173,6 +173,14 @@ describe('vanilla client behaviour behind a proxy', () => {
     sc.write('player_chat', { ...base, globalIndex: 3, plainMessage: 'psst', unsignedChatContent: undefined, type: { chatType: 3 } });
     await until(() => lines.length >= 4, 5000, 'chat lines');
     expect(lines.slice(-4)).toEqual(['LiebUFF » eeyyy', '<LiebUFF> moinn', '<LiebUFF> hallo', '<LiebUFF> psst']);
+    // system messages as NBT, every word nested one level deeper (colour per word) and a mixed list
+    const words = ['[HugoSMP]', ' Du', ' hast', ' gerade', ' 5', ' Sterne', ' erhalten', ' –', ' viel', ' Spaß', '!'];
+    let comp: any = nbt.comp({ text: nbt.string(words[words.length - 1]), color: nbt.string('gold') });
+    for (let i = words.length - 2; i >= 0; i--) comp = nbt.comp({ text: nbt.string(words[i]), color: nbt.string('yellow'), extra: nbt.list(nbt.comp([comp.value])) });
+    sc.write('system_chat', { content: comp, isActionBar: false });
+    sc.write('system_chat', { content: nbt.comp({ text: nbt.string(''), extra: nbt.list(nbt.comp([{ '': nbt.string('A ') }, { text: nbt.string('B'), bold: nbt.byte(1) }])) }), isActionBar: false });
+    await until(() => lines.length >= 6, 5000, 'system lines');
+    expect(lines.slice(-2)).toEqual(['[HugoSMP] Du hast gerade 5 Sterne erhalten – viel Spaß!', 'A B']);
     bot.end();
     server.close();
   }, 30_000);

@@ -69,7 +69,7 @@ export interface SessionStats {
 export type RuntimeEvent =
   | { type: 'phase'; sessionId: string; phase: RuntimeSessionPhase }
   | { type: 'spawned'; sessionId: string; username: string; uuid: string | null; version: string | null }
-  | { type: 'chat'; sessionId: string; text: string; ts: string }
+  | { type: 'chat'; sessionId: string; text: string; ts: string; /** Raw chat component (diagnosis, capped). */ raw?: string; position?: string }
   | { type: 'ended'; sessionId: string; reason: string; kicked: boolean; error: string | null }
   | { type: 'stats'; sessionId: string; stats: SessionStats }
   /** Diagnostic entry for the session log (server switch, held chat, library errors). */

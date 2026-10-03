@@ -104,6 +104,8 @@ export class SessionRecord {
   /** Releases the concurrent-start slot taken by launch(). */
   releaseStart: (() => void) | null = null;
   readonly chat: ChatLine[] = [];
+  /** Last raw chat components as the server sent them (diagnosis only, never stored). */
+  readonly rawChat: Array<{ ts: string; position?: string; text: string; raw?: string }> = [];
   /** Serialises start/stop/reconnect of this session. */
   lock: Promise<unknown> = Promise.resolve();
 
@@ -293,6 +295,11 @@ export class SessionManager {
 
   getState(sessionId: string): SessionInfo {
     return this.info(this.get(sessionId));
+  }
+
+  /** The last chat messages with their raw components (to see why a line looks wrong). */
+  getRawChat(sessionId: string): Array<{ ts: string; position?: string; text: string; raw?: string }> {
+    return [...(this.records.get(sessionId)?.rawChat ?? [])];
   }
 
   getChat(sessionId: string, opts: { limit?: number; before?: number } = {}): ChatLine[] {
@@ -826,6 +833,8 @@ export class SessionManager {
         this.bus.emit({ type: 'session.stats', identityId: r.identityId, data: { sessionId: r.id, stats: e.stats } });
         return;
       case 'chat':
+        r.rawChat.push({ ts: e.ts, position: e.position, text: e.text, raw: e.raw });
+        if (r.rawChat.length > 40) r.rawChat.splice(0, r.rawChat.length - 40);
         this.onChat(r, e.text, e.ts);
         return;
       case 'note':

@@ -1294,5 +1294,9 @@ export default {
  "Save the macro first": "Erst das Makro speichern",
  "Run on:": "Ausführen auf:",
  "no matching session online": "keine passende Session online",
- "Runs the saved macro now (save changes first)": "Führt das gespeicherte Makro jetzt aus (Änderungen vorher speichern)"
+ "Runs the saved macro now (save changes first)": "Führt das gespeicherte Makro jetzt aus (Änderungen vorher speichern)",
+ "Copy raw data": "Rohdaten kopieren",
+ "Copies the last chat messages exactly as the server sent them – to find out why a line looks wrong": "Kopiert die letzten Chatnachrichten genau so, wie der Server sie geschickt hat – um herauszufinden, warum eine Zeile falsch aussieht",
+ "No raw data yet – it is collected from now on while the session is online": "Noch keine Rohdaten – sie werden ab jetzt gesammelt, solange die Session online ist",
+ "Raw chat data copied": "Chat-Rohdaten kopiert"
 };

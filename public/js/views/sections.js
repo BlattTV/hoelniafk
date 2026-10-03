@@ -401,7 +401,12 @@ export function openChat(sess, ctx) {
   const input = h('input', { style: { flex: 1 }, placeholder: 'Message or /command', maxlength: 256 });
   const send = () => guard(async () => { await api.post(`/api/sessions/${encodeURIComponent(sess.id)}/chat`, { text: input.value }); input.value = ''; });
   input.addEventListener('keydown', (e) => e.key === 'Enter' && send());
-  const m = modal(`Chat – ${sess.serverName}`, h('div', null, log, h('div', { class: 'toolbar', style: { marginTop: '8px' } }, input, h('button', { onclick: send }, 'Send'))));
+  const copyRaw = () => guard(async () => {
+    const raw = await api.get(`/api/sessions/${encodeURIComponent(sess.id)}/chat/raw`);
+    if (!raw.length) return toast('No raw data yet – it is collected from now on while the session is online', 'info');
+    await copy(JSON.stringify(raw, null, 1), 'Raw chat data copied');
+  });
+  const m = modal(`Chat – ${sess.serverName}`, h('div', null, log, h('div', { class: 'toolbar', style: { marginTop: '8px' } }, input, h('button', { onclick: send }, 'Send'), h('button', { class: 'small', title: 'Copies the last chat messages exactly as the server sent them – to find out why a line looks wrong', onclick: copyRaw }, 'Copy raw data'))));
   ctx.chatListener = (ev) => {
     if (!document.body.contains(m.el)) return;
     if (ev.type === 'session.chat' && ev.data.sessionId === sess.id) add(ev.data);
