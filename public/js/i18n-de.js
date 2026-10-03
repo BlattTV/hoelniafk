@@ -437,7 +437,7 @@ export default {
  "All desired sessions are online.": "Alle gewünschten Sessions sind online.",
  "Recent warnings & errors": "Letzte Warnungen & Fehler",
  "None.": "Keine.",
- "one proxy per line:\nsocks5://user:pass@host:1080\nhttp://host:3128\nhost:port:user:pass\nhost:port": "ein Proxy pro Zeile:\nsocks5://user:pass@host:1080\nhttp://host:3128\nhost:port:user:pass\nhost:port",
+ "one proxy per line:\nsocks5://user:pass@host:1080\nhttp://host:3128\nhost:port:user:pass\nhost:port\n\nor JSON: [{ \"name\": \"Exit-01\", \"type\": \"SOCKS5\", \"host\": \"…\", \"port\": 1080, \"username\": \"…\", \"password\": \"…\", \"expectedPublicIPv4\": \"…\" }]": "ein Proxy pro Zeile:\nsocks5://user:pass@host:1080\nhttp://host:3128\nhost:port:user:pass\nhost:port\n\noder JSON: [{ \"name\": \"Exit-01\", \"type\": \"SOCKS5\", \"host\": \"…\", \"port\": 1080, \"username\": \"…\", \"password\": \"…\", \"expectedPublicIPv4\": \"…\" }]",
  "Proxy assigned": "Proxy zugewiesen",
  "{0} proxies · {1} working · {2} free · {3} identities without pool proxy": "{0} Proxys · {1} funktionieren · {2} frei · {3} Identitäten ohne Pool-Proxy",
  "Checks every proxy: reachable, exit IP, latency (16 at a time)": "Prüft jeden Proxy: erreichbar, Exit-IP, Latenz (16 gleichzeitig)",
@@ -1327,5 +1327,6 @@ export default {
  "Moved the suite to a new PC?": "Suite auf einen neuen PC umgezogen?",
  "List the sign-ins for this PC": "Anmeldungen für diesen PC auflisten",
  "accounts listed": "Konten aufgelistet",
- "Lists every account in use under “Sign in on this PC” – the windows on this PC need one sign-in each": "Listet alle genutzten Konten unter „Auf diesem PC anmelden“ auf – die Fenster auf diesem PC brauchen je einmal eine Anmeldung"
+ "Lists every account in use under “Sign in on this PC” – the windows on this PC need one sign-in each": "Listet alle genutzten Konten unter „Auf diesem PC anmelden“ auf – die Fenster auf diesem PC brauchen je einmal eine Anmeldung",
+ "expected": "erwartet"
 };

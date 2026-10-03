@@ -10,7 +10,7 @@ export async function proxiesView(root) {
     const [list, dash] = await Promise.all([api.get('/api/proxies'), api.get('/api/dashboard')]);
     const identities = dash.rows;
     const withProxy = new Set(list.filter((p) => p.identityId).map((p) => p.identityId));
-    const text = h('textarea', { rows: 6, placeholder: 'one proxy per line:\nsocks5://user:pass@host:1080\nhttp://host:3128\nhost:port:user:pass\nhost:port', style: { width: '100%', fontFamily: 'var(--mono)' } });
+    const text = h('textarea', { rows: 6, placeholder: 'one proxy per line:\nsocks5://user:pass@host:1080\nhttp://host:3128\nhost:port:user:pass\nhost:port\n\nor JSON: [{ "name": "Exit-01", "type": "SOCKS5", "host": "…", "port": 1080, "username": "…", "password": "…", "expectedPublicIPv4": "…" }]', style: { width: '100%', fontFamily: 'var(--mono)' } });
     const kind = h('select', null, h('option', { value: 'SOCKS5' }, 'SOCKS5'), h('option', { value: 'HTTP' }, 'HTTP'));
     const label = h('input', { placeholder: 'e.g. provider / batch', style: { width: '100%' } });
     const ok = list.filter((p) => p.status === 'OK').length;
@@ -52,7 +52,7 @@ export async function proxiesView(root) {
               h('td', { class: 'mono muted' }, String(p.id)),
               h('td', null, h('div', { class: 'mono' }, `${p.kind.toLowerCase()}://${p.username ? `${p.username}${p.hasPassword ? ':•••' : ''}@` : ''}${p.host}:${p.port}`), p.label ? h('div', { class: 'muted' }, p.label) : null),
               h('td', null, h('span', { class: `badge ${STATUS[p.status]}`, title: p.lastError ?? '' }, p.status === 'UNKNOWN' ? 'not tested' : p.status), p.lastCheckedAt ? h('div', { class: 'muted' }, relTime(p.lastCheckedAt)) : null, p.status === 'ERROR' ? h('div', { class: 's-error', style: { fontSize: '12px' } }, p.lastError) : null),
-              h('td', null, h('span', { class: 'mono' }, p.exitIp ?? '–'), p.sameExitAs.length ? h('div', { class: 's-warn', style: { fontSize: '12px' }, title: 'These proxies leave through the same IP – auto-assign gives that IP to only one identity' }, `same exit as #${p.sameExitAs.join(', #')}`) : null),
+              h('td', null, h('span', { class: 'mono' }, p.exitIp ?? '–'), p.expectedIp && p.expectedIp !== p.exitIp ? h('div', { class: p.exitIp ? 's-warn' : 'muted', style: { fontSize: '12px' } }, `${t('expected')} ${p.expectedIp}`) : null, p.sameExitAs.length ? h('div', { class: 's-warn', style: { fontSize: '12px' }, title: 'These proxies leave through the same IP – auto-assign gives that IP to only one identity' }, `same exit as #${p.sameExitAs.join(', #')}`) : null),
               h('td', { class: 'mono' }, p.latencyMs != null ? `${p.latencyMs} ms` : '–'),
               h('td', null, p.identityId ? h('a', { href: `#/identity/${p.identityId}` }, p.identityLabel ?? `#${p.identityId}`) : assignSelect(p)),
               h('td', null, h('div', { class: 'toolbar' },

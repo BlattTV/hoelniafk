@@ -65,6 +65,44 @@ describe('proxy pool', () => {
     await suite.shutdown();
   });
 
+  it('imports JSON lists (also objects only separated by commas) with name and expected exit IP', async () => {
+    const { suite } = await poolSuite();
+    const text = `{
+    "name": "Exit-01",
+    "type": "SOCKS5",
+    "host": "10.0.0.1",
+    "port": 1080,
+    "username": "hoelni01",
+    "password": "json-secret",
+    "expectedPublicIPv4": "198.51.100.1"
+  },
+  {
+    "name": "Exit-02",
+    "type": "SOCKS5",
+    "host": "10.0.0.2",
+    "port": 1080,
+    "username": "hoelni02",
+    "password": "",
+    "expectedPublicIPv4": "203.0.113.50"
+  },
+  { "name": "broken", "host": "10.0.0.5" }`;
+    const r = await suite.proxies.import(text);
+    expect(r.added).toBe(2);
+    expect(r.errors).toEqual([{ line: 3, error: 'entry 3: invalid port' }]);
+    expect(JSON.stringify(suite.db.prepare('SELECT * FROM proxies').all())).not.toContain('json-secret');
+    await suite.proxies.testAll();
+    const list = suite.proxies.list();
+    expect(list.find((p) => p.label === 'Exit-01')).toMatchObject({ status: 'OK', exitIp: '198.51.100.1', expectedIp: '198.51.100.1', hasPassword: true, username: 'hoelni01' });
+    // works, but not through the promised IP: marked as an error, never assigned automatically
+    expect(list.find((p) => p.label === 'Exit-02')).toMatchObject({ status: 'ERROR', exitIp: '198.51.100.2', expectedIp: '203.0.113.50', hasPassword: false });
+    expect(list.find((p) => p.label === 'Exit-02')!.lastError).toMatch(/expected 203\.0\.113\.50/);
+    // a proper JSON array and { "proxies": [...] } work too
+    const { parseProxyJson } = await import('../src/network/proxyPool.js');
+    expect(parseProxyJson('[{"host":"a.example","port":"1080","type":"socks5"}]').proxies).toHaveLength(1);
+    expect(parseProxyJson('{"proxies":[{"ip":"1.2.3.4","port":8080,"protocol":"http"}]}').proxies[0]).toMatchObject({ kind: 'HTTP', host: '1.2.3.4', port: 8080 });
+    await suite.shutdown();
+  });
+
   it('auto-assigns one proxy per identity with distinct exit IPs; credentials move into the identity scope', async () => {
     const { suite, store } = await poolSuite();
     await suite.proxies.import('10.0.0.1:1080:u1:pw-one\n10.0.0.2:1080\n10.0.0.3:1080\n10.0.0.4:1080\n10.0.0.9:1080');

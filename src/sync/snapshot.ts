@@ -144,7 +144,7 @@ export class SnapshotIO {
     for (const r of this.db.prepare('SELECT * FROM identities').all() as any[]) s.identities[r.sync_id] = await this.exportIdentity(r);
     for (const r of this.db.prepare('SELECT * FROM proxies').all() as any[]) {
       s.proxies[r.sync_id] = {
-        kind: r.kind, host: r.host, port: r.port, username: r.username ?? null, label: r.label ?? null, createdAt: r.created_at,
+        kind: r.kind, host: r.host, port: r.port, username: r.username ?? null, label: r.label ?? null, expectedIp: r.expected_ip ?? null, createdAt: r.created_at,
         identity: this.sidOf('identities', r.identity_id), networkProfile: this.sidOf('network_profiles', r.network_profile_id),
         secret: r.credential_ref ? await this.store.get(r.credential_ref) : null,
       };
@@ -324,7 +324,7 @@ export class SnapshotIO {
         const ref = `vault://app/proxy/${id}`;
         if (e.secret) await this.store.set(ref, e.secret);
         else await this.store.delete(ref);
-        db.prepare('UPDATE proxies SET credential_ref = ? WHERE id = ?').run(e.secret ? ref : null, id);
+        db.prepare('UPDATE proxies SET credential_ref = ?, expected_ip = ? WHERE id = ?').run(e.secret ? ref : null, e.expectedIp ?? null, id);
         return true;
       }
       case 'accounts': {

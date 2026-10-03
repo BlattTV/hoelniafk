@@ -442,6 +442,10 @@ const MIGRATIONS: string[] = [
   `
   CREATE INDEX IF NOT EXISTS reward_history_ts ON reward_history(ts);
   `,
+  // v11: a proxy list can say which exit IP a proxy must have (e.g. "expectedPublicIPv4" in JSON lists)
+  `
+  ALTER TABLE proxies ADD COLUMN expected_ip TEXT;
+  `,
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.length;

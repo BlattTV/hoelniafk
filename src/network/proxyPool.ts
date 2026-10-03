@@ -29,6 +29,10 @@ export interface ParsedProxy {
   port: number;
   username: string | null;
   password: string | null;
+  /** Name from the list (JSON "name") – shown as the proxy's label. */
+  label?: string | null;
+  /** Exit IP the list promises (JSON "expectedPublicIPv4") – a test with another exit IP fails. */
+  expectedIp?: string | null;
 }
 
 export interface PoolProxy {
@@ -39,6 +43,7 @@ export interface PoolProxy {
   username: string | null;
   hasPassword: boolean;
   label: string | null;
+  expectedIp: string | null;
   status: 'UNKNOWN' | 'OK' | 'ERROR';
   exitIp: string | null;
   latencyMs: number | null;
@@ -65,6 +70,8 @@ function portOf(s: string): number | null {
  * Empty lines and lines starting with # are ignored. Errors never contain passwords.
  */
 export function parseProxyList(text: string, defaultKind: ProxyKind = 'SOCKS5'): { proxies: ParsedProxy[]; errors: Array<{ line: number; error: string }> } {
+  const trimmed = String(text ?? '').trim();
+  if (trimmed.startsWith('[') || trimmed.startsWith('{')) return parseProxyJson(trimmed, defaultKind);
   const proxies: ParsedProxy[] = [];
   const errors: Array<{ line: number; error: string }> = [];
   String(text ?? '')
@@ -113,6 +120,66 @@ export function parseProxyList(text: string, defaultKind: ProxyKind = 'SOCKS5'):
   return { proxies, errors };
 }
 
+const IPV4 = /^(25[0-5]|2[0-4]\d|1?\d?\d)(\.(25[0-5]|2[0-4]\d|1?\d?\d)){3}$/;
+
+/**
+ * JSON proxy lists – an array, one object, or several objects separated by commas:
+ *   { "name": "Exit-01", "type": "SOCKS5", "host": "5.231.1.6", "port": 1080,
+ *     "username": "hoelni01", "password": "", "expectedPublicIPv4": "5.231.1.6" }
+ * Also accepted: { "proxies": [...] }, ip/address/server for host, user/login, pass, protocol/kind/scheme,
+ * label/id for the name, expectedIp/expectedPublicIp/exitIp. Errors name the entry, never a password.
+ */
+export function parseProxyJson(text: string, defaultKind: ProxyKind = 'SOCKS5'): { proxies: ParsedProxy[]; errors: Array<{ line: number; error: string }> } {
+  let data: unknown;
+  const attempts = [text, `[${text.replace(/,\s*$/, '')}]`];
+  for (const a of attempts) {
+    try {
+      data = JSON.parse(a);
+      break;
+    } catch {
+      /* next form */
+    }
+  }
+  if (data === undefined) return { proxies: [], errors: [{ line: 1, error: 'not valid JSON (expected a list [ … ] or objects { … })' }] };
+  if (data && !Array.isArray(data) && typeof data === 'object' && Array.isArray((data as any).proxies)) data = (data as any).proxies;
+  const list = Array.isArray(data) ? data : [data];
+  const proxies: ParsedProxy[] = [];
+  const errors: Array<{ line: number; error: string }> = [];
+  list.forEach((raw, i) => {
+    const fail = (error: string) => errors.push({ line: i + 1, error: `entry ${i + 1}: ${error}` });
+    if (!raw || typeof raw !== 'object') return fail('not an object');
+    const o = raw as Record<string, unknown>;
+    const str = (...keys: string[]) => {
+      for (const k of keys) {
+        const v = o[k];
+        if (v !== undefined && v !== null && String(v).trim() !== '') return String(v).trim();
+      }
+      return null;
+    };
+    const type = (str('type', 'kind', 'protocol', 'scheme') ?? '').toLowerCase().replace(/:\/\/$/, '');
+    let kind = defaultKind;
+    if (['socks5', 'socks5h', 'socks'].includes(type)) kind = 'SOCKS5';
+    else if (['http', 'https'].includes(type)) kind = 'HTTP';
+    else if (type) return fail(`unsupported type "${type}" (SOCKS5 or HTTP)`);
+    const host = (str('host', 'ip', 'address', 'server', 'hostname') ?? '').toLowerCase();
+    if (!host || !HOST.test(host)) return fail('invalid host');
+    const port = portOf(str('port') ?? '');
+    if (!port) return fail('invalid port');
+    const expectedIp = str('expectedPublicIPv4', 'expectedPublicIp', 'expectedIp', 'expectedIP', 'exitIp', 'exitIP');
+    if (expectedIp && !IPV4.test(expectedIp) && !/^[0-9a-f:]+$/i.test(expectedIp)) return fail('invalid expected IP');
+    proxies.push({
+      kind,
+      host,
+      port,
+      username: str('username', 'user', 'login'),
+      password: str('password', 'pass'),
+      label: str('name', 'label', 'id')?.slice(0, 80) ?? null,
+      expectedIp: expectedIp ?? null,
+    });
+  });
+  return { proxies, errors };
+}
+
 export class ProxyPool {
   constructor(
     private readonly db: DB,
@@ -149,6 +216,7 @@ export class ProxyPool {
       label: r.label,
       status: r.status,
       exitIp: r.exit_ip,
+      expectedIp: r.expected_ip ?? null,
       latencyMs: r.latency_ms,
       lastCheckedAt: r.last_checked_at,
       lastError: r.last_error,
@@ -177,8 +245,8 @@ export class ProxyPool {
         continue;
       }
       const r = this.db
-        .prepare('INSERT INTO proxies (kind, host, port, username, label, created_at) VALUES (?, ?, ?, ?, ?, ?)')
-        .run(p.kind, p.host, p.port, p.username, opts.label?.trim() || null, new Date().toISOString());
+        .prepare('INSERT INTO proxies (kind, host, port, username, label, expected_ip, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+        .run(p.kind, p.host, p.port, p.username, p.label || opts.label?.trim() || null, p.expectedIp ?? null, new Date().toISOString());
       const id = Number(r.lastInsertRowid);
       if (p.password) {
         await this.vault.store.set(this.secretRef(id), JSON.stringify({ password: p.password } satisfies ProxySecret));
@@ -209,6 +277,13 @@ export class ProxyPool {
     const started = Date.now();
     try {
       const ip = await this.detector(this.asProfile(r), await this.secretOf(id), this.endpoints().slice(0, 2)); // a dead proxy fails fast
+      if (r.expected_ip && r.expected_ip !== ip) {
+        // works, but leaves through another IP than the list promised: never assigned automatically
+        this.db
+          .prepare("UPDATE proxies SET status = 'ERROR', exit_ip = ?, latency_ms = ?, last_error = ?, last_checked_at = ? WHERE id = ?")
+          .run(ip, Date.now() - started, `exit IP ${ip} instead of the expected ${r.expected_ip}`, new Date().toISOString(), id);
+        return this.list().find((p) => p.id === id)!;
+      }
       this.db
         .prepare("UPDATE proxies SET status = 'OK', exit_ip = ?, latency_ms = ?, last_error = NULL, last_checked_at = ? WHERE id = ?")
         .run(ip, Date.now() - started, new Date().toISOString(), id);
