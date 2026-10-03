@@ -22,7 +22,7 @@ export const RESTART_FOR_UPDATE = 75;
 export const UPDATE_ITEMS = [
   'dist', 'public', 'package.json', 'package-lock.json', 'build-info.json', 'config/app.example.yaml',
   // the window programs (desktop/loader.cjs and agent-app/loader.cjs start these after an update)
-  'desktop/main.cjs', 'desktop/package.json', 'desktop/build', 'agent-app',
+  'desktop/main.cjs', 'desktop/package.json', 'desktop/build', 'agent-app', 'agent-linux',
 ];
 
 type Log = (msg: string) => void;

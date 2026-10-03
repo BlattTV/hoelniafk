@@ -120,6 +120,8 @@ section{background:#0f172a;border:1px solid #1e293b;border-radius:16px;padding:1
 <body><main>${logo() ? `<img class="logo" src="${logo()}" alt="Hoelni AFK Client">` : ''}<h1>Hoelni herunterladen</h1><p class="sub">Einmal installieren – danach aktualisieren sich die Programme selbst.</p>
 ${card(items.suite, 'Hoelni Client Suite', 'Das Hauptprogramm für deinen PC: Identitäten, AFK-Sessions, Discord, Outlook und das Minecraft-Fenster.')}
 ${card(items.agent, 'Hoelni Agent', `Für PCs in anderen Haushalten: installieren, mit dem Hoelni-Konto anmelden, fertig. Startet mit Windows im Hintergrund.${publicUrl ? ` Verbindet sich mit <code>${esc(publicUrl)}</code>.` : ''}`)}
+${card(items['linux-x64'], 'Hoelni Agent für Linux (x64)', `Für Server, VMs und Mini-PCs ohne Bildschirm – läuft als Dienst und aktualisiert sich selbst:<br><code>curl -fL ${esc(publicUrl ? publicUrl.replace(/\/+$/, '') : '')}/download/latest/linux-x64 | tar xz &amp;&amp; sudo hoelni-agent/install.sh</code><br>danach <code>sudo hoelni-agent login --user NAME</code>.`)}
+${card(items['linux-arm64'], 'Hoelni Agent für Linux (ARM64, z. B. Raspberry Pi 4/5)', `Wie oben, für 64-Bit-ARM:<br><code>curl -fL ${esc(publicUrl ? publicUrl.replace(/\/+$/, '') : '')}/download/latest/linux-arm64 | tar xz &amp;&amp; sudo hoelni-agent/install.sh</code>`)}
 ${card(items['android-control'], 'Hoelni Control (Android)', `Steuert deine Suite vom Handy aus: Sessions starten und stoppen, Chat, Makros, Agents – mit Widgets für den Startbildschirm. Die Sessions laufen dabei weiter auf deinem PC. Ohne App geht es auch im Browser: <a href="/app/">${esc(publicUrl ? `${publicUrl.replace(/\/+$/, '')}/app` : '/app')}</a>.`)}
 ${card(items.android, 'Hoelni Agent für Android', 'Das Handy als Agent: APK auf dem Handy herunterladen und öffnen (Installation aus dieser Quelle einmal erlauben), mit dem Hoelni-Konto anmelden – die AFK-Sessions laufen dann im Hintergrund, auch bei ausgeschaltetem Bildschirm. Am besten am Ladekabel und im WLAN. Neue Versionen meldet die App selbst.')}
 <p class="meta">Windows zeigt bei nicht signierten Programmen evtl. „Der Computer wurde durch Windows geschützt“ → <b>Weitere Informationen</b> → <b>Trotzdem ausführen</b>.</p>
@@ -197,7 +199,15 @@ export function createBackendServer({ accounts, relay, config, version = '1.0.0'
         const items = Object.fromEntries(Object.entries(data?.items ?? {}).map(([k, v]) => [k, { file: v.file, version: v.version, build: v.build ?? null, size: v.size, sha256: v.sha256 }]));
         return send(res, 200, { items });
       }
-      if (req.method === 'GET' && /^\/download\/[A-Za-z0-9._-]{1,120}\.(exe|apk)$/.test(p)) {
+      // stable link for scripts: /download/latest/linux-x64 → the current file
+      if (req.method === 'GET' && /^\/download\/latest\/[a-z0-9-]{1,40}$/.test(p)) {
+        const data = config.updatesUpstream ? await upstreamJson(`${config.updatesUpstream.replace(/\/+$/, '')}/api/downloads`) : null;
+        const it = data?.items?.[p.slice('/download/latest/'.length)];
+        if (!it?.file) throw new HttpError(404, 'Not built yet');
+        res.writeHead(302, { Location: `/download/${encodeURIComponent(it.file)}`, 'Cache-Control': 'no-store' });
+        return res.end();
+      }
+      if (req.method === 'GET' && /^\/download\/[A-Za-z0-9._-]{1,120}\.(exe|apk|tar\.gz)$/.test(p)) {
         if (!config.updatesUpstream) throw new HttpError(404, 'Not found');
         return proxyUpdates(`${config.updatesUpstream.replace(/\/+$/, '')}/downloads/${p.slice('/download/'.length)}`, res);
       }

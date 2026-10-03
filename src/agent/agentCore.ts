@@ -33,6 +33,8 @@ export interface AgentConfig {
   allowPrivateTargets?: boolean;
   /** No Minecraft game on this device (Android app): "Open game" is answered with a clear message. */
   noGame?: boolean;
+  /** Why there is no game here (shown in the suite); default: a phone. */
+  noGameReason?: string;
 }
 
 export type AgentState = 'connecting' | 'online' | 'offline' | 'paused' | 'revoked';
@@ -304,7 +306,7 @@ export class AgentCore {
 
   private async openGame(m: Extract<MainToHost, { cmd: 'game.open' }>): Promise<void> {
     if (this.cfg.noGame) {
-      this.emitRuntime({ type: 'takeover', sessionId: m.sessionId, status: 'error', message: 'This agent is a phone – the game can only be opened on a PC' });
+      this.emitRuntime({ type: 'takeover', sessionId: m.sessionId, status: 'error', message: this.cfg.noGameReason ?? 'This agent is a phone – the game can only be opened on a PC' });
       return;
     }
     const game = this.gameRuntime();

@@ -698,6 +698,38 @@ den Schlüssel müsste jede Person die App erst deinstallieren und sich neu anme
   des Handys.
 - Protokoll: in der App unter *Protokoll & Einstellungen*.
 
+### D8. Agent für Linux (Server, VM, Raspberry Pi)
+
+Für Rechner ohne Bildschirm: Der Agent läuft als Dienst (systemd), startet mit dem System und
+aktualisiert sich selbst, wie unter Windows. Pakete gibt es für **x64** und **ARM64**
+(z. B. Raspberry Pi 4/5 mit 64-Bit-System). Sie entstehen bei jedem `hoelni-updates build` und
+liegen auf `https://afk.hoelni.de/download`.
+
+```bash
+curl -fL https://afk.hoelni.de/download/latest/linux-x64 | tar xz      # Raspberry Pi: linux-arm64
+sudo hoelni-agent/install.sh
+sudo hoelni-agent login --user DEIN-NAME --name "Server im Keller"
+```
+
+`install.sh` legt alles nach `/opt/hoelni-agent`, die Daten nach `/var/lib/hoelni-agent`, einen
+Benutzer `hoelni-agent` und den Dienst `hoelni-agent.service` an. Danach erscheint der Rechner in
+der Suite unter **Agents**; bei einer Identität „Läuft auf“ diesen Agent wählen.
+
+| Befehl | Wirkung |
+|---|---|
+| `sudo hoelni-agent status` | angemeldet? an welchem Backend? |
+| `sudo hoelni-agent log` | Protokoll live (`journalctl -u hoelni-agent`) |
+| `sudo hoelni-agent restart` | Dienst neu starten |
+| `sudo hoelni-agent logout` | abmelden |
+| `sudo /opt/hoelni-agent/agent-linux/uninstall.sh [--purge]` | entfernen (`--purge`: auch Daten) |
+
+Ohne root/systemd (z. B. in einem Container): entpacken, dann
+`./hoelni-agent/agent-linux/hoelni-agent login --user NAME` und `… run` im Vordergrund.
+
+Hinweise: Die Anmeldung liegt verschlüsselt im Datenordner, der Schlüssel daneben in `vault-key`
+(nur für den Dienst-Benutzer lesbar). „Spiel öffnen“ geht auf einem Server ohne Desktop nicht –
+das macht man am PC. Updates kommen automatisch oder sofort über **Agents → Jetzt aktualisieren**.
+
 ---
 
 ## Teil E – Neue Identität in drei Schritten (Microsoft + Discord)

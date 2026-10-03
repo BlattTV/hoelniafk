@@ -165,6 +165,8 @@ switch (cmd) {
       .then((r) => {
         if (r.android?.file) console.log(`Android app ready: ${r.android.file}`);
         else if (r.android?.error) console.log(`Android app: ${r.android.error}`);
+        if (r.linux?.file) console.log(`Linux agent ready: ${r.linux.file}`);
+        else if (r.linux?.error) console.log(`Linux agent: ${r.linux.error}`);
         if (r.error) die(r.error);
         console.log(`installers ready: ${(r.files ?? []).join(', ') || 'unchanged'}`);
       })

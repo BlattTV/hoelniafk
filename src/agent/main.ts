@@ -12,6 +12,7 @@
  * Data: HOELNI_AGENT_DIR, default %APPDATA%\Hoelni Agent (Windows) or ~/.hoelni-agent.
  * The backend address is https://afk.hoelni.de unless an admin of the current backend changed it.
  */
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -23,6 +24,18 @@ import { appRoot } from '../ops/updater.js';
 import { RESTART_FOR_UPDATE } from '../ops/updateApply.js';
 
 const dataDir = process.env.HOELNI_AGENT_DIR ?? (process.platform === 'win32' ? path.join(process.env.APPDATA ?? os.homedir(), 'Hoelni Agent') : path.join(os.homedir(), '.hoelni-agent'));
+// Linux / other systems without DPAPI: the vault key is a random file next to the data, readable only by
+// the agent's user (like the Android app's keystore key) – unless a passphrase is given.
+if (process.platform !== 'win32' && !process.env.HOELNI_VAULT_PASSPHRASE) {
+  const keyFile = path.join(dataDir, 'vault-key');
+  try {
+    fs.mkdirSync(dataDir, { recursive: true, mode: 0o700 });
+    if (!fs.existsSync(keyFile)) fs.writeFileSync(keyFile, crypto.randomBytes(32).toString('base64url'), { mode: 0o600, flag: 'wx' });
+    process.env.HOELNI_VAULT_PASSPHRASE = fs.readFileSync(keyFile, 'utf8').trim();
+  } catch (e) {
+    console.error(`hoelni-agent: cannot use the vault key file ${keyFile}: ${(e as Error).message}`);
+  }
+}
 const store = new AgentStore(dataDir);
 const argv = process.argv.slice(2);
 const flag = (n: string): string | undefined => {
@@ -54,11 +67,40 @@ async function attempt<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
+/** Password typed in a terminal without echo (Linux / macOS console). */
+function askHidden(question: string): Promise<string> {
+  return new Promise((resolve) => {
+    const stdin = process.stdin;
+    process.stdout.write(question);
+    let value = '';
+    stdin.setRawMode?.(true);
+    stdin.resume();
+    stdin.setEncoding('utf8');
+    const onData = (ch: string) => {
+      for (const c of ch) {
+        if (c === '\r' || c === '\n' || c === '\u0004') {
+          stdin.setRawMode?.(false);
+          stdin.pause();
+          stdin.removeListener('data', onData);
+          process.stdout.write('\n');
+          return resolve(value);
+        }
+        if (c === '\u0003') process.exit(130);
+        if (c === '\u007f' || c === '\b') value = value.slice(0, -1);
+        else value += c;
+      }
+    };
+    stdin.on('data', onData);
+  });
+}
+
 async function login(): Promise<void> {
+  let password = flag('password') ?? process.env.HOELNI_AGENT_PASSWORD ?? '';
+  if (!password && !json && process.stdin.isTTY) password = await askHidden(`Password for ${flag('user') ?? ''}: `);
   const r = await attempt(() =>
     store.login({
       user: flag('user') ?? '',
-      password: flag('password') ?? process.env.HOELNI_AGENT_PASSWORD ?? '',
+      password,
       name: flag('name'),
       trustCert: flag('trust-cert'),
       backend: process.env.HOELNI_AGENT_BACKEND, // development / tests
@@ -91,7 +133,9 @@ async function run(): Promise<void> {
     else if (!json) console.log(`${new Date().toISOString()} ${st.state}${st.managerOnline ? '' : ' (manager offline)'} – ${st.sessions.length} session(s)${st.lastError ? ` – ${st.lastError}` : ''}`);
   };
   const agent = new AgentCore(
-    { backendUrl: s.backendUrl, token: token!, agentId: s.deviceId!, name: s.name ?? os.hostname(), transport: await store.transport(s), dataDir, version: agentVersion(), allowPrivateTargets: process.env.HOELNI_AGENT_ALLOW_LAN === '1' },
+    { backendUrl: s.backendUrl, token: token!, agentId: s.deviceId!, name: s.name ?? os.hostname(), transport: await store.transport(s), dataDir, version: agentVersion(), allowPrivateTargets: process.env.HOELNI_AGENT_ALLOW_LAN === '1',
+      // a Linux server without a desktop has no game window – "Open game" says so instead of failing
+      ...(process.platform === 'linux' && !process.env.DISPLAY && !process.env.WAYLAND_DISPLAY ? { noGame: true, noGameReason: 'This agent runs on a Linux server without a desktop – open the game on a PC' } : {}) },
     report,
   );
   agent.start();

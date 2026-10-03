@@ -135,7 +135,7 @@ export class Store {
     fs.mkdirSync(dir, { recursive: true });
     const items = { ...this.downloads.items };
     for (const e of entries) {
-      if (!SAFE_FILE.test(e.file) || !/\.(exe|apk)$/i.test(e.file)) throw new Error(`Bad installer name ${e.file}`);
+      if (!SAFE_FILE.test(e.file) || !/\.(exe|apk|tar\.gz)$/i.test(e.file)) throw new Error(`Bad installer name ${e.file}`);
       fs.copyFileSync(e.path, path.join(dir, `${e.file}.tmp`));
       fs.renameSync(path.join(dir, `${e.file}.tmp`), path.join(dir, e.file));
       items[e.kind] = { kind: e.kind, file: e.file, size: e.size, sha256: e.sha256, version: e.version, build: meta.build ?? null, builtAt: new Date().toISOString() };

@@ -22,6 +22,8 @@ const BUNDLE_FILES = [
   'desktop/main.cjs', 'desktop/package.json', 'desktop/build/icon.png', 'desktop/build/tray.png', 'desktop/build/logo.png', 'desktop/build/icon.ico',
   'agent-app/main.cjs', 'agent-app/preload.cjs', 'agent-app/ui.html', 'agent-app/ui.js', 'agent-app/logo.png', 'agent-app/mark.png', 'agent-app/package.json',
   'agent-app/build/icon.png', 'agent-app/build/tray.png', 'agent-app/build/icon.ico',
+  // Linux agent (service supervisor, command line, install scripts)
+  'agent-linux/supervisor.cjs', 'agent-linux/hoelni-agent', 'agent-linux/install.sh', 'agent-linux/uninstall.sh',
 ];
 
 /** Files that make a new installer necessary (Electron version, starter, build script, icons). */
@@ -163,11 +165,13 @@ export class Builder {
     if (this.opts.keep) this.store.prune(this.opts.keep);
     let installers = null;
     let android = null;
+    let linux = null;
     if (this.opts.installers !== false) {
       installers = await this.buildInstallersLocked({ build: manifest.build });
       android = await this.buildAndroidLocked({ build: manifest.build });
+      linux = await this.buildLinuxLocked({ build: manifest.build });
     }
-    return { skipped: false, build: manifest.build, version: manifest.version, commit, installers, android };
+    return { skipped: false, build: manifest.build, version: manifest.version, commit, installers, android, linux };
   }
 
   /** Inputs of the installers: they only need a rebuild when these change (the programs update themselves). */
@@ -261,6 +265,30 @@ export class Builder {
     }
   }
 
+  /**
+   * Linux agent (tar.gz for x64 and arm64, offered at <backend>/download): Node.js + the agent + a systemd
+   * service. Built with every release – it carries the agent; afterwards it updates itself. Never blocks a release.
+   */
+  async buildLinuxLocked({ build = null } = {}) {
+    const workDir = this.opts.workDir;
+    const out = fs.mkdtempSync(path.join(os.tmpdir(), 'hoelni-linux-'));
+    try {
+      this.log('building the Linux agent (x64, arm64)');
+      const text = run(process.execPath, [path.join(workDir, 'scripts', 'build-linux-agent.mjs'), '--skip-build', '--out', out, '--cache', path.join(this.store.dataDir, 'linux', 'cache'), ...(build ? ['--build', String(build)] : [])], workDir);
+      const result = JSON.parse(text.trim().split('\n').pop());
+      this.store.setDownloads(result.items, { build });
+      const files = result.items.map((i) => i.file).join(', ');
+      this.log(`Linux agent ready: ${files}`);
+      return { skipped: false, file: files };
+    } catch (e) {
+      const error = String(e.stderr || e.message).slice(-1500);
+      this.log(`Linux agent build failed (the release itself is published): ${error}`);
+      return { skipped: false, error };
+    } finally {
+      fs.rmSync(out, { recursive: true, force: true });
+    }
+  }
+
   /** Rebuilds the installers (and the Android app) from the last built commit (hoelni-updates build-installers). */
   async buildInstallers({ force = true } = {}) {
     const unlock = this.lock();
@@ -269,7 +297,8 @@ export class Builder {
       const build = this.store.state.nextBuild - 1;
       const installers = await this.buildInstallersLocked({ build, force });
       const android = await this.buildAndroidLocked({ build });
-      return { ...installers, android };
+      const linux = await this.buildLinuxLocked({ build });
+      return { ...installers, android, linux };
     } finally {
       unlock();
     }

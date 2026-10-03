@@ -94,7 +94,7 @@ export function createServer({ store, builder, publicKey, adminTokenHash }) {
         const file = store.downloadPath(decodeURIComponent(m[1]));
         if (!file) return send(res, 404, { error: 'Not found' });
         const st = fs.statSync(file);
-        const type = /\.apk$/i.test(file) ? 'application/vnd.android.package-archive' : 'application/octet-stream'; // phones offer to install it
+        const type = /\.apk$/i.test(file) ? 'application/vnd.android.package-archive' : /\.tar\.gz$/i.test(file) ? 'application/gzip' : 'application/octet-stream'; // phones offer to install it
         res.writeHead(200, { 'Content-Type': type, 'Content-Length': st.size, 'Content-Disposition': `attachment; filename="${m[1]}"`, 'Cache-Control': 'no-cache' });
         fs.createReadStream(file).pipe(res);
         return;

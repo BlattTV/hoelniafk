@@ -1,0 +1,29 @@
+#!/bin/sh
+# Hoelni Agent for Linux – command line.
+#   hoelni-agent login --user NAME [--name "Server im Keller"]   sign in (asks for the password)
+#   hoelni-agent status | logout | set-proxy socks5://… | change-backend …
+#   hoelni-agent run          run in the foreground (without the service)
+#   updates: automatic, or in the suite under Agents → "Update now"
+#   hoelni-agent log          follow the service log
+# Installed (install.sh): data in /var/lib/hoelni-agent, the service runs as user "hoelni-agent".
+# Unpacked only: data in ~/.hoelni-agent.
+set -e
+DIR=$(dirname "$(dirname "$(readlink -f "$0")")")   # the agent folder (this script is in agent-linux/)
+NODE="$DIR/node/bin/node"
+[ -x "$NODE" ] || NODE=node
+[ -f /etc/hoelni-agent/env ] && [ "$DIR" = /opt/hoelni-agent ] && . /etc/hoelni-agent/env && export HOELNI_AGENT_DIR
+
+case "$1" in
+  log) exec journalctl -u hoelni-agent -f -n 100 ;;
+  restart) exec systemctl restart hoelni-agent ;;
+esac
+
+# installed: commands run as the service user, so the files stay its own
+if [ "$(id -u)" = 0 ] && [ "$DIR" = /opt/hoelni-agent ] && id hoelni-agent >/dev/null 2>&1; then
+  exec runuser -u hoelni-agent -- env HOELNI_AGENT_DIR="$HOELNI_AGENT_DIR" "$NODE" "$DIR/dist/agent/main.js" "$@"
+fi
+if [ "$DIR" = /opt/hoelni-agent ] && [ "$(id -un)" != hoelni-agent ]; then
+  echo "hoelni-agent: please run with sudo (the agent's files belong to the service user)" >&2
+  exit 1
+fi
+exec "$NODE" "$DIR/dist/agent/main.js" "$@"

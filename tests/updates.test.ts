@@ -361,6 +361,11 @@ describe('updates through the backend (https://afk.hoelni.de/updates)', () => {
     fs.writeFileSync(apk, bytes.subarray(0, 1000));
     store.setDownloads([{ kind: 'android', file: 'Hoelni-Agent-Android-9.9.9-8.apk', path: apk, size: 1000, sha256: 'a'.repeat(64), version: '9.9.9-8' }], { build: 8 });
     expect(store.downloads.items.agent.file).toBe('Hoelni-Agent-Setup-9.9.9.exe'); // still offered
+    // the Linux agent (tar.gz per architecture)
+    const tgz = path.join(tmp, 'Hoelni-Agent-Linux-x64-9.9.9-8.tar.gz');
+    fs.writeFileSync(tgz, bytes.subarray(0, 700));
+    store.setDownloads([{ kind: 'linux-x64', file: 'Hoelni-Agent-Linux-x64-9.9.9-8.tar.gz', path: tgz, size: 700, sha256: 'b'.repeat(64), version: '9.9.9' }], { build: 8 });
+    expect((await fetch(`${url}/downloads/Hoelni-Agent-Linux-x64-9.9.9-8.tar.gz`)).headers.get('content-type')).toBe('application/gzip');
     expect((await fetch(`${url}/downloads/Hoelni-Agent-Android-9.9.9-8.apk`)).headers.get('content-type')).toBe('application/vnd.android.package-archive');
     // update server: list + file
     const list = await (await fetch(`${url}/api/downloads`)).json();
@@ -392,6 +397,16 @@ describe('updates through the backend (https://afk.hoelni.de/updates)', () => {
       const apkDl = await fetch(`${b}/download/Hoelni-Agent-Android-9.9.9-8.apk`);
       expect(apkDl.headers.get('content-type')).toBe('application/vnd.android.package-archive');
       expect((await apkDl.arrayBuffer()).byteLength).toBe(1000);
+      // Linux: on the page with the one-line install, a stable "latest" link, the file itself
+      expect(html).toContain('Hoelni Agent für Linux (x64)');
+      expect(html).toContain('curl -fL https://afk.example.org/download/latest/linux-x64 | tar xz');
+      const latest = await fetch(`${b}/download/latest/linux-x64`, { redirect: 'manual' });
+      expect(latest.status).toBe(302);
+      expect(latest.headers.get('location')).toBe('/download/Hoelni-Agent-Linux-x64-9.9.9-8.tar.gz');
+      expect((await fetch(`${b}/download/latest/linux-arm64`)).status).toBe(404); // not built
+      const tgzDl = await fetch(`${b}/download/latest/linux-x64`);
+      expect(tgzDl.headers.get('content-type')).toBe('application/gzip');
+      expect((await tgzDl.arrayBuffer()).byteLength).toBe(700);
       const json = await (await fetch(`${b}/download.json`)).json();
       expect(json.items.android).toEqual({ file: 'Hoelni-Agent-Android-9.9.9-8.apk', version: '9.9.9-8', build: 8, size: 1000, sha256: 'a'.repeat(64) });
     } finally {
