@@ -82,10 +82,25 @@ export function describeSchedule(s: WeekSchedule | null | undefined): string {
  * sometimes a short break, at random hours – and the whole schedule a random minute offset. Called once
  * per session, so every account gets different times.
  */
-export function generateRestSchedule(opts: { onlineMin: number; onlineMax: number }, rnd: () => number = Math.random): WeekSchedule {
+/**
+ * Rest times of day for n accounts, spread over the whole day (in random order), so their rest
+ * blocks do not fall together: with 4 accounts e.g. around 1, 7, 13 and 19 o'clock.
+ */
+export function spreadRestTimes(n: number, rnd: () => number = Math.random): number[] {
+  const out = Array.from({ length: n }, (_, i) => Math.floor(((i + rnd()) * 24) / n) % 24);
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(rnd() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}
+
+export function generateRestSchedule(opts: { onlineMin: number; onlineMax: number; restAt?: number }, rnd: () => number = Math.random): WeekSchedule {
   const lo = Math.max(1, Math.min(23, Math.round(opts.onlineMin)));
   const hi = Math.max(lo, Math.min(23, Math.round(opts.onlineMax)));
   const int = (a: number, b: number) => a + Math.floor(rnd() * (b - a + 1));
+  // the account's own rest time of day (e.g. 22–3 for one, 8–11 for another); varies by up to an hour per day
+  const restAt = opts.restAt === undefined ? int(0, 23) : ((Math.round(opts.restAt) % 24) + 24) % 24;
   const hours: number[] = [];
   for (let d = 0; d < 7; d++) {
     const online = int(lo, hi);
@@ -93,7 +108,7 @@ export function generateRestSchedule(opts: { onlineMin: number; onlineMax: numbe
     const extra = rest >= 4 && rnd() < 0.5 ? int(1, Math.min(2, rest - 2)) : 0;
     const main = rest - extra;
     let mask = ALL_HOURS;
-    const start = int(0, 23);
+    const start = (restAt - Math.floor(main / 2) + int(-1, 1) + 48) % 24;
     for (let h = 0; h < main; h++) mask &= ~(1 << ((start + h) % 24));
     if (extra) {
       // the short break somewhere in the online part

@@ -28,7 +28,7 @@ export default defineConfig({
     url: `http://127.0.0.1:${PORT}/api/status`,
     reuseExistingServer: false,
     timeout: 120_000,
-    env: { HOELNI_PORT: String(PORT), HOELNI_DEMO_MC_PORT: String(PORT + 18200), HOELNI_DEMO_IDENTITIES: '5', HOELNI_DEMO_FAKE_GAME: '1', HOELNI_IP_ENDPOINTS: 'http://127.0.0.1:9/ip', HOELNI_START_SPACING: '0' },
+    env: { HOELNI_PORT: String(PORT), HOELNI_DEMO_MC_PORT: String(PORT + 18200), HOELNI_DEMO_IDENTITIES: '5', HOELNI_DEMO_FAKE_GAME: '1', HOELNI_IP_ENDPOINTS: 'http://127.0.0.1:9/ip', HOELNI_START_SPACING: '0', HOELNI_REJOIN_SPACING: '0' },
     ignoreHTTPSErrors: true,
   },
 });

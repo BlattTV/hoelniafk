@@ -116,4 +116,20 @@ describe('rest times (online limit per session)', () => {
     expect(nextScheduleChange(s, at(9, 0))!.getTime()).toBe(at(10, 20).getTime());
     expect(nextScheduleChange(s, at(10, 30))!.getTime()).toBe(at(11, 20).getTime());
   });
+
+  it('gives every account its own rest time of day, spread over the day', async () => {
+    const { generateRestSchedule, spreadRestTimes } = await import('../src/core/schedule.js');
+    const at = spreadRestTimes(4);
+    expect([...at].sort((a, b) => a - b).map((h) => Math.floor(h / 6))).toEqual([0, 1, 2, 3]); // one per quarter of the day
+    // account A rests around 0 o'clock (3 h rest → no extra break), account B around 9 – every day, give or take an hour
+    const off = (mask: number) => Array.from({ length: 24 }, (_, h) => h).filter((h) => !((mask >> h) & 1));
+    const a = generateRestSchedule({ onlineMin: 21, onlineMax: 21, restAt: 0 });
+    const b = generateRestSchedule({ onlineMin: 21, onlineMax: 21, restAt: 9 });
+    for (let d = 0; d < 7; d++) {
+      expect(off(a.hours[d]).some((h) => h === 23 || h === 0 || h === 1)).toBe(true);
+      expect(off(a.hours[d]).some((h) => h >= 8 && h <= 10)).toBe(false);
+      expect(off(b.hours[d]).some((h) => h >= 8 && h <= 10)).toBe(true);
+      expect(off(b.hours[d]).some((h) => h === 23 || h === 0 || h === 1)).toBe(false);
+    }
+  });
 });

@@ -7,7 +7,7 @@ import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest }
 import fastifyStatic from '@fastify/static';
 import type { Suite } from '../app.js';
 import { SuiteError, ValidationError } from '../core/errors.js';
-import { describeSchedule, generateRestSchedule, normalizeSchedule } from '../core/schedule.js';
+import { describeSchedule, generateRestSchedule, normalizeSchedule, spreadRestTimes } from '../core/schedule.js';
 import { createLogger, onLogEntry, recentLogs, type Level } from '../core/logger.js';
 import type { LinkState, MailAccountKind } from '../core/types.js';
 import { DISCORD_APP_URL, isDiscordUrl, type DiscordTarget } from '../discord/discordService.js';
@@ -349,7 +349,11 @@ export async function buildServer(suite: Suite, opts: ServerOptions = {}): Promi
   app.post('/api/updates/install', async () => suite.updater.install());
   app.post('/api/updates/rollback', async () => suite.updater.rollback());
 
-  app.get('/api/settings', async () => ({ automation: suite.config.automation, startSpacing: suite.sessions.startSpacing() }));
+  app.get('/api/settings', async () => ({ automation: suite.config.automation, startSpacing: suite.sessions.startSpacing(), rejoinSpacing: suite.sessions.rejoinSpacing() }));
+  app.put('/api/settings/rejoin-spacing', async (req: Req) => {
+    const b = bodyOf(req);
+    return suite.sessions.setRejoinSpacing(Number(b.min), Number(b.max));
+  });
   app.put('/api/settings/start-spacing', async (req: Req) => {
     const b = bodyOf(req);
     return suite.sessions.setStartSpacing(Number(b.min), Number(b.max));
@@ -973,7 +977,8 @@ export async function buildServer(suite: Suite, opts: ServerOptions = {}): Promi
     const onlineMin = Number(b.onlineMin);
     const onlineMax = Number(b.onlineMax);
     if (!(onlineMin >= 1 && onlineMax <= 23 && onlineMin <= onlineMax)) throw new ValidationError('online hours per day: 1–23, min ≤ max');
-    for (const t of targets) applySchedule(num(t.identityId), num(t.serverId), generateRestSchedule({ onlineMin, onlineMax }));
+    const restAt = spreadRestTimes(targets.length);
+    targets.forEach((t: any, i: number) => applySchedule(num(t.identityId), num(t.serverId), generateRestSchedule({ onlineMin, onlineMax, restAt: restAt[i] })));
     void suite.sessions.reconcile();
     return { updated: targets.length };
   });

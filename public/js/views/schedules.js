@@ -111,7 +111,7 @@ export async function schedulesView(root) {
         const hi = h('input', { type: 'number', min: 1, max: 23, value: restMax, style: { width: '70px' }, onchange: (e) => (restMax = Number(e.target.value)) });
         return h('div', { class: 'rest-box' },
           h('h3', null, 'Rest times'),
-          h('p', { class: 'muted' }, 'For servers whose rules do not allow 24/7: every selected session gets its own week – a different number of online hours per day, a longer rest and sometimes a short break at random hours, shifted by a random minute. No two accounts get the same times, and they come and go one after another (session start spacing).'),
+          h('p', { class: 'muted' }, 'For servers whose rules do not allow 24/7: every selected session gets its own rest time of day – spread over the whole day, e.g. one account rests around 22–3, the next around 8–11. Every day the online hours and the exact rest vary a little, sometimes with a short extra break, shifted by a random minute. The accounts never come and go together (session start spacing).'),
           h('div', { class: 'row', style: { gap: '8px', alignItems: 'center', flexWrap: 'wrap' } },
             h('span', null, 'Online per day'), lo, h('span', null, 'to'), hi, h('span', null, 'hours')),
           h('div', { class: 'form-actions' },

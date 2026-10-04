@@ -72,6 +72,8 @@ export class SessionRecord {
   reconnects = 0;
   consecutiveFailures = 0;
   nextAttemptAt: number | null = null;
+  /** Waiting for its own rejoin time after a server restart – an agent coming back does not cut it short. */
+  rejoinWait = false;
   onlineSince: number | null = null;
   networkProfileId: number | null = null;
   /** Runtime that currently owns the connection. */
@@ -135,6 +137,8 @@ export class SessionManager {
   /** The same for leaving: online sessions set offline go one after another. */
   private nextAutoStopAt = 0;
   private stopSpacingTimer: NodeJS.Timeout | null = null;
+  /** Server restart waves per server: the kicked accounts come back spread over minutes (see rejoinSpacing()). */
+  private readonly waves = new Map<number, { startAt: number; lastAt: number; active: boolean; members: string[]; slots: number[] }>();
   private chatQueue: Array<{ ts: string; sessionId: string; identityId: number; serverId: number; text: string }> = [];
   private chatTimer: NodeJS.Timeout | null = null;
   private stopped = false;
@@ -185,6 +189,79 @@ export class SessionManager {
     this.repo.setSetting('sessions.startSpacing', `${lo}-${hi}`);
     this.nextAutoStartAt = Math.min(this.nextAutoStartAt, Date.now() + hi * 1000);
     return { min: lo, max: hi };
+  }
+
+  /**
+   * When a server restarts, every account is thrown out at once. They come back spread over this window in
+   * minutes (random, never two at the same moment) instead of all with the same reconnect delay. Setting
+   * sessions.rejoinSpacing ("min-max" minutes, 0 = off), HOELNI_REJOIN_SPACING overrides it (tests).
+   */
+  rejoinSpacing(): { min: number; max: number } {
+    const raw = process.env.HOELNI_REJOIN_SPACING ?? this.repo.getSetting('sessions.rejoinSpacing') ?? '4-15';
+    const [a, b] = String(raw).split('-').map((x) => Math.max(0, Math.min(120, Number(x) || 0)));
+    return { min: a, max: b === undefined ? a : Math.max(a, b) };
+  }
+
+  setRejoinSpacing(min: number, max: number): { min: number; max: number } {
+    const lo = Math.max(0, Math.min(120, Math.round(min) || 0));
+    const hi = Math.max(lo, Math.min(120, Math.round(max) || 0));
+    this.repo.setSetting('sessions.rejoinSpacing', `${lo}-${hi}`);
+    return { min: lo, max: hi };
+  }
+
+  /**
+   * A session that was online lost its connection. If the server restarts (kick text says so, or a second
+   * account on the same server dropped within two minutes) it gets its own rejoin time in the window;
+   * returns that time, or null for the normal reconnect delay.
+   */
+  private rejoinSlot(r: SessionRecord, label: string): number | null {
+    const gap = this.rejoinSpacing();
+    if (gap.max <= 0) return null;
+    const now = Date.now();
+    let w = this.waves.get(r.serverId);
+    if (!w || now - w.lastAt > 120_000) {
+      w = { startAt: now, lastAt: now, active: false, members: [], slots: [] };
+      this.waves.set(r.serverId, w);
+    }
+    w.lastAt = now;
+    if (!w.members.includes(r.id)) w.members.push(r.id);
+    if (!w.active && (label === 'server restart' || w.members.length >= 2)) {
+      w.active = true;
+      // accounts that dropped earlier in this wave get their slot now (unless they are already back)
+      for (const id of w.members) {
+        if (id === r.id) continue;
+        const o = this.records.get(id);
+        if (!o || o.state !== 'RECONNECTING') continue;
+        this.scheduleRejoin(o, this.pickSlot(w, gap));
+      }
+    }
+    return w.active ? this.pickSlot(w, gap) : null;
+  }
+
+  /** Random time in the window, as far as possible from the slots already taken. */
+  private pickSlot(w: { startAt: number; slots: number[] }, gap: { min: number; max: number }): number {
+    const lo = w.startAt + gap.min * 60_000;
+    const span = (gap.max - gap.min) * 60_000;
+    let best = lo + Math.random() * span;
+    let bestDist = -1;
+    for (let i = 0; i < 16; i++) {
+      const c = lo + Math.random() * span;
+      const d = w.slots.length ? Math.min(...w.slots.map((x) => Math.abs(x - c))) : Infinity;
+      if (d > bestDist) [best, bestDist] = [c, d];
+      if (d === Infinity) break;
+    }
+    const at = Math.max(Date.now(), Math.round(best));
+    w.slots.push(at);
+    return at;
+  }
+
+  private scheduleRejoin(r: SessionRecord, at: number): void {
+    r.nextAttemptAt = at;
+    r.rejoinWait = true;
+    const hhmm = new Date(at).toTimeString().slice(0, 5);
+    this.repo.addSessionEvent(r.identityId, r.serverId, r.id, 'rejoin-wait', `Server restart – rejoins at ${hhmm}`);
+    this.setState(r, 'RECONNECTING', `Server restart – rejoins at ${hhmm}`);
+    setTimeout(() => void this.reconcile(), Math.max(0, at - Date.now()) + 50).unref?.();
   }
 
   /** Enables "Open game" with the real Minecraft client. */
@@ -320,6 +397,7 @@ export class SessionManager {
     for (const r of this.records.values()) {
       if (r.state !== 'RECONNECTING') continue;
       if (this.agentFor(r.identityId, r.serverId) !== agentId) continue;
+      if (r.rejoinWait && r.nextAttemptAt && r.nextAttemptAt > Date.now()) continue;
       r.nextAttemptAt = Date.now();
       r.consecutiveFailures = 0;
     }
@@ -889,6 +967,7 @@ export class SessionManager {
         if (r.state === 'STOPPING') return;
         if (e.phase === 'ONLINE') {
           r.onlineSince = Date.now();
+          r.rejoinWait = false;
           r.lastFailLogged = null;
           r.releaseStart?.();
           this.setState(r, 'ONLINE', null);
@@ -1040,6 +1119,7 @@ export class SessionManager {
       return;
     }
     const policy = this.getRules().reconnect;
+    const wasOnline = r.onlineSince !== null;
     const wasStable = r.onlineSince !== null && Date.now() - r.onlineSince > policy.stableAfterSec * 1000;
     r.consecutiveFailures = wasStable ? 1 : r.consecutiveFailures + 1;
     r.onlineSince = null;
@@ -1065,6 +1145,12 @@ export class SessionManager {
           r.nextAttemptAt = Date.now();
           void this.reconcile();
         });
+      return;
+    }
+    // the server dropped an online account (not our runtime or agent): maybe a server restart wave
+    const slot = wasOnline && r.takeover === 'none' && !['runtimeCrash', 'startFailed', 'refused'].includes(e.reason) ? this.rejoinSlot(r, decision.label) : null;
+    if (slot !== null) {
+      this.scheduleRejoin(r, slot);
       return;
     }
     r.nextAttemptAt = Date.now() + decision.delaySec * 1000;

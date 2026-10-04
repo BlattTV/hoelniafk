@@ -56,12 +56,20 @@ export async function settingsView(root) {
             const gap = settings.startSpacing ?? { min: 8, max: 25 };
             const min = h('input', { type: 'number', min: 0, max: 600, value: gap.min, style: { width: '90px' } });
             const max = h('input', { type: 'number', min: 0, max: 600, value: gap.max, style: { width: '90px' } });
+            const rj = settings.rejoinSpacing ?? { min: 4, max: 15 };
+            const rmin = h('input', { type: 'number', min: 0, max: 120, value: rj.min, style: { width: '90px' } });
+            const rmax = h('input', { type: 'number', min: 0, max: 120, value: rj.max, style: { width: '90px' } });
             return h('section', { class: 'card' }, h('h2', null, 'Session starts'),
               h('p', { class: 'muted' }, 'After a restart, an update or "all online" the accounts join one after another with a random gap – not all at the same second; "all offline" lets them leave the same way. Clicking "Start" or "Stop" on a single session is never delayed. 0 = all at once.'),
               h('div', { class: 'row', style: { gap: '10px', alignItems: 'center', flexWrap: 'wrap' } },
                 h('span', null, 'Gap between'), min, h('span', null, 'and'), max, h('span', null, 'seconds'),
                 h('button', { class: 'primary', onclick: () => guard(async () => { const r = await api.put('/api/settings/start-spacing', { min: Number(min.value), max: Number(max.value) }); min.value = r.min; max.value = r.max; }, 'Saved') }, 'Save')),
-              h('p', { class: 'muted' }, `${t('Example')}: ${t('16 accounts at 8–25 s are all online after about 4–5 minutes.')}`));
+              h('p', { class: 'muted' }, `${t('Example')}: ${t('16 accounts at 8–25 s are all online after about 4–5 minutes.')}`),
+              h('h3', null, 'After a server restart'),
+              h('p', { class: 'muted' }, 'When a Minecraft server restarts, all accounts on it are thrown out at once. Each one then rejoins at its own random time in this window, never two at the same moment. 0 = normal reconnect.'),
+              h('div', { class: 'row', style: { gap: '10px', alignItems: 'center', flexWrap: 'wrap' } },
+                h('span', null, 'Rejoin after'), rmin, h('span', null, 'to'), rmax, h('span', null, 'minutes'),
+                h('button', { class: 'primary', onclick: () => guard(async () => { const r = await api.put('/api/settings/rejoin-spacing', { min: Number(rmin.value), max: Number(rmax.value) }); rmin.value = r.min; rmax.value = r.max; }, 'Saved') }, 'Save')));
           })(),
           h('section', { class: 'card' }, h('h2', null, 'Automation / Monitoring'),
             h('div', { class: 'kv' },
