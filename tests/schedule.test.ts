@@ -91,3 +91,29 @@ describe('reconciler with schedules', () => {
     await t.suite.shutdown();
   });
 });
+
+describe('rest times (online limit per session)', () => {
+  it('generates a different week per session within the online hours, shifted by a minute offset', async () => {
+    const { generateRestSchedule, scheduleActive, nextScheduleChange } = await import('../src/core/schedule.js');
+    const bits = (m: number) => m.toString(2).split('').filter((b) => b === '1').length;
+    const a = generateRestSchedule({ onlineMin: 14, onlineMax: 18 });
+    const b = generateRestSchedule({ onlineMin: 14, onlineMax: 18 });
+    for (const s of [a, b]) {
+      expect(s.enabled).toBe(true);
+      expect(s.hours).toHaveLength(7);
+      for (const m of s.hours) expect(bits(m)).toBeGreaterThanOrEqual(14), expect(bits(m)).toBeLessThanOrEqual(18);
+      expect(s.offsetMin).toBeGreaterThanOrEqual(0);
+      expect(s.offsetMin).toBeLessThanOrEqual(59);
+    }
+    expect(JSON.stringify(a)).not.toBe(JSON.stringify(b)); // every account its own times
+    // the offset shifts the windows: online 10:00–10:59 with offset 20 → 10:20–11:19
+    const s = { enabled: true, hours: Array(7).fill(1 << 10), offsetMin: 20 };
+    const at = (h: number, m: number) => new Date(2026, 9, 5, h, m); // a Monday
+    expect(scheduleActive(s, at(10, 10))).toBe(false);
+    expect(scheduleActive(s, at(10, 25))).toBe(true);
+    expect(scheduleActive(s, at(11, 15))).toBe(true);
+    expect(scheduleActive(s, at(11, 25))).toBe(false);
+    expect(nextScheduleChange(s, at(9, 0))!.getTime()).toBe(at(10, 20).getTime());
+    expect(nextScheduleChange(s, at(10, 30))!.getTime()).toBe(at(11, 20).getTime());
+  });
+});

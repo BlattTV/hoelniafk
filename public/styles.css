@@ -419,3 +419,4 @@ svg.stars-chart .hit.on { fill: var(--hover); }
 /* long lists in tables (rules, addresses) wrap instead of widening the page */
 .card td.mono.wrap { white-space: normal; overflow-wrap: anywhere; }
 #view select { max-width: 100%; }
+.rest-box { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); }

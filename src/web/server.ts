@@ -7,7 +7,7 @@ import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest }
 import fastifyStatic from '@fastify/static';
 import type { Suite } from '../app.js';
 import { SuiteError, ValidationError } from '../core/errors.js';
-import { describeSchedule, normalizeSchedule } from '../core/schedule.js';
+import { describeSchedule, generateRestSchedule, normalizeSchedule } from '../core/schedule.js';
 import { createLogger, onLogEntry, recentLogs, type Level } from '../core/logger.js';
 import type { LinkState, MailAccountKind } from '../core/types.js';
 import { DISCORD_APP_URL, isDiscordUrl, type DiscordTarget } from '../discord/discordService.js';
@@ -959,6 +959,21 @@ export async function buildServer(suite: Suite, opts: ServerOptions = {}): Promi
     const targets = Array.isArray(b.targets) ? b.targets : [];
     if (!targets.length || targets.length > 5000) throw new ValidationError('targets required');
     for (const t of targets) applySchedule(num(t.identityId), num(t.serverId), schedule);
+    void suite.sessions.reconcile();
+    return { updated: targets.length };
+  });
+  /**
+   * Rest times (online limit): every selected session gets its own generated week – different online
+   * hours, rest blocks and minute offset per account; switching uses the start / stop spacing.
+   */
+  app.post('/api/schedules/rest', async (req: Req) => {
+    const b = bodyOf(req);
+    const targets = Array.isArray(b.targets) ? b.targets : [];
+    if (!targets.length || targets.length > 5000) throw new ValidationError('targets required');
+    const onlineMin = Number(b.onlineMin);
+    const onlineMax = Number(b.onlineMax);
+    if (!(onlineMin >= 1 && onlineMax <= 23 && onlineMin <= onlineMax)) throw new ValidationError('online hours per day: 1–23, min ≤ max');
+    for (const t of targets) applySchedule(num(t.identityId), num(t.serverId), generateRestSchedule({ onlineMin, onlineMax }));
     void suite.sessions.reconcile();
     return { updated: targets.length };
   });

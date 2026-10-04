@@ -469,6 +469,9 @@ export default {
  "Fri": "Fr",
  "Sat": "Sa",
  "Sun": "So",
+ "all day": "ganztägig",
+ "always": "immer",
+ "(at :{0})": "(um :{0})",
  "Always": "Immer",
  "Evenings 18–24": "Abends 18–24",
  "Nights 0–8": "Nachts 0–8",
@@ -1377,5 +1380,11 @@ export default {
  "stored": "gespeichert",
  "Stars are not counted on this server (Servers → Count stars).": "Auf diesem Server werden keine Sterne gezählt (Server → Sterne zählen).",
  "No line with stars recognised (rules.yaml → scoreboard).": "Keine Zeile mit Sternen erkannt (rules.yaml → scoreboard).",
- "The identity has no star rules active (active: {0}; star rules: {1}).": "Bei der Identität sind keine Sterne-Regeln aktiv (aktiv: {0}; Sterne-Regeln: {1})."
+ "The identity has no star rules active (active: {0}; star rules: {1}).": "Bei der Identität sind keine Sterne-Regeln aktiv (aktiv: {0}; Sterne-Regeln: {1}).",
+ "Rest times": "Ruhezeiten",
+ "For servers whose rules do not allow 24/7: every selected session gets its own week – a different number of online hours per day, a longer rest and sometimes a short break at random hours, shifted by a random minute. No two accounts get the same times, and they come and go one after another (session start spacing).": "Für Server, deren Regeln kein 24/7 erlauben: Jede ausgewählte Session bekommt ihre eigene Woche – pro Tag eine andere Zahl an Online-Stunden, eine längere Ruhephase und manchmal eine kurze Pause zu zufälligen Uhrzeiten, um eine zufällige Minute versetzt. Keine zwei Accounts bekommen dieselben Zeiten, und sie kommen und gehen nacheinander (Startabstand).",
+ "Online per day": "Online pro Tag",
+ "hours": "Stunden",
+ "Rest times generated for {0} session(s)": "Ruhezeiten für {0} Session(s) erzeugt",
+ "Generate for {0} selected": "Für {0} ausgewählte erzeugen"
 };

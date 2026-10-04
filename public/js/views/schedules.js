@@ -1,8 +1,35 @@
 import { api } from '../api.js';
 import { clear, guard, h, identityName, mount } from '../ui.js';
+import { t } from '../i18n.js';
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const ALL = 0xffffff;
+/** Same text as describeSchedule on the server, but built here so day names follow the UI language. */
+function describe(s) {
+  if (!s?.enabled) return t('always');
+  const ranges = (mask) => {
+    if (mask === ALL) return t('all day');
+    if (!mask) return t('off');
+    const out = [];
+    for (let x = 0; x < 24; x++) {
+      if (!((mask >> x) & 1)) continue;
+      let e = x;
+      while (e + 1 < 24 && (mask >> (e + 1)) & 1) e++;
+      out.push(`${x}–${e + 1}`);
+      x = e;
+    }
+    return out.join(', ');
+  };
+  const parts = [];
+  for (let d = 0; d < 7; d++) {
+    let e = d;
+    while (e + 1 < 7 && s.hours[e + 1] === s.hours[d]) e++;
+    parts.push(`${d === e ? t(DAYS[d]) : `${t(DAYS[d])}–${t(DAYS[e])}`} ${ranges(s.hours[d])}`);
+    d = e;
+  }
+  return parts.join(' · ') + (s.offsetMin ? ` ${t('(at :{0})').replace('{0}', String(s.offsetMin).padStart(2, '0'))}` : '');
+}
+
 const range = (from, to) => { let m = 0; for (let x = from; x < to; x++) m |= 1 << x; return m; };
 
 const PRESETS = [
@@ -56,6 +83,8 @@ export async function schedulesView(root) {
   let names = new Map();
   let hours = PRESETS[1][1]();
   let enabled = true;
+  let restMin = 14;
+  let restMax = 18;
   const key = (r) => `${r.identityId}:${r.serverId}`;
 
   const renderEditor = () => {
@@ -75,7 +104,23 @@ export async function schedulesView(root) {
           const targets = rows.filter((r) => selected.has(key(r))).map((r) => ({ identityId: r.identityId, serverId: r.serverId }));
           await api.put('/api/schedules/bulk', { targets, schedule: null });
           await load();
-        }, 'Schedules removed') }, 'Remove schedule')));
+        }, 'Schedules removed') }, 'Remove schedule')),
+      // rest times: an online limit with its own generated times per session
+      (() => {
+        const lo = h('input', { type: 'number', min: 1, max: 23, value: restMin, style: { width: '70px' }, onchange: (e) => (restMin = Number(e.target.value)) });
+        const hi = h('input', { type: 'number', min: 1, max: 23, value: restMax, style: { width: '70px' }, onchange: (e) => (restMax = Number(e.target.value)) });
+        return h('div', { class: 'rest-box' },
+          h('h3', null, 'Rest times'),
+          h('p', { class: 'muted' }, 'For servers whose rules do not allow 24/7: every selected session gets its own week – a different number of online hours per day, a longer rest and sometimes a short break at random hours, shifted by a random minute. No two accounts get the same times, and they come and go one after another (session start spacing).'),
+          h('div', { class: 'row', style: { gap: '8px', alignItems: 'center', flexWrap: 'wrap' } },
+            h('span', null, 'Online per day'), lo, h('span', null, 'to'), hi, h('span', null, 'hours')),
+          h('div', { class: 'form-actions' },
+            h('button', { class: 'primary', disabled: !selected.size, onclick: () => guard(async () => {
+              const targets = rows.filter((r) => selected.has(key(r))).map((r) => ({ identityId: r.identityId, serverId: r.serverId }));
+              await api.post('/api/schedules/rest', { targets, onlineMin: restMin, onlineMax: restMax });
+              await load();
+            }, `Rest times generated for ${selected.size} session(s)`) }, `Generate for ${selected.size} selected`)));
+      })());
   };
 
   const renderList = () => {
@@ -92,7 +137,7 @@ export async function schedulesView(root) {
               h('td', null, h('a', { href: `#/identity/${r.identityId}/sessions` }, names.get(r.identityId) ?? `#${r.identityId}`)),
               h('td', null, r.serverName),
               h('td', { class: r.desiredState === 'ONLINE' ? 's-ok' : 'muted' }, r.desiredState === 'ONLINE' ? 'online' : 'offline'),
-              h('td', null, r.schedule?.enabled ? h('a', { href: '#', title: 'Load into the editor', onclick: (e) => { e.preventDefault(); hours = [...r.schedule.hours]; enabled = true; renderEditor(); } }, r.text) : h('span', { class: 'muted' }, 'always')))))
+              h('td', null, r.schedule?.enabled ? h('a', { href: '#', title: 'Load into the editor', onclick: (e) => { e.preventDefault(); hours = [...r.schedule.hours]; enabled = true; renderEditor(); } }, describe(r.schedule)) : h('span', { class: 'muted' }, 'always')))))
           )
         : h('div', { class: 'empty' }, 'No server assignments yet.'));
   };
