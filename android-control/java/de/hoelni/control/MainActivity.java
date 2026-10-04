@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.net.Uri;
 import android.os.Build;
@@ -57,6 +58,7 @@ public class MainActivity extends Activity {
     web.addJavascriptInterface(new Bridge(), "HoelniControl");
     setContentView(web);
     open(getIntent().getStringExtra("tab"));
+    AlertJob.schedule(this);
   }
 
   @Override
@@ -77,9 +79,32 @@ public class MainActivity extends Activity {
     else web.loadUrl(b + "/app/" + (tab != null ? "?tab=" + Uri.encode(tab) : ""));
   }
 
+  private static final String NOTIFY = "android.permission.POST_NOTIFICATIONS";
+
+  private boolean notificationsAllowed() {
+    return Build.VERSION.SDK_INT < 33 || checkSelfPermission(NOTIFY) == PackageManager.PERMISSION_GRANTED;
+  }
+
+  private void askNotifications() {
+    if (notificationsAllowed()) return;
+    runOnUiThread(new Runnable() {
+      @Override
+      public void run() {
+        requestPermissions(new String[] {NOTIFY}, 7);
+      }
+    });
+  }
+
   @Override
   public void onBackPressed() {
     moveTaskToBack(true);
+  }
+
+  @Override
+  public void onRequestPermissionsResult(int code, String[] perms, int[] results) {
+    if (code == 7 && results.length > 0 && results[0] != PackageManager.PERMISSION_GRANTED) {
+      getSharedPreferences("alerts", MODE_PRIVATE).edit().putBoolean("denied", true).apply();
+    }
   }
 
   /** window.HoelniControl in the page (only while the configured backend / the setup page is shown). */
@@ -90,6 +115,11 @@ public class MainActivity extends Activity {
       if (!trusted || b == null || !b.equals(origin)) return;
       Store.setToken(MainActivity.this, token, user);
       refreshWidgets();
+      // signed in: star alerts may now be shown as notifications (Android 13+ asks once)
+      if (!getSharedPreferences("alerts", MODE_PRIVATE).getBoolean("asked", false)) {
+        getSharedPreferences("alerts", MODE_PRIVATE).edit().putBoolean("asked", true).apply();
+        askNotifications();
+      }
     }
 
     @JavascriptInterface
@@ -111,6 +141,30 @@ public class MainActivity extends Activity {
     public void refreshWidgets() {
       StatusWidget.requestRefresh(MainActivity.this);
       ActionsWidget.show(MainActivity.this, null);
+    }
+
+    @JavascriptInterface
+    public boolean notificationsAllowed() {
+      return MainActivity.this.notificationsAllowed();
+    }
+
+    @JavascriptInterface
+    public void requestNotifications() {
+      if (!trusted) return;
+      if (Build.VERSION.SDK_INT >= 33 && !shouldShowRequestPermissionRationale(NOTIFY) && getSharedPreferences("alerts", MODE_PRIVATE).getBoolean("denied", false)) {
+        // denied for good: only the system settings can turn it on
+        Intent i = new Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS);
+        i.putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, getPackageName());
+        startActivity(i);
+        return;
+      }
+      askNotifications();
+    }
+
+    @JavascriptInterface
+    public void checkAlertsNow() {
+      if (!trusted) return;
+      AlertJob.checkSoon(MainActivity.this);
     }
 
     @JavascriptInterface

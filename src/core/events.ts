@@ -19,7 +19,8 @@ export interface SuiteEvent {
     | 'reward.changed'
     | 'audit'
     | 'macro'
-    | 'publicip.changed';
+    | 'publicip.changed'
+    | 'stars.alert';
   identityId?: number | null;
   data?: unknown;
 }

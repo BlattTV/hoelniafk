@@ -54,7 +54,7 @@ export interface RemoteResponse {
 }
 
 /** Events the active PC sends to its controllers (enough to keep their screens live). */
-const FORWARDED_EVENTS = new Set(['identity.changed', 'session.state', 'session.chat', 'session.game', 'session.stats', 'reward.changed', 'link.state', 'macro', 'auth.devicecode', 'accounts.changed', 'mail.updated', 'network.checked']);
+const FORWARDED_EVENTS = new Set(['identity.changed', 'session.state', 'session.chat', 'session.game', 'session.stats', 'reward.changed', 'link.state', 'macro', 'auth.devicecode', 'accounts.changed', 'mail.updated', 'network.checked', 'stars.alert']);
 
 export interface AgentInfo {
   id: number;

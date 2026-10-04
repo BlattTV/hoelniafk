@@ -516,6 +516,12 @@ Möglich sind:
   mit Diagramm (pro Stunde bzw. pro Tag) und einer Tabelle pro Identität. Der Stand wird aus dem
   Scoreboard rechts im Spiel gelesen (Muster unter `scoreboard` in `config/rules.yaml`), sonst aus
   Chat-Meldungen. Die Session-Ansicht zeigt das Scoreboard so, wie die Suite es liest.
+* **Stern-Warnungen:** Die Suite vergleicht alle 5 Minuten jeden Account, der online ist, mit seinem
+  eigenen Tempo der letzten 7 Tage: kein Stern viel länger als üblich, ungewöhnlich viele Sterne in einer
+  Stunde, oder viele Sterne verloren. Neue Warnungen erscheinen auf der Übersicht und – in der
+  Android-App – als Benachrichtigung (die App prüft etwa alle 15 Minuten, auch geschlossen; unter
+  Android 13+ einmal „Benachrichtigungen erlauben“). Grenzen einstellen und Testwarnung senden:
+  Suite → *Sterne → Warnungen*.
 * Makros ausführen und stoppen, mit Protokoll
 * PCs des Kontos ansehen
 

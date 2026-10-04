@@ -421,6 +421,8 @@ export async function buildServer(suite: Suite, opts: ServerOptions = {}): Promi
       agents: { online: st.agents.filter((a) => a.online).length, total: st.agents.length },
       stars: rows.reduce((a, r) => a + (Number(r.stars) || 0), 0),
       starsGained24h: suite.repo.starHistory(new Date(Date.now() - 86_400_000).toISOString()).reduce((a, x) => a + Math.max(0, x.delta), 0),
+      // star alerts of the last 24 h (the Control app turns new ones into phone notifications)
+      starAlerts: suite.starAlerts.list().filter((a) => Date.now() - Date.parse(a.ts) < 86_400_000).slice(0, 10),
       at: new Date().toISOString(),
     };
   });
@@ -447,6 +449,15 @@ export async function buildServer(suite: Suite, opts: ServerOptions = {}): Promi
       ),
       servers: suite.repo.listServers().map((s) => ({ id: s.id, name: s.name, trackStars: s.trackStars })),
     };
+  });
+  // abnormal star earning: alerts + their settings (also from the Control app)
+  app.get('/api/stars/alerts', async () => ({ alerts: suite.starAlerts.list(), settings: suite.starAlerts.settings() }));
+  app.put('/api/stars/alerts/settings', async (req: Req) => suite.starAlerts.setSettings(bodyOf(req) as any));
+  app.post('/api/stars/alerts/test', async () => suite.starAlerts.test());
+  app.post('/api/stars/alerts/check', async () => ({ raised: suite.starAlerts.check() }));
+  app.delete('/api/stars/alerts', async () => {
+    suite.starAlerts.clear();
+    return { ok: true };
   });
   // the sidebar scoreboard of a session as the player sees it (to set up the star recognition)
   app.get('/api/sessions/:sessionId/scoreboard', async (req: Req) => {

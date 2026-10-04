@@ -16,6 +16,7 @@ import type { HttpJson } from './mail/aliases/cloudflare.js';
 import { MinecraftAuthService, prismarineTokenFetcher, type TokenFetcher } from './minecraft/authService.js';
 import { LinkingWorkflow } from './minecraft/linking.js';
 import { RewardTracker } from './minecraft/rewards.js';
+import { StarAlerts } from './minecraft/starAlerts.js';
 import { SessionManager, type SessionManagerOptions } from './minecraft/sessionManager.js';
 import { mineflayerBotFactory } from './minecraft/mineflayerBot.js';
 import { MineflayerRuntime } from './runtime/mineflayerRuntime.js';
@@ -176,6 +177,20 @@ export function createSuite(deps: SuiteDeps) {
     },
     { detect: () => (deps.ipDetector ?? detectPublicIp)(null, null, process.env.HOELNI_IP_ENDPOINTS ? ipEndpoints() : network.endpoints) },
   );
+  // abnormal star earning (an account stopped earning, earns far more, lost stars) → alert, phone notification
+  const starAlerts = new StarAlerts(
+    repo,
+    () => sessions.list(),
+    (identityId) => {
+      try {
+        const i = repo.getIdentity(identityId);
+        return repo.getMinecraft(identityId)?.username || i.label || `#${identityId}`;
+      } catch {
+        return `#${identityId}`;
+      }
+    },
+    (a) => bus.emit({ type: 'stars.alert', identityId: a.identityId, data: a }),
+  );
   if (repo.getSetting('backend.standbyFor') && repo.getSetting('backend.username')) sessions.setStandby(`the sessions run on "${repo.getSetting('backend.standbyFor')}"`);
   const sync = new SyncService(
     new SnapshotIO(db, vault.store, { deleteIdentity: (id) => identities.delete(id) }),
@@ -235,6 +250,7 @@ export function createSuite(deps: SuiteDeps) {
     void backend.start();
     sync.start();
     publicIp.start();
+    starAlerts.start();
   }
 
   let closed = false;
@@ -246,6 +262,7 @@ export function createSuite(deps: SuiteDeps) {
     updater.stop();
     sync.stop();
     publicIp.stop();
+    starAlerts.stop();
     backend.shutdown();
     await sessions.shutdown();
     db.close();
@@ -272,6 +289,7 @@ export function createSuite(deps: SuiteDeps) {
     backend,
     sync,
     publicIp,
+    starAlerts,
     sessions,
     mail,
     discord,

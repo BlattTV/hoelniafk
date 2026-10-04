@@ -4,10 +4,42 @@
  */
 import { api } from '../api.js';
 import { guard, h, mount, pad2 } from '../ui.js';
-import { t } from '../i18n.js';
+import { lang, t } from '../i18n.js';
 
 const fmt = (n) => Number(n || 0).toLocaleString(document.documentElement.lang === 'de' ? 'de-DE' : 'en-US');
 let range = 'day';
+
+/** Alerts when star earning is abnormal (the Hoelni Control app shows them as phone notifications). */
+function alertsCard(al) {
+  const cfg = al.settings;
+  const num = (v, min, max, step = 1) => h('input', { type: 'number', min, max, step, value: v, style: { width: '80px' } });
+  const enabled = h('input', { type: 'checkbox', checked: cfg.enabled });
+  const stallFactor = num(cfg.stallFactor, 1.5, 20, 0.5);
+  const stallMin = num(cfg.stallMinMinutes, 15, 1440);
+  const spikeFactor = num(cfg.spikeFactor, 1.5, 50, 0.5);
+  const spikeMin = num(cfg.spikeMin, 1, 10000);
+  const dropMin = num(cfg.dropMin, 0, 100000);
+  const line = (...parts) => h('div', { class: 'row', style: { gap: '8px', alignItems: 'center', flexWrap: 'wrap', margin: '6px 0' } }, ...parts);
+  const when = (iso) => new Date(iso).toLocaleString(lang === 'de' ? 'de-DE' : 'en-US', { weekday: 'short', hour: '2-digit', minute: '2-digit' });
+  const KIND = { stall: 'No stars', spike: 'Unusually many', drop: 'Stars lost', test: 'Test alert' };
+  return h('section', { class: 'card' },
+    h('h2', null, 'Alerts'),
+    h('p', { class: 'muted' }, 'Compares every online account with its own pace of the last 7 days and warns when something is off. New alerts appear as a notification in the Hoelni Control app on the phone.'),
+    h('label', { class: 'row', style: { gap: '8px', alignItems: 'center' } }, enabled, h('span', null, 'Alerts on')),
+    line(h('span', null, 'No star for'), stallFactor, h('span', null, 'times the usual gap, at least'), stallMin, h('span', null, 'minutes')),
+    line(h('span', null, 'More than'), spikeFactor, h('span', null, 'times the usual stars per hour, at least'), spikeMin, h('span', null, 'stars')),
+    line(h('span', null, 'Lost at least'), dropMin, h('span', null, 'stars within an hour (0 = off)')),
+    h('div', { class: 'form-actions' },
+      h('button', { class: 'primary', onclick: () => guard(() => api.put('/api/stars/alerts/settings', { enabled: enabled.checked, stallFactor: Number(stallFactor.value), stallMinMinutes: Number(stallMin.value), spikeFactor: Number(spikeFactor.value), spikeMin: Number(spikeMin.value), dropMin: Number(dropMin.value) }), 'Saved') }, 'Save'),
+      h('button', { onclick: () => guard(() => api.post('/api/stars/alerts/test'), 'Test alert sent – the phone shows it within 15 minutes') }, 'Send test alert')),
+    al.alerts.length
+      ? h('table', null, h('tbody', null, al.alerts.slice(0, 10).map((a) => h('tr', null,
+          h('td', { class: 'muted', style: { whiteSpace: 'nowrap' } }, when(a.ts)),
+          h('td', null, h('span', { class: `tag ${a.kind === 'test' ? '' : 'warn'}` }, KIND[a.kind] ?? a.kind)),
+          h('td', null, [a.name, a.server].filter(Boolean).join(' · ')),
+          h('td', { class: 'wrap' }, lang === 'de' ? a.textDe : a.text)))))
+      : h('p', { class: 'muted' }, 'No alerts so far.'));
+}
 
 /** One series of bars (stars gained), one hue; hover / click shows the value of a bar. */
 function chart(points, label, caption) {
@@ -53,7 +85,7 @@ function chart(points, label, caption) {
 
 export async function starsView(root) {
   const render = async () => {
-    const st = await api.get('/api/stars');
+    const [st, al] = await Promise.all([api.get('/api/stars'), api.get('/api/stars/alerts').catch(() => null)]);
     const daily = range === 'day';
     const pts = daily ? st.hourly : st.daily;
     const sum = pts.reduce((a, p) => a + p.gained, 0);
@@ -85,6 +117,7 @@ export async function starsView(root) {
         caption,
         chart(pts, label, caption),
         h('div', { class: 'stars-x muted' }, h('span', null, daily ? '−24 h' : '−30 d'), h('span', null, t(daily ? 'now' : 'today')))),
+      al ? alertsCard(al) : null,
       h('section', { class: 'card' },
         h('h2', null, 'Per identity'),
         h('p', { class: 'muted' }, 'The balance comes from the scoreboard on the right in the game; without one, from chat messages (then only the stars gained since the suite counts). If a balance is wrong, correct it once – later changes count from there.'),
@@ -106,5 +139,5 @@ export async function starsView(root) {
   };
   await render();
   let tm;
-  return { onEvent: (ev) => { if (ev.type === 'reward.changed') { clearTimeout(tm); tm = setTimeout(render, 1500); } } };
+  return { onEvent: (ev) => { if (ev.type === 'reward.changed' || ev.type === 'stars.alert') { clearTimeout(tm); tm = setTimeout(render, 1500); } } };
 }

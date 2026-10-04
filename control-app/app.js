@@ -157,6 +157,18 @@
       feed.unshift({ at: new Date().toISOString(), text: `${s.username || s.id} @ ${s.serverName || ''}: ${stateOf(s.state)[1]}` });
     } else if (ev.type === 'macro' && ev.data && ev.data.status !== 'log') feed.unshift({ at: new Date().toISOString(), text: `Makro #${ev.data.macroId}: ${ev.data.status}${ev.data.message ? ` – ${ev.data.message}` : ''}` });
     else if (ev.type === 'auth.devicecode' && ev.data) toast(`Microsoft-Anmeldung: Code ${ev.data.userCode} auf ${ev.data.verificationUri}`);
+    else if (ev.type === 'stars.alert' && ev.data) {
+      const a = ev.data;
+      const text = `${alertTitle(a)}: ${a.textDe}`;
+      feed.unshift({ at: a.ts, text });
+      toast(text, 'warn');
+      // in a normal browser (not the Android app, which notifies by itself) a system notification, if allowed
+      try {
+        if (!window.HoelniControl && 'Notification' in window && Notification.permission === 'granted') new Notification('Hoelni – Sterne', { body: text, tag: a.id });
+      } catch {
+        /* not supported */
+      }
+    }
     feed.splice(30);
     if (ev.type === 'session.chat' && ev.data) {
       if (openChat && ev.data.sessionId === openChat.id) openChat.add(ev.data);
@@ -166,7 +178,7 @@
         if (tab === 'chat' && chatView) chatView.add(ev.data);
       }
     }
-    if (['session.state', 'identity.changed', 'macro', 'reward.changed', 'pcs.changed'].includes(ev.type)) {
+    if (['session.state', 'identity.changed', 'macro', 'reward.changed', 'pcs.changed', 'stars.alert'].includes(ev.type)) {
       clearTimeout(refreshTimer);
       refreshTimer = setTimeout(() => refresh(true), 600);
     }
@@ -261,6 +273,7 @@
         h('div', { class: 'stat' }, h('b', null, `${s.agents.online}`), h('span', null, `Agents online`)),
         h('button', { class: 'stat tap', onclick: () => starsSheet() }, h('b', null, fmtNum(cache.stars?.total ?? s.stars)), h('span', null, 'Sterne gesamt'),
           cache.stars?.gained.h24 ? h('em', null, `+${fmtNum(cache.stars.gained.h24)} in 24 h`) : null)),
+      s.starAlerts && s.starAlerts.length ? alertsCard(s.starAlerts) : null,
       cache.stars ? starsCard(cache.stars) : null,
       h('div', { class: 'section-title' }, 'Schnellaktionen'),
       h('div', { class: 'actions' },
@@ -345,6 +358,53 @@
       starsChart(pts, label, caption),
       h('div', { class: 'chart-x' }, h('span', null, daily ? 'vor 24 h' : 'vor 30 Tagen'), h('span', null, daily ? 'jetzt' : 'heute')),
       h('button', { class: 'btn wide', style: { marginTop: '10px' }, onclick: () => starsSheet() }, 'Sterne pro Identität'));
+  }
+
+  // ------------------------------------------------------------------ star alerts
+  const ALERT_KIND = { stall: 'Keine Sterne', spike: 'Ungewöhnlich viele Sterne', drop: 'Sterne verloren', test: 'Test' };
+  const alertTitle = (a) => (a.kind === 'test' ? 'Test' : `${a.name}${a.server ? ` (${a.server})` : ''} – ${ALERT_KIND[a.kind] || a.kind}`);
+  const alertRow = (a) => h('div', { class: 'alert-row' }, h('time', null, timeOf(a.ts)), h('div', null, h('b', null, alertTitle(a)), h('div', { class: 'muted small' }, a.textDe)));
+
+  /** Warnings of the last 24 hours on the home tab. */
+  function alertsCard(list) {
+    return h('div', { class: 'card alerts' },
+      h('div', { class: 'name' }, h('b', null, 'Stern-Warnungen'), h('span', { class: 'muted small' }, ' · letzte 24 h')),
+      list.slice(0, 3).map(alertRow),
+      h('button', { class: 'btn wide', style: { marginTop: '8px' }, onclick: () => alertsSheet() }, 'Alle Warnungen und Einstellungen'));
+  }
+
+  async function alertsSheet() {
+    const body = h('div', null, h('div', { class: 'muted small' }, 'Lädt…'));
+    sheet(h('h2', null, 'Stern-Warnungen'), body);
+    const draw = async () => {
+      const al = await pc('GET', '/api/stars/alerts');
+      const on = h('input', { type: 'checkbox', checked: al.settings.enabled });
+      on.addEventListener('change', () => act(() => pc('PUT', '/api/stars/alerts/settings', { enabled: on.checked }), on.checked ? 'Warnungen an' : 'Warnungen aus'));
+      const phone = window.HoelniControl && typeof window.HoelniControl.notificationsAllowed === 'function';
+      const allowed = phone ? window.HoelniControl.notificationsAllowed() : 'Notification' in window && Notification.permission === 'granted';
+      fill(body,
+        h('p', { class: 'muted small' }, 'Der PC vergleicht jeden Account, der online ist, mit seinem eigenen Tempo der letzten 7 Tage: kein Stern viel länger als sonst, ungewöhnlich viele Sterne in einer Stunde oder viele Sterne verloren. Neue Warnungen kommen als Benachrichtigung aufs Handy (die App prüft etwa alle 15 Minuten). Die Grenzen stellst du in der Suite unter Sterne ein.'),
+        h('label', { class: 'switch-row' }, on, h('span', null, 'Warnungen an')),
+        allowed
+          ? h('div', { class: 'muted small' }, 'Benachrichtigungen sind erlaubt.')
+          : h('button', { class: 'btn wide', onclick: async () => {
+              if (phone) window.HoelniControl.requestNotifications();
+              else if ('Notification' in window) await Notification.requestPermission();
+              setTimeout(() => void draw(), 1500);
+            } }, 'Benachrichtigungen erlauben'),
+        h('button', { class: 'btn wide', style: { marginTop: '8px' }, onclick: () => act(async () => {
+          await pc('POST', '/api/stars/alerts/test');
+          if (phone && typeof window.HoelniControl.checkAlertsNow === 'function') window.HoelniControl.checkAlertsNow();
+          await draw();
+        }, 'Testwarnung gesendet') }, 'Testbenachrichtigung senden'),
+        h('div', { class: 'section-title' }, 'Verlauf'),
+        al.alerts.length ? al.alerts.slice(0, 30).map((a) => h('div', null, h('div', { class: 'muted small' }, new Date(a.ts).toLocaleDateString('de-DE', { weekday: 'short', day: 'numeric', month: 'numeric' })), alertRow(a))) : h('div', { class: 'muted small' }, 'Bisher keine Warnungen.'));
+    };
+    try {
+      await draw();
+    } catch (e) {
+      fill(body, h('div', { class: 'banner err' }, e.message));
+    }
   }
 
   async function starsSheet() {
@@ -895,6 +955,11 @@
   // the Android app opens a tab directly (widget buttons)
   const want = new URLSearchParams(location.search).get('tab');
   if (want && ['home', 'sessions', 'chat', 'people', 'macro', 'more'].includes(want)) tab = want;
+  // a tapped star notification opens the warnings
+  if (want === 'alerts') {
+    tab = 'home';
+    setTimeout(() => void alertsSheet().catch(() => undefined), 800);
+  }
   if (session?.token) start();
   else viewLogin();
 })();
