@@ -137,8 +137,10 @@ export class SessionManager {
   /** The same for leaving: online sessions set offline go one after another. */
   private nextAutoStopAt = 0;
   private stopSpacingTimer: NodeJS.Timeout | null = null;
-  /** Server restart waves per server: the kicked accounts come back spread over minutes (see rejoinSpacing()). */
-  private readonly waves = new Map<number, { startAt: number; lastAt: number; active: boolean; members: string[]; slots: number[] }>();
+  /** The first reconcile after this program started: restored sessions get their spread-out join times. */
+  private bootPending = false;
+  /** Restart waves per server or runtime host: the dropped accounts come back spread over minutes (see rejoinSpacing()). */
+  private readonly waves = new Map<string, { startAt: number; lastAt: number; active: boolean; members: string[]; slots: number[] }>();
   private chatQueue: Array<{ ts: string; sessionId: string; identityId: number; serverId: number; text: string }> = [];
   private chatTimer: NodeJS.Timeout | null = null;
   private stopped = false;
@@ -202,6 +204,24 @@ export class SessionManager {
     return { min: a, max: b === undefined ? a : Math.max(a, b) };
   }
 
+  /**
+   * After this PC / VM restarts (or a suite update) the restored sessions join spread over this window in
+   * minutes; the same when an agent comes back after a restart. Setting sessions.bootSpacing, 0 = off
+   * (then only the start gap applies). HOELNI_BOOT_SPACING overrides it (tests).
+   */
+  bootSpacing(): { min: number; max: number } {
+    const raw = process.env.HOELNI_BOOT_SPACING ?? this.repo.getSetting('sessions.bootSpacing') ?? '4-15';
+    const [a, b] = String(raw).split('-').map((x) => Math.max(0, Math.min(120, Number(x) || 0)));
+    return { min: a, max: b === undefined ? a : Math.max(a, b) };
+  }
+
+  setBootSpacing(min: number, max: number): { min: number; max: number } {
+    const lo = Math.max(0, Math.min(120, Math.round(min) || 0));
+    const hi = Math.max(lo, Math.min(120, Math.round(max) || 0));
+    this.repo.setSetting('sessions.bootSpacing', `${lo}-${hi}`);
+    return { min: lo, max: hi };
+  }
+
   setRejoinSpacing(min: number, max: number): { min: number; max: number } {
     const lo = Math.max(0, Math.min(120, Math.round(min) || 0));
     const hi = Math.max(lo, Math.min(120, Math.round(max) || 0));
@@ -214,25 +234,24 @@ export class SessionManager {
    * account on the same server dropped within two minutes) it gets its own rejoin time in the window;
    * returns that time, or null for the normal reconnect delay.
    */
-  private rejoinSlot(r: SessionRecord, label: string): number | null {
-    const gap = this.rejoinSpacing();
+  private rejoinSlot(r: SessionRecord, key: string, gap: { min: number; max: number }, startsWave: boolean, why: string): number | null {
     if (gap.max <= 0) return null;
     const now = Date.now();
-    let w = this.waves.get(r.serverId);
+    let w = this.waves.get(key);
     if (!w || now - w.lastAt > 120_000) {
       w = { startAt: now, lastAt: now, active: false, members: [], slots: [] };
-      this.waves.set(r.serverId, w);
+      this.waves.set(key, w);
     }
     w.lastAt = now;
     if (!w.members.includes(r.id)) w.members.push(r.id);
-    if (!w.active && (label === 'server restart' || w.members.length >= 2)) {
+    if (!w.active && (startsWave || w.members.length >= 2)) {
       w.active = true;
       // accounts that dropped earlier in this wave get their slot now (unless they are already back)
       for (const id of w.members) {
         if (id === r.id) continue;
         const o = this.records.get(id);
         if (!o || o.state !== 'RECONNECTING') continue;
-        this.scheduleRejoin(o, this.pickSlot(w, gap));
+        this.scheduleRejoin(o, this.pickSlot(w, gap), why);
       }
     }
     return w.active ? this.pickSlot(w, gap) : null;
@@ -255,12 +274,13 @@ export class SessionManager {
     return at;
   }
 
-  private scheduleRejoin(r: SessionRecord, at: number): void {
+  private scheduleRejoin(r: SessionRecord, at: number, why: string): void {
     r.nextAttemptAt = at;
     r.rejoinWait = true;
     const hhmm = new Date(at).toTimeString().slice(0, 5);
-    this.repo.addSessionEvent(r.identityId, r.serverId, r.id, 'rejoin-wait', `Server restart – rejoins at ${hhmm}`);
-    this.setState(r, 'RECONNECTING', `Server restart – rejoins at ${hhmm}`);
+    const text = `${why} – rejoins at ${hhmm}`;
+    this.repo.addSessionEvent(r.identityId, r.serverId, r.id, 'rejoin-wait', text);
+    this.setState(r, 'RECONNECTING', text);
     setTimeout(() => void this.reconcile(), Math.max(0, at - Date.now()) + 50).unref?.();
   }
 
@@ -283,6 +303,7 @@ export class SessionManager {
   /** Starts the reconciler loop (restores desired sessions after a restart). */
   startReconciler(): void {
     if (this.reconcileTimer) return;
+    this.bootPending = true;
     this.reconcileTimer = setInterval(() => void this.reconcile(), this.opts.reconcileIntervalMs);
     this.reconcileTimer.unref?.();
     void this.reconcile();
@@ -602,6 +623,9 @@ export class SessionManager {
     const now = Date.now();
     const assignments = this.standbyReason ? [] : this.repo.listAssignments();
     const wanted = new Set<string>();
+    const bootGap = this.bootSpacing();
+    const bootWave = this.bootPending && !this.standbyReason && bootGap.max > 0 ? { startAt: now, slots: [] as number[] } : null;
+    if (!this.standbyReason) this.bootPending = false;
     for (const a of assignments) {
       const id = SessionManager.sessionId(a.identityId, a.serverId);
       if (!a.enabled || a.desiredState !== 'ONLINE') continue;
@@ -614,6 +638,11 @@ export class SessionManager {
           r.lastError = 'Connect timeout';
           void this.runtimeOf(r).stopSession(r.id, 'connectTimeout').catch(() => undefined);
         }
+        continue;
+      }
+      if (bootWave && r.state === 'STOPPED') {
+        // PC / VM restart or suite update: the restored accounts come back over minutes, not in one go
+        this.scheduleRejoin(r, this.pickSlot(bootWave, bootGap), 'Restart');
         continue;
       }
       if (r.state === 'RECONNECTING' && r.nextAttemptAt && r.nextAttemptAt > now) continue;
@@ -1148,9 +1177,18 @@ export class SessionManager {
       return;
     }
     // the server dropped an online account (not our runtime or agent): maybe a server restart wave
-    const slot = wasOnline && r.takeover === 'none' && !['runtimeCrash', 'startFailed', 'refused'].includes(e.reason) ? this.rejoinSlot(r, decision.label) : null;
+    // or our side went away (agent VM restarted, runtime host crashed): all its accounts dropped at once
+    let slot: number | null = null;
+    let why = '';
+    if (wasOnline && r.takeover === 'none' && !['runtimeCrash', 'startFailed', 'refused'].includes(e.reason)) {
+      why = 'Server restart';
+      slot = this.rejoinSlot(r, `server:${r.serverId}`, this.rejoinSpacing(), decision.label === 'server restart', why);
+    } else if (wasOnline && r.takeover === 'none' && e.reason === 'runtimeCrash') {
+      why = 'Restart';
+      slot = this.rejoinSlot(r, `host:${this.runtime.sessionAgent?.(r.id) ?? this.agentFor(r.identityId, r.serverId) ?? 'local'}`, this.bootSpacing(), false, why);
+    }
     if (slot !== null) {
-      this.scheduleRejoin(r, slot);
+      this.scheduleRejoin(r, slot, why);
       return;
     }
     r.nextAttemptAt = Date.now() + decision.delaySec * 1000;

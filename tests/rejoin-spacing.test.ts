@@ -3,8 +3,10 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { createTestSuite, waitFor } from './helpers.js';
 
 const envBefore = process.env.HOELNI_REJOIN_SPACING;
+const bootBefore = process.env.HOELNI_BOOT_SPACING;
 afterEach(() => {
   process.env.HOELNI_REJOIN_SPACING = envBefore;
+  process.env.HOELNI_BOOT_SPACING = bootBefore;
 });
 
 async function online(n: number) {
@@ -82,5 +84,35 @@ describe('rejoin spacing after a server restart', () => {
     await waitFor(() => t3.bots.length === n2 + 2, 3000, 'normal reconnect when off');
     expect(t3.suite.repo.sessionEvents({ limit: 50 }).some((e: any) => e.kind === 'rejoin-wait')).toBe(false);
     await t3.suite.shutdown();
+  }, 20_000);
+
+  it('after a PC / VM restart the restored accounts join spread over the window; "Start" skips the wait', async () => {
+    process.env.HOELNI_BOOT_SPACING = '0.02-0.07'; // 1.2–4.2 s instead of 4–15 min
+    const t = await createTestSuite();
+    const s = t.suite;
+    expect(s.sessions.bootSpacing()).toEqual({ min: 0.02, max: 0.07 });
+    const srv = s.repo.upsertServer({ name: 'SMP', host: 'mc.example.com', port: 25565 });
+    const ids = [1, 2, 3, 4].map((i) => {
+      const id = s.identities.create({ label: `Alt${i}` }).identity.id;
+      s.repo.upsertMinecraft(id, { username: `Alt0${i}`, authType: 'offline' });
+      s.repo.assignServer(id, { serverId: srv.id, desiredState: 'ONLINE' });
+      return id;
+    });
+    const t0 = Date.now();
+    s.sessions.startReconciler(); // = the suite starting after a reboot
+    await new Promise((r) => setTimeout(r, 300));
+    expect(t.bots.length).toBe(0);
+    expect(s.sessions.list().every((x) => x.state === 'RECONNECTING' && /Restart – rejoins at/.test(x.lastError ?? ''))).toBe(true);
+    await s.sessions.startSession(ids[3], srv.id); // a click on "Start" does not wait
+    await waitFor(() => t.bots.length === 1, 2000, 'manual start');
+    expect(Date.now() - t0).toBeLessThan(1100);
+    const joins: number[] = [];
+    await waitFor(() => {
+      while (joins.length < t.bots.length - 1) joins.push(Date.now() - t0);
+      return t.bots.length === 4;
+    }, 8000, 'all joined');
+    for (const j of joins) expect(j).toBeGreaterThanOrEqual(1100);
+    expect(Math.max(...joins) - Math.min(...joins)).toBeGreaterThan(300);
+    await s.shutdown();
   }, 20_000);
 });
