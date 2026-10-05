@@ -277,7 +277,7 @@
       cache.stars ? starsCard(cache.stars) : null,
       h('div', { class: 'section-title' }, 'Schnellaktionen'),
       h('div', { class: 'actions' },
-        h('button', { class: 'action', onclick: () => bulk('startSessions', 'Alle Sessions werden gestartet') }, icon('play'), 'Alle online'),
+        h('button', { class: 'action', onclick: () => bulk('startSessions', 'Die Accounts gehen nacheinander online – in den nächsten Minuten') }, icon('play'), 'Alle online'),
         h('button', { class: 'action', onclick: () => confirm('Alle Sessions offline setzen?') && bulk('stopSessions', 'Alle Sessions gestoppt') }, icon('stop'), 'Alle offline'),
         h('button', { class: 'action', onclick: () => bulk('reconnect', 'Neu verbinden…') }, icon('reconnect'), 'Neu verbinden')),
       h('div', { class: 'section-title' }, 'Sessions'),

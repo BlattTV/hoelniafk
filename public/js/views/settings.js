@@ -58,6 +58,9 @@ export async function settingsView(root) {
             const max = h('input', { type: 'number', min: 0, max: 600, value: gap.max, style: { width: '90px' } });
             const rj = settings.rejoinSpacing ?? { min: 4, max: 15 };
             const bs = settings.bootSpacing ?? { min: 4, max: 15 };
+            const os = settings.onlineSpacing ?? { min: 5, max: 15 };
+            const omin = h('input', { type: 'number', min: 0, max: 120, value: os.min, style: { width: '90px' } });
+            const omax = h('input', { type: 'number', min: 0, max: 120, value: os.max, style: { width: '90px' } });
             const bmin = h('input', { type: 'number', min: 0, max: 120, value: bs.min, style: { width: '90px' } });
             const bmax = h('input', { type: 'number', min: 0, max: 120, value: bs.max, style: { width: '90px' } });
             const rmin = h('input', { type: 'number', min: 0, max: 120, value: rj.min, style: { width: '90px' } });
@@ -68,6 +71,11 @@ export async function settingsView(root) {
                 h('span', null, 'Gap between'), min, h('span', null, 'and'), max, h('span', null, 'seconds'),
                 h('button', { class: 'primary', onclick: () => guard(async () => { const r = await api.put('/api/settings/start-spacing', { min: Number(min.value), max: Number(max.value) }); min.value = r.min; max.value = r.max; }, 'Saved') }, 'Save')),
               h('p', { class: 'muted' }, `${t('Example')}: ${t('16 accounts at 8–25 s are all online after about 4–5 minutes.')}`),
+              h('h3', null, 'All online'),
+              h('p', { class: 'muted' }, '"All online" (also for a selection, a server or from the Control app): every account that is not online yet joins at its own random time in this window. One account alone starts right away. 0 = only the gap above.'),
+              h('div', { class: 'row', style: { gap: '10px', alignItems: 'center', flexWrap: 'wrap' } },
+                h('span', null, 'Join after'), omin, h('span', null, 'to'), omax, h('span', null, 'minutes'),
+                h('button', { class: 'primary', onclick: () => guard(async () => { const r = await api.put('/api/settings/online-spacing', { min: Number(omin.value), max: Number(omax.value) }); omin.value = r.min; omax.value = r.max; }, 'Saved') }, 'Save')),
               h('h3', null, 'After a restart of this PC / VM'),
               h('p', { class: 'muted' }, 'After this PC or VM starts (also after a suite update) and when an agent comes back after its restart, every account joins at its own random time in this window. Clicking "Start" on a session skips the wait. 0 = only the gap above.'),
               h('div', { class: 'row', style: { gap: '10px', alignItems: 'center', flexWrap: 'wrap' } },

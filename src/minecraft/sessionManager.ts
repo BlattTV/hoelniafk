@@ -473,6 +473,55 @@ export class SessionManager {
 
   // ------------------------------------------------------------------ desired state
 
+  /**
+   * "All online" for several sessions: each one that is not online yet joins at its own random time in
+   * the window (sessions.onlineSpacing, minutes) instead of all within a minute. One account (also on
+   * several servers) starts right away, as "Start".
+   */
+  setOnlineSpread(targets: Array<{ identityId: number; serverId: number }>): number {
+    const gap = this.onlineSpacing();
+    const waiting: SessionRecord[] = [];
+    for (const t of targets) {
+      const a = this.repo.getAssignment(t.identityId, t.serverId);
+      if (!a || !a.enabled) continue;
+      if (a.desiredState !== 'ONLINE') {
+        this.repo.setDesiredState(t.identityId, t.serverId, 'ONLINE');
+        this.audit.record(t.identityId, 'Session desired online', { server: this.repo.getServer(t.serverId).name });
+      }
+      const r = this.record(t.identityId, t.serverId);
+      if (ACTIVE.includes(r.state) || (r.rejoinWait && r.nextAttemptAt && r.nextAttemptAt > Date.now())) continue;
+      r.consecutiveFailures = 0;
+      waiting.push(r);
+    }
+    if (new Set(waiting.map((r) => r.identityId)).size >= 2 && gap.max > 0) {
+      const wave = { startAt: Date.now(), slots: [] as number[] };
+      for (const r of waiting) this.scheduleRejoin(r, this.pickSlot(wave, gap), 'All online');
+    } else {
+      for (const r of waiting) {
+        if (r.state === 'BLOCKED' || r.state === 'RECONNECTING') {
+          r.nextAttemptAt = null;
+          this.setState(r, 'STOPPED', null);
+        }
+      }
+    }
+    void this.reconcile();
+    return waiting.length;
+  }
+
+  /** Window for "All online" in minutes (sessions.onlineSpacing, default 5–15; 0 = only the start gap). */
+  onlineSpacing(): { min: number; max: number } {
+    const raw = process.env.HOELNI_ONLINE_SPACING ?? this.repo.getSetting('sessions.onlineSpacing') ?? '5-15';
+    const [a, b] = String(raw).split('-').map((x) => Math.max(0, Math.min(120, Number(x) || 0)));
+    return { min: a, max: b === undefined ? a : Math.max(a, b) };
+  }
+
+  setOnlineSpacing(min: number, max: number): { min: number; max: number } {
+    const lo = Math.max(0, Math.min(120, Math.round(min) || 0));
+    const hi = Math.max(lo, Math.min(120, Math.round(max) || 0));
+    this.repo.setSetting('sessions.onlineSpacing', `${lo}-${hi}`);
+    return { min: lo, max: hi };
+  }
+
   setDesired(identityId: number, serverId: number, desired: DesiredState): SessionInfo {
     const a = this.repo.getAssignment(identityId, serverId);
     if (!a) throw new ValidationError('Identity is not assigned to this server');

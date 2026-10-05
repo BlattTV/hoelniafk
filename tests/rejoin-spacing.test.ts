@@ -4,7 +4,9 @@ import { createTestSuite, waitFor } from './helpers.js';
 
 const envBefore = process.env.HOELNI_REJOIN_SPACING;
 const bootBefore = process.env.HOELNI_BOOT_SPACING;
+const onlineBefore = process.env.HOELNI_ONLINE_SPACING;
 afterEach(() => {
+  process.env.HOELNI_ONLINE_SPACING = onlineBefore;
   process.env.HOELNI_REJOIN_SPACING = envBefore;
   process.env.HOELNI_BOOT_SPACING = bootBefore;
 });
@@ -113,6 +115,45 @@ describe('rejoin spacing after a server restart', () => {
     }, 8000, 'all joined');
     for (const j of joins) expect(j).toBeGreaterThanOrEqual(1100);
     expect(Math.max(...joins) - Math.min(...joins)).toBeGreaterThan(300);
+    await s.shutdown();
+  }, 20_000);
+
+  it('"All online" spreads the joins over the window; one account alone starts at once', async () => {
+    process.env.HOELNI_ONLINE_SPACING = '0.02-0.07';
+    const t = await createTestSuite();
+    const s = t.suite;
+    expect(s.sessions.onlineSpacing()).toEqual({ min: 0.02, max: 0.07 });
+    const srv = s.repo.upsertServer({ name: 'SMP', host: 'mc.example.com', port: 25565 });
+    const lobby = s.repo.upsertServer({ name: 'Lobby', host: 'lobby.example.com', port: 25565 });
+    const ids = [1, 2, 3, 4].map((i) => {
+      const id = s.identities.create({ label: `Alt${i}` }).identity.id;
+      s.repo.upsertMinecraft(id, { username: `Alt0${i}`, authType: 'offline' });
+      s.repo.assignServer(id, { serverId: srv.id });
+      return id;
+    });
+    s.repo.assignServer(ids[3], { serverId: lobby.id });
+    s.sessions.startReconciler();
+    // one account (on two servers): right away
+    await s.bulk.run('startSessions', [ids[3]]);
+    await waitFor(() => t.bots.length === 2, 2000, 'single account at once');
+    t.bots.forEach((b) => b.join());
+    const t0 = Date.now();
+    const res = await s.bulk.run('startSessions', ids.slice(0, 3));
+    expect(res.every((r) => r.ok)).toBe(true);
+    await new Promise((r) => setTimeout(r, 400));
+    expect(t.bots.length).toBe(2); // nobody yet
+    expect(s.sessions.list().filter((x) => /All online – rejoins at/.test(x.lastError ?? ''))).toHaveLength(3);
+    const joins: number[] = [];
+    await waitFor(() => {
+      while (joins.length < t.bots.length - 2) {
+        joins.push(Date.now() - t0);
+        t.bots[joins.length + 1].join();
+      }
+      return t.bots.length === 5;
+    }, 8000, 'all joined');
+    for (const j of joins) expect(j).toBeGreaterThanOrEqual(1100);
+    expect(Math.max(...joins) - Math.min(...joins)).toBeGreaterThan(300);
+    expect(s.repo.listAssignments().every((a) => a.desiredState === 'ONLINE')).toBe(true);
     await s.shutdown();
   }, 20_000);
 });
