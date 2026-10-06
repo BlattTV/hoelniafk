@@ -58,6 +58,10 @@ public class MainActivity extends Activity {
       }
     });
     web.clearCache(true); // always the current control page from the backend
+    // The page follows dark mode itself (black design); Android's automatic darkening would turn its
+    // light design into a dull blue-grey instead.
+    if (Build.VERSION.SDK_INT >= 33) s.setAlgorithmicDarkeningAllowed(false);
+    else if (Build.VERSION.SDK_INT >= 29) s.setForceDark(WebSettings.FORCE_DARK_OFF);
     web.addJavascriptInterface(new Bridge(), "HoelniControl");
     applyBars((getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES);
     setContentView(web);
