@@ -57,6 +57,7 @@ public class MainActivity extends Activity {
         trusted = isOurs(url);
       }
     });
+    web.clearCache(true); // always the current control page from the backend
     web.addJavascriptInterface(new Bridge(), "HoelniControl");
     applyBars((getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES);
     setContentView(web);

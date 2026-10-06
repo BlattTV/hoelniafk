@@ -22,6 +22,7 @@
  *   DELETE /api/admin/users/:id
  *   DELETE /api/admin/devices/:id         revoke a manager/agent sign-in
  */
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import http from 'node:http';
 import https from 'node:https';
@@ -133,6 +134,19 @@ ${card(items.android, 'Hoelni Agent für Android', 'Das Handy als Agent: APK auf
 const CONTROL_TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.png': 'image/png', '.svg': 'image/svg+xml', '.webmanifest': 'application/manifest+json', '.json': 'application/json', '.woff2': 'font/woff2' };
 const CONTROL_DIR = new URL('../../control-app/', import.meta.url);
 
+/** Short hash over the files of the Control app (changes with every new version of it). */
+function controlBuild() {
+  const h = crypto.createHash('sha256');
+  for (const f of ['app.js', 'app.css', 'index.html']) {
+    try {
+      h.update(fs.readFileSync(new URL(f, CONTROL_DIR)));
+    } catch {
+      /* missing file: 404 later */
+    }
+  }
+  return h.digest('hex').slice(0, 10);
+}
+
 /** The "Hoelni Control" web app (also inside the Android app) – static files, same origin as the API. */
 function serveControlApp(p, res, search = '') {
   if (p === '/app') {
@@ -150,9 +164,23 @@ function serveControlApp(p, res, search = '') {
     data = null;
   }
   if (!data) throw new HttpError(404, 'Not found');
+  let cache = 'no-cache';
+  if (rel === 'index.html') {
+    // The page names its script and styles with a hash of their content: a changed app gets new
+    // addresses, so no cache on the way (reverse proxy "cache assets", WebView) can keep the old one.
+    const build = controlBuild();
+    data = Buffer.from(
+      data
+        .toString('utf8')
+        .replace('href="app.css"', `href="app.css?v=${build}"`)
+        .replace('src="app.js"', `src="app.js?v=${build}"`)
+        .replace('</head>', `<meta name="hoelni-build" content="${build}">\n</head>`),
+    );
+    cache = 'no-store';
+  }
   res.writeHead(200, {
     'Content-Type': type,
-    'Cache-Control': 'no-cache',
+    'Cache-Control': cache,
     'X-Content-Type-Options': 'nosniff',
     'Referrer-Policy': 'no-referrer',
     'Content-Security-Policy': "default-src 'self'; img-src 'self' data: https://mc-heads.net; style-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'",

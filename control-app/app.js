@@ -1132,7 +1132,7 @@
         h('div', { class: 'kvrow', onclick: () => alertsSheet() }, h('span', null, 'Stern-Warnungen'), h('b', null, '›')),
         h('div', { class: 'kvrow', onclick: () => starsSheet() }, h('span', null, 'Sterne-Statistik'), h('b', null, '›')),
         h('div', { class: 'kvrow', onclick: () => serversSheet() }, h('span', null, 'Server & Zuweisungen'), h('b', null, '›'))),
-      h('div', { class: 'section-title' }, 'Erscheinungsbild'),
+      h('div', { class: 'section-title' }, 'Erscheinungsbild', h('span', { class: 'muted small' }, `App-Stand ${document.querySelector('meta[name="hoelni-build"]')?.content || '–'}`)),
       h('div', { class: 'seg' }, [['system', 'System'], ['light', 'Hell'], ['dark', 'Dunkel']].map(([v, l]) => h('button', { class: pref === v ? 'on' : '', onclick: () => setTheme(v) }, l))),
       h('div', { class: 'section-title' }, 'Agents', h('span', { class: 'muted small' }, 'antippen zum Steuern')),
       agents.length
