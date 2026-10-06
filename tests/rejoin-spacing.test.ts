@@ -5,7 +5,9 @@ import { createTestSuite, waitFor } from './helpers.js';
 const envBefore = process.env.HOELNI_REJOIN_SPACING;
 const bootBefore = process.env.HOELNI_BOOT_SPACING;
 const onlineBefore = process.env.HOELNI_ONLINE_SPACING;
+const offlineBefore = process.env.HOELNI_OFFLINE_SPACING;
 afterEach(() => {
+  process.env.HOELNI_OFFLINE_SPACING = offlineBefore;
   process.env.HOELNI_ONLINE_SPACING = onlineBefore;
   process.env.HOELNI_REJOIN_SPACING = envBefore;
   process.env.HOELNI_BOOT_SPACING = bootBefore;
@@ -154,6 +156,30 @@ describe('rejoin spacing after a server restart', () => {
     for (const j of joins) expect(j).toBeGreaterThanOrEqual(1100);
     expect(Math.max(...joins) - Math.min(...joins)).toBeGreaterThan(300);
     expect(s.repo.listAssignments().every((a) => a.desiredState === 'ONLINE')).toBe(true);
+    await s.shutdown();
+  }, 20_000);
+
+  it('"All offline" lets the online accounts leave spread over the window; one account alone leaves at once', async () => {
+    process.env.HOELNI_OFFLINE_SPACING = '0.02-0.07';
+    const t = await online(4);
+    const s = t.suite;
+    const ids = [...new Set(s.sessions.list().map((x) => x.identityId))];
+    const isOnline = (id: number) => s.sessions.list().find((x) => x.identityId === id)?.state === 'ONLINE';
+    await s.bulk.run('stopSessions', [ids[3]]); // one account: at once
+    await waitFor(() => !isOnline(ids[3]), 2000, 'single account left');
+    const t0 = Date.now();
+    await s.bulk.run('stopSessions', ids.slice(0, 3));
+    await new Promise((r) => setTimeout(r, 400));
+    const list = s.sessions.list().filter((x) => ids.slice(0, 3).includes(x.identityId));
+    expect(list.every((x) => x.state === 'ONLINE' && x.desiredState === 'OFFLINE' && x.leaveAt)).toBe(true); // still there, leaving later
+    const left: number[] = [];
+    await waitFor(() => {
+      for (const id of ids.slice(0, 3)) if (!isOnline(id) && !left.includes(id)) left.push(id), (left as any)[`t${id}`] = Date.now() - t0;
+      return left.length === 3;
+    }, 8000, 'all left');
+    const times = left.map((id) => (left as any)[`t${id}`] as number);
+    for (const x of times) expect(x).toBeGreaterThanOrEqual(1100);
+    expect(Math.max(...times) - Math.min(...times)).toBeGreaterThan(300);
     await s.shutdown();
   }, 20_000);
 });

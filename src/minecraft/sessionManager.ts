@@ -74,6 +74,8 @@ export class SessionRecord {
   nextAttemptAt: number | null = null;
   /** Waiting for its own rejoin time after a server restart – an agent coming back does not cut it short. */
   rejoinWait = false;
+  /** "All offline": leaves at this time (spread over minutes) instead of right away. */
+  leaveAt: number | null = null;
   onlineSince: number | null = null;
   networkProfileId: number | null = null;
   /** Runtime that currently owns the connection. */
@@ -351,6 +353,7 @@ export class SessionManager {
       consecutiveFailures: r.consecutiveFailures,
       nextAttemptAt: r.nextAttemptAt ? new Date(r.nextAttemptAt).toISOString() : null,
       onlineSince: r.onlineSince ? new Date(r.onlineSince).toISOString() : null,
+      leaveAt: r.leaveAt ? new Date(r.leaveAt).toISOString() : null,
       runtime: r.runtime === 'game' ? 'game' : 'lightweight',
       takeover: r.takeover,
       game: r.game,
@@ -508,6 +511,51 @@ export class SessionManager {
     return waiting.length;
   }
 
+  /**
+   * "All offline" for several accounts: desired OFFLINE right away, but every online session leaves at
+   * its own random time in the window (sessions.offlineSpacing, minutes). Sessions that are only
+   * connecting stop at once; one account alone leaves right away, as "Stop".
+   */
+  setOfflineSpread(targets: Array<{ identityId: number; serverId: number }>): number {
+    const gap = this.offlineSpacing();
+    const online: SessionRecord[] = [];
+    for (const t of targets) {
+      const a = this.repo.getAssignment(t.identityId, t.serverId);
+      if (!a) continue;
+      if (a.desiredState !== 'OFFLINE') {
+        this.repo.setDesiredState(t.identityId, t.serverId, 'OFFLINE');
+        this.audit.record(t.identityId, 'Session desired offline', { server: this.repo.getServer(t.serverId).name });
+      }
+      const r = this.record(t.identityId, t.serverId);
+      if (r.state === 'ONLINE' && !r.leaveAt) online.push(r);
+    }
+    if (new Set(online.map((r) => r.identityId)).size >= 2 && gap.max > 0) {
+      const wave = { startAt: Date.now(), slots: [] as number[] };
+      for (const r of online) {
+        r.leaveAt = this.pickSlot(wave, gap);
+        const hhmm = new Date(r.leaveAt).toTimeString().slice(0, 5);
+        this.repo.addSessionEvent(r.identityId, r.serverId, r.id, 'leave-wait', `All offline – leaves at ${hhmm}`);
+        this.bus.emit({ type: 'session.state', identityId: r.identityId, data: this.info(r) });
+        setTimeout(() => void this.reconcile(), Math.max(0, r.leaveAt - Date.now()) + 50).unref?.();
+      }
+    }
+    void this.reconcile();
+    return online.length;
+  }
+
+  offlineSpacing(): { min: number; max: number } {
+    const raw = process.env.HOELNI_OFFLINE_SPACING ?? this.repo.getSetting('sessions.offlineSpacing') ?? '5-15';
+    const [a, b] = String(raw).split('-').map((x) => Math.max(0, Math.min(120, Number(x) || 0)));
+    return { min: a, max: b === undefined ? a : Math.max(a, b) };
+  }
+
+  setOfflineSpacing(min: number, max: number): { min: number; max: number } {
+    const lo = Math.max(0, Math.min(120, Math.round(min) || 0));
+    const hi = Math.max(lo, Math.min(120, Math.round(max) || 0));
+    this.repo.setSetting('sessions.offlineSpacing', `${lo}-${hi}`);
+    return { min: lo, max: hi };
+  }
+
   /** Window for "All online" in minutes (sessions.onlineSpacing, default 5–15; 0 = only the start gap). */
   onlineSpacing(): { min: number; max: number } {
     const raw = process.env.HOELNI_ONLINE_SPACING ?? this.repo.getSetting('sessions.onlineSpacing') ?? '5-15';
@@ -583,6 +631,7 @@ export class SessionManager {
   async stopSession(sessionId: string): Promise<SessionInfo> {
     const r = this.get(sessionId);
     if (this.repo.getAssignment(r.identityId, r.serverId)) this.setDesired(r.identityId, r.serverId, 'OFFLINE');
+    r.leaveAt = null;
     r.takeoverBroken = null; // stopped by the user: the next start tries live takeover again
     await this.withLock(r, () => this.halt(r, 'Stopped by user'));
     return this.info(r);
@@ -681,6 +730,7 @@ export class SessionManager {
       const r = this.record(a.identityId, a.serverId);
       if (!this.wantsOnline(a, r)) continue; // outside its schedule → stopped below
       wanted.add(id);
+      r.leaveAt = null; // wanted online again: no pending "all offline"
       if (ACTIVE.includes(r.state) || r.state === 'BLOCKED') {
         // Connect watchdog: a session stuck before ONLINE is restarted.
         if ((r.state === 'CONNECTING' || r.state === 'AUTHENTICATING') && r.startedAt && now - r.startedAt > this.opts.connectTimeoutMs) {
@@ -724,6 +774,9 @@ export class SessionManager {
       const a = this.repo.getAssignment(r.identityId, r.serverId);
       const why = this.standbyReason ? `Standby – ${this.standbyReason}` : a?.enabled && a.desiredState === 'ONLINE' ? 'Outside schedule' : 'Desired state offline';
       if (ACTIVE.includes(r.state) && r.state !== 'STOPPING') {
+        // "all offline" for several accounts: each one leaves at its own time (see setOfflineSpread)
+        if (r.leaveAt && r.state === 'ONLINE' && !this.standbyReason && r.leaveAt > Date.now()) continue;
+        r.leaveAt = null;
         // "all offline" / schedules: online accounts leave one after another (another PC taking over: at once)
         const gap = this.startSpacing();
         if (r.state === 'ONLINE' && !this.standbyReason && gap.max > 0) {

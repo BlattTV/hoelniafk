@@ -276,6 +276,8 @@ export interface SessionInfo {
   consecutiveFailures: number;
   nextAttemptAt: string | null;
   onlineSince: string | null;
+  /** "All offline": this online session leaves at its own time (ISO), until then it stays. */
+  leaveAt?: string | null;
   /** Which client holds the session right now. */
   runtime: 'lightweight' | 'game';
   /** Live takeover state: the real game plays on the lightweight session's connection. */

@@ -349,7 +349,11 @@ export async function buildServer(suite: Suite, opts: ServerOptions = {}): Promi
   app.post('/api/updates/install', async () => suite.updater.install());
   app.post('/api/updates/rollback', async () => suite.updater.rollback());
 
-  app.get('/api/settings', async () => ({ automation: suite.config.automation, startSpacing: suite.sessions.startSpacing(), rejoinSpacing: suite.sessions.rejoinSpacing(), bootSpacing: suite.sessions.bootSpacing(), onlineSpacing: suite.sessions.onlineSpacing() }));
+  app.get('/api/settings', async () => ({ automation: suite.config.automation, startSpacing: suite.sessions.startSpacing(), rejoinSpacing: suite.sessions.rejoinSpacing(), bootSpacing: suite.sessions.bootSpacing(), onlineSpacing: suite.sessions.onlineSpacing(), offlineSpacing: suite.sessions.offlineSpacing() }));
+  app.put('/api/settings/offline-spacing', async (req: Req) => {
+    const b = bodyOf(req);
+    return suite.sessions.setOfflineSpacing(Number(b.min), Number(b.max));
+  });
   app.put('/api/settings/online-spacing', async (req: Req) => {
     const b = bodyOf(req);
     return suite.sessions.setOnlineSpacing(Number(b.min), Number(b.max));

@@ -79,6 +79,23 @@ export class BulkOperations {
       this.sessions.setOnlineSpread(targets);
       return out;
     }
+    if (action === 'stopSessions') {
+      // "All offline": desired OFFLINE at once, the online accounts leave spread over minutes
+      const out: BulkResult[] = [];
+      const targets: Array<{ identityId: number; serverId: number }> = [];
+      for (const identityId of ids) {
+        try {
+          this.repo.getIdentity(identityId);
+          const list = this.repo.listAssignments(identityId).filter((a) => !opts.serverIds || opts.serverIds.includes(a.serverId));
+          targets.push(...list.map((a) => ({ identityId, serverId: a.serverId })));
+          out.push({ identityId, ok: true, message: `${list.length} session(s) set offline` });
+        } catch (e) {
+          out.push({ identityId, ok: false, message: (e as Error).message });
+        }
+      }
+      this.sessions.setOfflineSpread(targets);
+      return out;
+    }
     // Mailboxes shared via aliases only need one sync per mailbox.
     const syncedMailboxes = new Map<number, Promise<unknown>>();
     return pool(ids, this.concurrency, async (identityId): Promise<BulkResult> => {
@@ -96,12 +113,6 @@ export class BulkOperations {
             const p = await this.network.verify(identityId);
             if (!p) return { identityId, ok: false, message: 'No network profile' };
             return { identityId, ok: p.checkStatus === 'OK', message: p.checkStatus === 'OK' ? `Exit ${p.actualPublicIp}` : p.lastError ?? p.checkStatus };
-          }
-          case 'stopSessions': {
-            // desired OFFLINE – the reconciler lets online accounts leave one after another (start spacing)
-            const targets = this.repo.listAssignments(identityId).filter((a) => !opts.serverIds || opts.serverIds.includes(a.serverId));
-            for (const a of targets) this.sessions.setDesired(identityId, a.serverId, 'OFFLINE');
-            return { identityId, ok: true, message: `${targets.length} session(s) set offline` };
           }
           case 'reconnect': {
             const list = this.sessions.list(identityId).filter((s) => !opts.serverIds || opts.serverIds.includes(s.serverId));
