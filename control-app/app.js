@@ -110,6 +110,7 @@
     stop: '<rect x="6" y="6" width="12" height="12" rx="2"/>',
     reconnect: '<path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/>',
     back: '<path d="M15 5l-7 7 7 7"/>',
+    next: '<path d="M9 5l7 7-7 7"/>',
     bell: '<path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/>',
     search: '<circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/>',
     updown: '<path d="M8 9l4-4 4 4M8 15l4 4 4-4"/>',
@@ -270,14 +271,22 @@
     void run();
   }
 
+  /** A row of an action list: round icon, title with a line below, chevron. */
+  function actRow(ic, title, sub, onclick, tone) {
+    return h('button', { class: `act ${tone || ''}`, onclick },
+      h('span', { class: 'act-ic' }, icon(ic)),
+      h('span', { class: 'act-t' }, h('b', null, title), sub ? h('small', null, sub) : null),
+      h('span', { class: 'act-go' }, icon('next')));
+  }
+
   /** "Aktionen": everything at once. */
   function actionsSheet() {
     const close = sheet(h('h2', null, 'Aktionen'),
-      h('div', { class: 'big-actions' },
-        h('button', { onclick: () => { close(); bulk('startSessions', 'Die Accounts gehen nacheinander online'); } }, 'Alle online', h('small', null, 'nacheinander, über Minuten')),
-        h('button', { onclick: () => { if (confirm('Alle Sessions offline setzen? Die Accounts gehen nacheinander, über einige Minuten verteilt.')) { close(); bulk('stopSessions', 'Die Accounts gehen nacheinander offline'); } } }, 'Alle offline', h('small', null, 'nacheinander, über Minuten')),
-        h('button', { onclick: () => { close(); bulk('reconnect', 'Neu verbinden…'); } }, 'Alle neu verbinden', h('small', null, 'sofort')),
-        h('button', { onclick: () => { close(); refresh(); } }, 'Aktualisieren', h('small', null, status?.active ? status.active.name : ''))));
+      h('div', { class: 'acts' },
+        actRow('play', 'Alle online', 'Die Accounts gehen nacheinander online, über einige Minuten verteilt', () => { close(); bulk('startSessions', 'Die Accounts gehen nacheinander online'); }),
+        actRow('stop', 'Alle offline', 'Die Accounts gehen nacheinander offline, über einige Minuten verteilt', () => { if (confirm('Alle Sessions offline setzen?')) { close(); bulk('stopSessions', 'Die Accounts gehen nacheinander offline'); } }, 'down'),
+        actRow('reconnect', 'Alle neu verbinden', 'Sofort, z. B. nach einem Server-Problem', () => { close(); bulk('reconnect', 'Neu verbinden…'); }),
+        actRow('refresh', 'Aktualisieren', status?.active ? `Daten von „${status.active.name}“ neu laden` : 'Daten neu laden', () => { close(); refresh(); })));
   }
 
   async function refresh(quiet) {

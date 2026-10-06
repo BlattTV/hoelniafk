@@ -272,3 +272,16 @@ details summary { color: var(--muted); font-size: 14px; cursor: pointer; margin-
 .alert-row time { color: var(--muted); flex: none; font-weight: 600; }
 .switch-row { display: flex; align-items: center; gap: 10px; margin: 12px 0; font-weight: 600; }
 .switch-row input { width: 20px; height: 20px; }
+
+/* ---------- action list (Aktionen) */
+.acts { display: flex; flex-direction: column; gap: 2px; margin: 4px -8px 0; }
+.act { display: flex; align-items: center; gap: 14px; width: 100%; border: 0; background: none; padding: 12px 8px; border-radius: 16px; text-align: left; cursor: pointer; color: var(--text); }
+.act:active { background: var(--surface); }
+.act-ic { width: 44px; height: 44px; border-radius: 50%; background: var(--surface); display: grid; place-items: center; flex: none; }
+.act-ic svg { width: 20px; height: 20px; stroke: var(--text); fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.act.down .act-ic svg { stroke: var(--down); }
+.act-t { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.act-t b { font-size: 17px; font-weight: 700; }
+.act-t small { font-size: 14px; font-weight: 550; color: var(--muted); line-height: 1.35; }
+.act-go svg { width: 18px; height: 18px; stroke: var(--muted-2); fill: none; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+:root[data-theme='dark'] .act-ic { background: #1f1f23; }
