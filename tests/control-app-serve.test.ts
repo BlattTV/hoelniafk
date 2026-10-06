@@ -32,6 +32,8 @@ describe('control app served by the backend', () => {
     expect(await css.text()).toContain('--bg');
     const font = await fetch(`${url}/app/inter-latin.woff2`);
     expect(font.headers.get('content-type')).toBe('font/woff2');
+    // the download page uses the same look (stylesheet from the app folder)
+    expect((await fetch(`${url}/app/download.css`)).status).toBe(200);
     server.close();
   });
 });

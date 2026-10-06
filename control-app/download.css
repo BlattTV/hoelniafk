@@ -1,0 +1,17 @@
+/* Download page of the backend – same look as Hoelni Control (light / dark with the system). */
+@font-face { font-family: 'Inter'; font-style: normal; font-weight: 100 900; font-display: swap; src: url('inter-latin.woff2') format('woff2'); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+:root { color-scheme: light; --bg: #fff; --card: #fff; --line: #eef0f3; --text: #0d0d0f; --muted: #8e9199; --code: #f5f6f8; --btn: #0d0d0f; --btn-text: #fff; }
+@media (prefers-color-scheme: dark) { :root { color-scheme: dark; --bg: #000; --card: #0e0e10; --line: #1f1f23; --text: #fff; --muted: #8b8e95; --code: #141416; --btn: #fff; --btn-text: #000; } }
+body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.5 Inter, -apple-system, 'Segoe UI', Roboto, system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+main { max-width: 760px; margin: 0 auto; padding: 48px 24px 64px; }
+.logo { display: block; width: 64px; height: 64px; border-radius: 16px; object-fit: cover; margin: 0 0 24px; }
+h1 { font-size: 34px; font-weight: 800; letter-spacing: -.8px; margin: 0 0 6px; }
+.sub { color: var(--muted); font-weight: 600; margin: 0 0 30px; }
+section { background: var(--card); border: 1.5px solid var(--line); border-radius: 20px; padding: 22px 24px; margin-bottom: 14px; }
+h2 { font-size: 20px; font-weight: 750; letter-spacing: -.3px; margin: 0 0 6px; }
+p { margin: 6px 0; }
+a { color: var(--text); }
+.btn { display: inline-block; margin: 10px 0 6px; padding: 13px 22px; border-radius: 14px; background: var(--btn); color: var(--btn-text); text-decoration: none; font-weight: 700; }
+.btn:active { opacity: .8; }
+.meta { font-size: 13.5px; color: var(--muted); word-break: break-all; font-weight: 550; }
+code { font-family: ui-monospace, 'SF Mono', 'Cascadia Mono', Consolas, monospace; font-size: 13px; background: var(--code); padding: 2px 6px; border-radius: 6px; }

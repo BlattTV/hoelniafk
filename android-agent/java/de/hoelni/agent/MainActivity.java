@@ -29,11 +29,14 @@ public class MainActivity extends Activity {
   @Override
   protected void onCreate(Bundle state) {
     super.onCreate(state);
-    getWindow().setStatusBarColor(Color.parseColor("#0b1220"));
-    getWindow().setNavigationBarColor(Color.parseColor("#0b1220"));
+    // light / dark like the phone (theme "Control" sets the bars); the page follows prefers-color-scheme
+    boolean dark = (getResources().getConfiguration().uiMode & android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES;
     web = new WebView(this);
-    web.setBackgroundColor(Color.parseColor("#0b1220"));
+    web.setBackgroundColor(dark ? Color.BLACK : Color.WHITE);
     WebSettings s = web.getSettings();
+    // the page has its own dark design – no automatic darkening
+    if (android.os.Build.VERSION.SDK_INT >= 33) s.setAlgorithmicDarkeningAllowed(false);
+    else if (android.os.Build.VERSION.SDK_INT >= 29) s.setForceDark(WebSettings.FORCE_DARK_OFF);
     s.setJavaScriptEnabled(true);
     s.setDomStorageEnabled(true);
     s.setAllowFileAccess(true);

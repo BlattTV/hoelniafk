@@ -113,12 +113,8 @@ function downloadPage(items, publicUrl) {
         <p class="meta">${esc(it.file)} · ${(it.size / 1e6).toFixed(0)} MB · Version ${esc(it.version)}${it.build ? ` · Build ${esc(it.build)}` : ''}<br>SHA-256 <code>${esc(it.sha256)}</code></p></section>`
       : `<section><h2>${esc(title)}</h2><p class="meta">Noch nicht gebaut – er entsteht beim nächsten <code>hoelni-updates build</code>.</p></section>`;
   return `<!doctype html><html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Hoelni – Download</title>
-<style>:root{color-scheme:dark}body{margin:0;background:#0b1220;color:#e2e8f0;font:15px/1.55 Inter,'Segoe UI',system-ui,sans-serif}main{max-width:760px;margin:0 auto;padding:32px 16px}
-.logo{display:block;width:240px;margin:0 auto 24px}h1{font-size:22px;text-align:center;margin:0 0 6px}.sub{text-align:center;color:#94a3b8;margin:0 0 26px}
-section{background:#0f172a;border:1px solid #1e293b;border-radius:16px;padding:18px 20px;margin-bottom:14px}h2{font-size:17px;margin:0 0 6px}p{margin:6px 0;color:#cbd5e1}
-.btn{display:inline-block;margin:8px 0 4px;padding:10px 18px;border-radius:10px;background:#3b82f6;color:#fff;text-decoration:none;font-weight:600}.btn:hover{background:#2563eb}
-.meta{font-size:12.5px;color:#94a3b8;word-break:break-all}code{font-family:'Cascadia Mono',Consolas,monospace;font-size:12px;color:#93c5fd}</style></head>
-<body><main>${logo() ? `<img class="logo" src="${logo()}" alt="Hoelni AFK Client">` : ''}<h1>Hoelni herunterladen</h1><p class="sub">Einmal installieren – danach aktualisieren sich die Programme selbst.</p>
+<meta name="color-scheme" content="light dark"><link rel="stylesheet" href="/app/download.css"><link rel="icon" href="/app/icon-192.png"></head>
+<body><main>${logo() ? `<img class="logo" src="/app/icon-192.png" alt="Hoelni">` : ''}<h1>Hoelni herunterladen</h1><p class="sub">Einmal installieren – danach aktualisieren sich die Programme selbst.</p>
 ${card(items.suite, 'Hoelni Client Suite', 'Das Hauptprogramm für deinen PC: Identitäten, AFK-Sessions, Discord, Outlook und das Minecraft-Fenster.')}
 ${card(items.agent, 'Hoelni Agent', `Für PCs in anderen Haushalten: installieren, mit dem Hoelni-Konto anmelden, fertig. Startet mit Windows im Hintergrund.${publicUrl ? ` Verbindet sich mit <code>${esc(publicUrl)}</code>.` : ''}`)}
 ${items['linux-x64'] || items['linux-arm64'] ? `<section><h2>Hoelni Agent für Linux</h2><p>Für Server, VMs, Mini-PCs und Raspberry Pi (64 Bit) – läuft als Dienst und aktualisiert sich selbst. Dieser Befehl lädt automatisch das passende Paket für den Rechner:</p>

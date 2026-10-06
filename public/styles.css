@@ -421,3 +421,105 @@ svg.stars-chart .hit.on { fill: var(--hover); }
 .card td.mono.wrap { white-space: normal; overflow-wrap: anywhere; }
 #view select { max-width: 100%; }
 .rest-box { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); }
+
+/* ================================================================ broker look (same design as Hoelni Control)
+   Black / white instead of navy / blue: white page and black pill buttons in light, black page and white
+   buttons in dark (follows the system unless chosen), quiet grey for secondary text, hairlines and rounded
+   cards, green / red only for state. Overrides the tokens and components above. */
+:root, :root[data-theme='dark'] {
+  --primary: #ffffff; --primary-hover: #e9e9eb; --primary-press: #d6d6d9; --accent-ink: #000000;
+  --success: #4cd964; --warning: #ffb340; --danger: #ff5a4f;
+  --bg: #000000; --panel: #0e0e10; --panel-2: #1c1c1f; --line: #1d1d21; --line-strong: #2c2c31;
+  --text: #ffffff; --muted: #8b8e95; --info: #ffffff; --ok: var(--success); --warn: var(--warning); --err: #ff6b61; --skip: #5f6268;
+  --input: #0e0e10; --hover: #141416; --select: rgba(255, 255, 255, .08); --code-bg: #0b0b0d;
+  --tint-ok: rgba(76, 217, 100, .13); --tint-warn: rgba(255, 179, 64, .13); --tint-err: rgba(255, 90, 79, .13); --tint-info: rgba(255, 255, 255, .07);
+  --shadow: none;
+  --radius: 12px; --radius-sm: 11px; --radius-lg: 18px;
+  color-scheme: dark;
+}
+:root[data-theme='light'] {
+  --primary: #0d0d0f; --primary-hover: #2a2a2e; --primary-press: #000000; --accent-ink: #ffffff;
+  --success: #2fa84f; --warning: #d98a00; --danger: #e0342b;
+  --bg: #ffffff; --panel: #ffffff; --panel-2: #f1f2f4; --line: #eef0f3; --line-strong: #dfe1e5;
+  --text: #0d0d0f; --muted: #8e9199; --info: #0d0d0f; --err: #d63a30; --skip: #b3b6bd;
+  --input: #ffffff; --hover: #f6f7f8; --select: rgba(0, 0, 0, .05); --code-bg: #f6f7f8;
+  --tint-ok: rgba(47, 168, 79, .1); --tint-warn: rgba(217, 138, 0, .1); --tint-err: rgba(224, 52, 43, .09); --tint-info: rgba(0, 0, 0, .045);
+  --shadow: none;
+  color-scheme: light;
+}
+html, body { font-size: 14.5px; }
+::selection { background: rgba(127, 127, 127, .3); }
+a { color: var(--text); text-decoration: underline; text-decoration-color: var(--line-strong); text-underline-offset: 3px; }
+a:hover { text-decoration-color: var(--text); }
+.sidebar a, .tabs a, a.btn, .palette a { text-decoration: none; }
+h1 { font-size: 30px; font-weight: 750; letter-spacing: -.6px; }
+h2 { font-size: 18px; font-weight: 700; letter-spacing: -.2px; }
+h3 { color: var(--muted); font-weight: 650; }
+
+/* sidebar: same surface as the page, bold active item on grey, no coloured bar */
+.sidebar { background: var(--bg); border-right: 1px solid var(--line); }
+.sidebar a { color: var(--muted); font-weight: 600; border-radius: 12px; }
+.sidebar a:hover { background: var(--hover); color: var(--text); }
+.sidebar a.active { background: var(--panel-2); color: var(--text); box-shadow: none; }
+.sidebar a.active svg.i { color: var(--text); }
+.nav-group { color: var(--skip); font-weight: 650; letter-spacing: .04em; }
+.brand { border-bottom: 0; }
+.brand-mark { box-shadow: none; }
+.sidebar .nav-primary, .sidebar .nav-primary:hover, .nav-update { color: var(--accent-ink) !important; border-radius: 14px; }
+.sidebar .nav-primary svg.i { color: var(--accent-ink) !important; }
+
+/* page */
+.view { padding: 34px 40px 80px; }
+.page-head { margin-bottom: 24px; }
+.page-head .sub { font-weight: 550; }
+.card { border: 1.5px solid var(--line); border-radius: 18px; padding: 20px 22px; box-shadow: none; }
+.kpi { border: 1.5px solid var(--line); border-radius: 18px; box-shadow: none; }
+.kpi .v { font-size: 28px; font-weight: 800; letter-spacing: -.6px; }
+.kpi .l { font-weight: 600; }
+.empty { border: 1.5px dashed var(--line-strong); border-radius: 18px; font-weight: 550; }
+
+/* buttons: black (white in dark) for the main action, grey for the rest */
+button, .btn, .btn-link { border-radius: 12px; padding: 8px 15px; font-weight: 600; background: var(--panel-2); border-color: transparent; }
+button:hover, .btn:hover, .btn-link:hover { background: var(--line-strong); }
+:root[data-theme='light'] button:not(.primary):not(.danger):not(.link-button):not(.blk-del):not(.account-card):not(.macro-item) { background: var(--panel-2); border-color: transparent; }
+:root[data-theme='light'] button:not(.primary):not(.danger):not(.link-button):not(.blk-del):hover { background: #e6e7ea; }
+button.primary { background: var(--primary); color: var(--accent-ink); font-weight: 650; }
+button.primary:hover { background: var(--primary-hover); }
+button.danger { background: var(--tint-err); color: var(--err); }
+button.danger:hover { background: var(--danger); color: #fff; }
+button.small { border-radius: 10px; padding: 5px 11px; }
+input, select, textarea { border: 1.5px solid var(--line-strong); border-radius: 12px; padding: 8px 12px; }
+input:focus, select:focus, textarea:focus { border-color: var(--text); box-shadow: none; }
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--text); }
+input[type=checkbox] { accent-color: var(--text); }
+
+/* tables: hairlines, quiet headers */
+th { color: var(--skip); font-weight: 650; background: var(--panel); }
+th, td { border-bottom-color: var(--line); }
+tbody tr:hover td { background: var(--hover); }
+
+/* state marks: text in state colour, no blue */
+.badge { font-weight: 650; }
+.badge.info { color: var(--text); background: var(--tint-info); } .badge.info::before { background: var(--text); }
+.mark.info { background: var(--text); box-shadow: 0 0 0 3px var(--tint-info); }
+.dots i.info { background: var(--text); }
+.game-tag { background: var(--tint-info); color: var(--text); }
+.game-tag.live { background: var(--primary); color: var(--accent-ink); }
+.steps li.cur .n { color: var(--accent-ink); box-shadow: 0 0 0 4px var(--tint-info); }
+.infobox { border-color: var(--line-strong); background: var(--hover); }
+
+/* overlays */
+.modal-backdrop, .palette-backdrop { background: rgba(0, 0, 0, .35); backdrop-filter: blur(3px); }
+.modal, .palette, .ctx-menu { border: 1.5px solid var(--line); border-radius: 20px; box-shadow: 0 24px 60px rgba(0, 0, 0, .18); }
+.modal-head { border-bottom: 0; }
+.ctx-menu { border-radius: 14px; padding: 6px; }
+.ctx-item { border-radius: 10px; font-weight: 550; }
+.ctx-item:hover, .palette li.cur { background: var(--panel-2); color: var(--text); }
+.palette li.cur .k { color: var(--muted); }
+/* toasts: dark pill, the symbol carries the state */
+.toast { background: #0d0d0f; color: #fff; border: 0; border-radius: 16px; background-image: none; font-weight: 550; box-shadow: 0 12px 34px rgba(0, 0, 0, .22); }
+:root[data-theme='dark'] .toast { background: #26262a; }
+.toast.error, .toast.ok { background-image: none; }
+.toast::before { background: #fff; color: #000; }
+.toast.ok::before { background: var(--success); color: #fff; }
+.toast.error::before { background: var(--danger); color: #fff; }

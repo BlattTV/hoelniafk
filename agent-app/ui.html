@@ -5,35 +5,39 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:">
   <title>Hoelni Agent</title>
   <style>
-    :root { --bg:#f1f5f9; --panel:#ffffff; --line:#e2e8f0; --text:#0f172a; --muted:#64748b; --accent:#3b82f6; --accent-ink:#ffffff; --ok:#16a34a; --warn:#d97706; --err:#dc2626; --input:#ffffff;
-      --sans:'Segoe UI Variable Text','Segoe UI',system-ui,sans-serif; --mono:'Cascadia Mono',Consolas,monospace; }
-    @media (prefers-color-scheme: dark) { :root { --bg:#0b1220; --panel:#0f172a; --line:#1e293b; --text:#e2e8f0; --muted:#94a3b8; --accent:#3b82f6; --accent-ink:#ffffff; --ok:#4ade80; --warn:#fbbf24; --err:#f87171; --input:#0b1220; color-scheme: dark; } }
+    /* same look as Hoelni Control: white / black, black (white in dark) pill buttons, grey secondary text */
+    :root { --bg:#ffffff; --panel:#ffffff; --surface:#f5f6f8; --line:#eef0f3; --text:#0d0d0f; --muted:#8e9199; --accent:#0d0d0f; --accent-ink:#ffffff; --btn2:#f1f2f4; --ok:#2fa84f; --warn:#d98a00; --err:#d63a30; --input:#ffffff;
+      --sans:'Segoe UI Variable Text','Segoe UI',Inter,system-ui,sans-serif; --mono:'Cascadia Mono',Consolas,monospace; color-scheme: light; }
+    @media (prefers-color-scheme: dark) { :root { --bg:#000000; --panel:#0e0e10; --surface:#141416; --line:#1f1f23; --text:#ffffff; --muted:#8b8e95; --accent:#ffffff; --accent-ink:#000000; --btn2:#1e1e21; --ok:#4cd964; --warn:#ffb340; --err:#ff6b61; --input:#0e0e10; color-scheme: dark; } }
     * { box-sizing: border-box; }
-    body { margin:0; background:var(--bg); color:var(--text); font:14px/1.45 var(--sans); }
-    header { display:flex; align-items:center; gap:10px; padding:14px 18px; border-bottom:1px solid var(--line); background:var(--panel); }
-    header .mark { width:32px; height:32px; border-radius:8px; background:#0b1220 url(mark.png) center / contain no-repeat; }
-    .hero { display:block; width:200px; margin:6px auto 14px; border-radius:16px; background:#0b1220; padding:14px 18px; box-sizing:content-box; }
-    header strong { font-size:15px; }
+    body { margin:0; background:var(--bg); color:var(--text); font:14.5px/1.5 var(--sans); -webkit-font-smoothing: antialiased; }
+    header { display:flex; align-items:center; gap:12px; padding:18px 22px 6px; }
+    header .mark { width:34px; height:34px; border-radius:10px; background:#0b1220 url(mark.png) center / contain no-repeat; }
+    .hero { display:block; width:64px; height:64px; margin:0 0 16px; border-radius:16px; background:#0b1220 url(mark.png) center / contain no-repeat; }
+    header strong { font-size:20px; font-weight:750; letter-spacing:-.3px; }
     header small { color:var(--muted); margin-left:auto; font-family:var(--mono); }
-    main { padding:16px 18px; }
-    section { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px 16px; margin-bottom:12px; }
-    h2 { font-size:13px; text-transform:uppercase; letter-spacing:.06em; margin:0 0 10px; color:var(--muted); font-weight:600; }
-    label { display:block; margin-bottom:8px; font-size:13px; color:var(--muted); }
-    input { display:block; width:100%; margin-top:3px; padding:7px 9px; border:1px solid var(--line); border-radius:10px; background:var(--input); color:var(--text); font:inherit; }
-    button { padding:7px 14px; border:1px solid var(--line); border-radius:10px; background:var(--panel); color:var(--text); font:inherit; cursor:pointer; }
-    button.primary { background:var(--accent); border-color:var(--accent); color:var(--accent-ink); }
-    button:disabled { opacity:.6; cursor:default; }
+    main { padding:12px 22px 22px; }
+    section { background:var(--panel); border:1.5px solid var(--line); border-radius:18px; padding:18px 20px; margin-bottom:14px; }
+    h2 { font-size:18px; letter-spacing:-.2px; margin:0 0 12px; font-weight:700; }
+    label { display:block; margin-bottom:10px; font-size:13px; color:var(--muted); font-weight:600; }
+    input { display:block; width:100%; margin-top:5px; padding:10px 12px; border:1.5px solid var(--line); border-radius:12px; background:var(--input); color:var(--text); font:inherit; font-weight:500; }
+    input:focus { outline:none; border-color:var(--text); }
+    button { padding:10px 18px; border:0; border-radius:12px; background:var(--btn2); color:var(--text); font:inherit; font-weight:650; cursor:pointer; }
+    button.primary { background:var(--accent); color:var(--accent-ink); }
+    button:active { opacity:.8; }
+    button:disabled { opacity:.5; cursor:default; }
     .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
-    .state { display:inline-block; padding:2px 8px; border-radius:10px; font-weight:600; font-size:12px; border:1px solid currentColor; }
+    .state { display:inline-flex; align-items:center; gap:6px; padding:3px 10px; border-radius:99px; font-weight:650; font-size:12.5px; background:var(--surface); }
+    .state::before { content:''; width:8px; height:8px; border-radius:50%; background:currentColor; }
     .s-online { color:var(--ok); } .s-paused, .s-offline, .s-connecting { color:var(--warn); } .s-revoked { color:var(--err); }
-    .kv { display:grid; grid-template-columns: 130px 1fr; gap:4px 10px; margin:10px 0; }
-    .kv div:nth-child(odd) { color:var(--muted); }
+    .kv { display:grid; grid-template-columns: 140px 1fr; gap:8px 12px; margin:14px 0; }
+    .kv div:nth-child(odd) { color:var(--muted); font-weight:600; }
     .mono { font-family:var(--mono); font-size:12.5px; word-break:break-all; }
-    .muted { color:var(--muted); font-size:12.5px; }
-    .error { color:var(--err); margin-top:8px; }
+    .muted { color:var(--muted); font-size:13px; }
+    .error { color:var(--err); margin-top:8px; font-weight:600; }
     ul { margin:6px 0 0; padding-left:18px; }
-    details summary { cursor:pointer; color:var(--muted); }
-    .fingerprint { font-family:var(--mono); font-size:12px; padding:8px; background:var(--bg); border:1px solid var(--line); word-break:break-all; }
+    details summary { cursor:pointer; font-weight:700; font-size:16px; }
+    .fingerprint { font-family:var(--mono); font-size:12px; padding:10px; background:var(--surface); border-radius:12px; word-break:break-all; }
     [hidden] { display:none !important; }
   </style>
   <script src="ui.js" defer></script>
@@ -43,7 +47,7 @@
   <main>
     <!-- not signed in -->
     <section id="login" hidden>
-      <img class="hero" src="logo.png" alt="Hoelni AFK Client">
+      <span class="hero" role="img" aria-label="Hoelni"></span>
       <h2>Anmelden</h2>
       <p class="muted">Melde dich mit dem Hoelni-Konto an, das du bekommen hast. Danach kann dieser PC AFK-Sessions für dieses Konto ausführen – du siehst hier jederzeit, was läuft, und kannst pausieren.</p>
       <label>Benutzername <input id="user" autocomplete="username"></label>

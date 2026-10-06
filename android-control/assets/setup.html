@@ -4,18 +4,20 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Hoelni Control</title>
+<meta name="color-scheme" content="light dark">
 <style>
-  :root { color-scheme: dark; }
-  body { margin: 0; background: #0b1220; color: #e6edf7; font: 15px/1.5 Inter, 'Segoe UI', Roboto, system-ui, sans-serif; }
-  main { max-width: 420px; margin: 0 auto; padding: 48px 20px; }
-  img { display: block; width: 180px; margin: 0 auto 8px; }
-  h1 { text-align: center; font-size: 22px; margin: 6px 0; }
-  p { color: #8ea0bd; text-align: center; margin: 0 0 24px; }
-  label { display: block; font-size: 13px; color: #8ea0bd; margin: 0 2px 6px; }
-  input { width: 100%; box-sizing: border-box; padding: 13px; border-radius: 13px; border: 1px solid #1e2a44; background: #0d1628; color: inherit; font: inherit; outline: none; }
-  input:focus { border-color: #3b82f6; }
-  button { width: 100%; margin-top: 16px; padding: 13px; border: 0; border-radius: 14px; background: #3b82f6; color: #fff; font: inherit; font-weight: 700; }
-  .err { color: #fca5a5; text-align: center; margin-top: 12px; min-height: 1.4em; }
+  :root { color-scheme: light; --bg: #fff; --text: #0d0d0f; --muted: #8e9199; --line: #eef0f3; --btn: #0d0d0f; --btn-text: #fff; --err: #d63a30; }
+  @media (prefers-color-scheme: dark) { :root { color-scheme: dark; --bg: #000; --text: #fff; --muted: #8b8e95; --line: #1f1f23; --btn: #fff; --btn-text: #000; --err: #ff6b61; } }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.5 -apple-system, Inter, Roboto, system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+  main { max-width: 420px; margin: 0 auto; padding: 64px 24px; }
+  img { display: none; }
+  h1 { font-size: 32px; font-weight: 800; letter-spacing: -.7px; margin: 0 0 6px; }
+  p { color: var(--muted); font-weight: 600; margin: 0 0 30px; }
+  label { display: block; font-size: 14px; color: var(--muted); font-weight: 600; margin: 0 2px 6px; }
+  input { width: 100%; box-sizing: border-box; padding: 15px 16px; border-radius: 16px; border: 1.5px solid var(--line); background: var(--bg); color: inherit; font: inherit; outline: none; }
+  input:focus { border-color: var(--text); }
+  button { width: 100%; margin-top: 18px; padding: 16px; border: 0; border-radius: 18px; background: var(--btn); color: var(--btn-text); font: inherit; font-weight: 700; }
+  .err { color: var(--err); margin-top: 12px; min-height: 1.4em; font-weight: 600; }
 </style>
 </head>
 <body>
