@@ -445,7 +445,7 @@ Von Hand geht es mit `hoelni-updates build`.
 |---|---|
 | Logs live | `journalctl -u hoelni-backend -f` |
 | Neustart | `systemctl restart hoelni-backend` |
-| Update | Installationsbefehl aus C3 erneut ausführen |
+| Update | `hoelni-backend update` (privates Repository: `GIT_TOKEN=… hoelni-backend update`); beim allerersten Mal den Installationsbefehl aus C3 erneut ausführen. **Die Web-App Hoelni Control (/app) kommt vom Backend** – ein neues Aussehen der App gibt es erst nach diesem Update, nicht über „Update installieren“ der Suite. |
 | Sicherung | Datei `/var/lib/hoelni-backend/backend.db` (plus `/etc/hoelni-backend/`) sichern – oder den Container per Proxmox-Backup |
 | Admin-Passwort vergessen | `hoelni-backend user passwd <name>` im Container |
 

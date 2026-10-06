@@ -91,6 +91,23 @@ npm ci --omit=dev --no-audit --no-fund --silent
 cat >/usr/local/bin/hoelni-backend <<EOF
 #!/bin/sh
 # backend CLI, runs as the service user
+# "hoelni-backend update": newest backend + Hoelni Control web app from the branch, then restart
+# (private repository: GIT_TOKEN=<token> hoelni-backend update)
+if [ "\$1" = "update" ]; then
+  [ "\$(id -u)" -eq 0 ] || { echo "run as root"; exit 1; }
+  set -e
+  cd $APP_DIR/repo
+  if [ -n "\${GIT_TOKEN:-}" ]; then
+    git -c credential.helper= -c "credential.helper=!f() { echo username=x-access-token; echo password=\$GIT_TOKEN; }; f" fetch --quiet --depth 1 origin $BRANCH
+  else
+    git fetch --quiet --depth 1 origin $BRANCH
+  fi
+  git checkout --quiet --force FETCH_HEAD
+  cd backend && npm ci --omit=dev --no-audit --no-fund --silent
+  systemctl restart hoelni-backend
+  echo "Backend updated to \$(git -C $APP_DIR/repo log -1 --format='%h %cd' --date=format:'%Y-%m-%d %H:%M') and restarted."
+  exit 0
+fi
 if [ "\$(id -u)" -eq 0 ]; then exec runuser -u $SVC_USER -- /usr/bin/env HOME=$DATA_DIR HOELNI_BACKEND_CONFIG=$CONF_DIR/config.json node $APP_DIR/repo/backend/src/cli.mjs "\$@"; fi
 exec /usr/bin/env HOELNI_BACKEND_CONFIG=$CONF_DIR/config.json node $APP_DIR/repo/backend/src/cli.mjs "\$@"
 EOF
@@ -233,5 +250,5 @@ case "$TLS" in
   self)  echo "Address:      https://$DOMAIN   (router: forward TCP 443 to this container; apps confirm the fingerprint above once)" ;;
 esac
 echo "Check:        curl -s https://$DOMAIN/health"
-echo "Commands:     hoelni-backend info | user add <name> [--admin] | user passwd <name> | user list | devices"
+echo "Commands:     hoelni-backend info | update | user add <name> [--admin] | user passwd <name> | user list | devices"
 echo "Logs:         journalctl -u hoelni-backend -f"
