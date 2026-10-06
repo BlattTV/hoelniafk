@@ -29,10 +29,10 @@ set -euo pipefail
 REPO="${REPO:-https://github.com/BlattTV/hoelniafk.git}"
 BRANCH="${BRANCH:-claude/practical-hopper-o4bpyw}"
 DOMAIN="${DOMAIN:-afk.hoelni.de}"
-TLS="${TLS:-caddy}"
+TLS="${TLS:-}"
 PORT="${PORT:-8480}"
 ADMIN="${ADMIN:-}"
-UPDATES="${UPDATES:-0}"
+UPDATES="${UPDATES:-}"
 GIT_TOKEN="${GIT_TOKEN:-}"
 APP_DIR=/opt/hoelni-backend
 DATA_DIR=/var/lib/hoelni-backend
@@ -45,6 +45,16 @@ fail() { printf '\033[1;31mERROR:\033[0m %s\n' "$*" >&2; exit 1; }
 [ "$(id -u)" -eq 0 ] || fail "run as root (e.g. 'sudo bash' or in the container console)"
 command -v apt-get >/dev/null || fail "this installer supports Debian/Ubuntu containers (apt-get not found)"
 command -v systemctl >/dev/null || fail "systemd is required"
+# Running it again on an existing install: keep its TLS mode and update server unless given
+CONF_FILE="$CONF_DIR/config.json"
+if [ -z "$TLS" ]; then
+  if [ -f "$CONF_FILE" ] && grep -q '"cert": *"[^"]' "$CONF_FILE"; then TLS=self
+  elif [ -f "$CONF_FILE" ] && grep -q '"host": *"0\.0\.0\.0"' "$CONF_FILE"; then TLS=proxy
+  else TLS=caddy; fi
+fi
+if [ -z "$UPDATES" ]; then
+  if [ -f "$CONF_FILE" ] && grep -q '"updatesUpstream": *"http' "$CONF_FILE"; then UPDATES=1; else UPDATES=0; fi
+fi
 case "$TLS" in caddy|proxy|self) ;; *) fail "TLS must be caddy, proxy or self" ;; esac
 
 say "Installing system packages"

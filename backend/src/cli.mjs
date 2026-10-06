@@ -151,6 +151,16 @@ switch (cmd) {
     const users = accounts.listUsers();
     const devices = accounts.listDevices().filter((d) => !d.revoked);
     console.log(`hoelni-backend ${pkg.version}`);
+    // which code is installed (the checkout of the installer / "hoelni-backend update")
+    try {
+      const head = new URL('../../.git/HEAD', import.meta.url);
+      const ref = fs.readFileSync(head, 'utf8').trim();
+      const commit = ref.startsWith('ref:') ? fs.readFileSync(new URL(`../../.git/${ref.slice(5).trim()}`, import.meta.url), 'utf8').trim() : ref;
+      console.log(`Installed:     ${commit.slice(0, 7)} (${fs.statSync(head).mtime.toISOString().slice(0, 16).replace('T', ' ')} UTC) – newer: hoelni-backend update`);
+    } catch {
+      /* not a git checkout */
+    }
+    console.log(`Control app:   ${fs.existsSync(new URL('../../control-app/inter-latin.woff2', import.meta.url)) ? 'current design (light / dark)' : 'old design – run: hoelni-backend update'}`);
     console.log(`Listening:     ${cfg.host}:${cfg.port}${cfg.tls?.cert ? ' (TLS)' : cfg.trustProxy ? ' (behind a reverse proxy)' : ' (plain HTTP)'}`);
     if (cfg.publicUrl) console.log(`Public URL:    ${cfg.publicUrl}`);
     console.log(`Updates:       ${cfg.updatesUpstream ? `${cfg.publicUrl || ''}/updates  → ${cfg.updatesUpstream}` : 'not distributed (hoelni-backend config set updatesUpstream http://127.0.0.1:8787)'}`);
