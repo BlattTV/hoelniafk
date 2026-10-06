@@ -34,10 +34,10 @@ public class MainActivity extends Activity {
   @Override
   protected void onCreate(Bundle state) {
     super.onCreate(state);
-    getWindow().setStatusBarColor(Color.parseColor("#0b1220"));
-    getWindow().setNavigationBarColor(Color.parseColor("#0d1424"));
+    getWindow().setStatusBarColor(Color.parseColor("#000000"));
+    getWindow().setNavigationBarColor(Color.parseColor("#000000"));
     web = new WebView(this);
-    web.setBackgroundColor(Color.parseColor("#0b1220"));
+    web.setBackgroundColor(Color.parseColor("#000000"));
     WebSettings s = web.getSettings();
     s.setJavaScriptEnabled(true);
     s.setDomStorageEnabled(true);

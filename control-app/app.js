@@ -70,6 +70,7 @@
     play: '<path d="M7 4.5v15l12-7.5z"/>',
     stop: '<rect x="6" y="6" width="12" height="12" rx="2"/>',
     reconnect: '<path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/>',
+    back: '<path d="M15 5l-7 7 7 7"/>',
   };
   function icon(name) {
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -221,7 +222,8 @@
         paint();
         return;
       }
-      if (tab === 'home') [cache.summary, cache.stars] = await Promise.all([pc('GET', '/api/summary'), pc('GET', '/api/stars').catch(() => null)]);
+      if (tab === 'home') [cache.summary, cache.pf] = await Promise.all([pc('GET', '/api/summary'), pc('GET', `/api/stars/portfolio?range=${pfRange}`).catch(() => null)]);
+      if (tab === 'people') cache.pf = await pc('GET', `/api/stars/portfolio?range=${pfRange}`).catch(() => cache.pf || null);
       if (tab === 'sessions' || tab === 'home' || tab === 'chat') cache.sessions = await pc('GET', '/api/sessions');
       if (tab === 'people' || tab === 'sessions' || !cache.rows) cache.rows = (await pc('GET', '/api/dashboard')).rows;
       if (tab === 'chat') cache.chat = await pc('GET', '/api/chat?limit=200');
@@ -257,109 +259,211 @@
   }
 
   // ------------------------------------------------------------------ views
+  // ------------------------------------------------------------------ portfolio look
+  // Stars are shown like a broker app shows money: the balance over time as a price chart, every
+  // identity as a "share" with its balance and its change over the chosen range.
+  const RANGES = [['1d', '1T', 'Heute'], ['1w', '1W', '1 Woche'], ['1m', '1M', '1 Monat'], ['1y', '1J', '1 Jahr'], ['max', 'Max', 'Gesamt']];
+  let pfRange = (() => {
+    try {
+      const v = localStorage.getItem('hoelni.range');
+      return RANGES.some((r) => r[0] === v) ? v : '1d';
+    } catch {
+      return '1d';
+    }
+  })();
+  function setRange(v) {
+    pfRange = v;
+    try {
+      localStorage.setItem('hoelni.range', v);
+    } catch {
+      /* private mode */
+    }
+  }
+  // avatar fill per identity (follows the identity, not its rank in the list)
+  const AVA = ['#5856d6', '#0e8f82', '#c0504d', '#b7791f', '#3478c6', '#8e44ad', '#2f855a', '#b03a68'];
+  const avaColor = (id) => AVA[Math.abs(Number(id) || 0) % AVA.length];
+  const initials = (name) => (String(name || '').replace(/[^A-Za-z0-9]/g, '').slice(0, 2) || '?').toUpperCase();
+  const dir = (n) => (n > 0 ? 'up' : n < 0 ? 'down' : 'flat');
+  const arrow = (n) => (n > 0 ? '▲' : n < 0 ? '▼' : '');
+  const pctNum = (p) => Math.abs(p).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  /** "▲ 150 ★ (1,23 %)" */
+  // a percent from a tiny start value says nothing (0 → 2 stars …): then only the stars
+  const pctOk = (p) => p !== null && p !== undefined && Math.abs(p) < 1000;
+  const changeLong = (c, p) => `${arrow(c)} ${fmtNum(Math.abs(c))} ★${pctOk(p) ? ` (${pctNum(p)} %)` : ''}`.trim();
+  /** list column: "▲ 1,23 %" or, without a start value, "▲ 12 ★" */
+  const changeShort = (c, p) => (c === 0 ? '0 ★' : !pctOk(p) ? `${arrow(c)} ${fmtNum(Math.abs(c))} ★` : `${arrow(c)} ${pctNum(p)} %`);
+  function pointTime(iso, range) {
+    const d = new Date(iso);
+    if (range === '1d') return `${pad2(d.getHours())}:${pad2(d.getMinutes())} Uhr`;
+    if (range === '1w') return `${d.toLocaleDateString('de-DE', { weekday: 'short', day: 'numeric', month: 'numeric' })}, ${pad2(d.getHours())}:00`;
+    return d.toLocaleDateString('de-DE', { day: 'numeric', month: 'short', year: 'numeric' });
+  }
+
+  /** Price line (one series): dotted line at the start value; drag over it to read a point. */
+  function trChart(points, cls, onScrub) {
+    const wrap = h('div', { class: 'tr-chart', role: 'img', 'aria-label': 'Verlauf des Sterne-Stands' });
+    if (!points || points.length < 2) return wrap;
+    const W = 1000;
+    const HGT = 190;
+    const PAD = 14;
+    let min = Math.min(...points.map((p) => p.v));
+    let max = Math.max(...points.map((p) => p.v));
+    if (max === min) {
+      max += 1;
+      min -= 1;
+    }
+    const x = (i) => (i / (points.length - 1)) * W;
+    const y = (v) => PAD + (1 - (v - min) / (max - min)) * (HGT - 2 * PAD);
+    const NS = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(NS, 'svg');
+    svg.setAttribute('viewBox', `0 0 ${W} ${HGT}`);
+    svg.setAttribute('preserveAspectRatio', 'none');
+    const base = document.createElementNS(NS, 'line');
+    for (const [k, v] of Object.entries({ x1: 0, x2: W, y1: y(points[0].v), y2: y(points[0].v), class: 'base' })) base.setAttribute(k, String(v));
+    const line = document.createElementNS(NS, 'path');
+    line.setAttribute('class', `line ${cls}`);
+    line.setAttribute('d', points.map((p, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(p.v).toFixed(1)}`).join(''));
+    svg.append(base, line);
+    const cross = h('div', { class: 'cross' });
+    const knob = h('div', { class: 'knob' });
+    wrap.append(svg, cross, knob);
+    const at = (clientX) => {
+      const r = wrap.getBoundingClientRect();
+      const i = Math.max(0, Math.min(points.length - 1, Math.round(((clientX - r.left) / r.width) * (points.length - 1))));
+      const left = `${(x(i) / W) * 100}%`;
+      cross.style.left = left;
+      knob.style.left = left;
+      knob.style.top = `${(y(points[i].v) / HGT) * 100}%`;
+      wrap.classList.add('scrub');
+      onScrub(points[i]);
+    };
+    const end = () => {
+      wrap.classList.remove('scrub');
+      onScrub(null);
+    };
+    wrap.addEventListener('pointerdown', (e) => at(e.clientX));
+    wrap.addEventListener('pointermove', (e) => (e.pointerType === 'mouse' || wrap.classList.contains('scrub')) && at(e.clientX));
+    wrap.addEventListener('pointerleave', end);
+    wrap.addEventListener('pointerup', (e) => e.pointerType !== 'mouse' && end());
+    wrap.addEventListener('pointercancel', end);
+    return wrap;
+  }
+
+  /** Big balance, change over the range, price line and range switch. */
+  function priceBlock(label, value, series, range, onRange) {
+    const cls = dir(series.change);
+    const valueEl = h('div', { class: 'pf-value' }, fmtNum(value), h('small', null, '★'));
+    const when = RANGES.find((r) => r[0] === range)?.[2] || '';
+    const changeEl = h('div', { class: `pf-change ${cls}` });
+    const showChange = () => fill(changeEl, changeLong(series.change, series.changePct), h('span', { class: 'when' }, when));
+    showChange();
+    const chart = trChart(series.points, cls, (p) => {
+      if (!p) {
+        fill(valueEl, fmtNum(value), h('small', null, '★'));
+        changeEl.className = `pf-change ${cls}`;
+        showChange();
+        return;
+      }
+      const start = series.points[0].v;
+      const c = p.v - start;
+      fill(valueEl, fmtNum(p.v), h('small', null, '★'));
+      changeEl.className = `pf-change ${dir(c)}`;
+      fill(changeEl, changeLong(c, start > 0 ? (c / start) * 100 : null), h('span', { class: 'when' }, pointTime(p.t, range)));
+    });
+    return h('div', { class: 'pf' },
+      h('div', { class: 'pf-label' }, label),
+      valueEl,
+      changeEl,
+      chart,
+      h('div', { class: 'ranges' }, RANGES.map(([id, short]) => h('button', { class: id === range ? 'on' : '', onclick: () => onRange(id) }, short))));
+  }
+
+  /** One identity like a share: avatar, name, where it is online; balance and change on the right. */
+  function stockRow(r, onclick) {
+    const on = r.online && r.online.length > 0;
+    return h('div', { class: 'stock', onclick },
+      h('div', { class: `ava ${on ? 'on' : ''}`, style: { background: avaColor(r.id) } }, initials(r.name)),
+      h('div', { class: 'main' }, h('div', { class: 'name' }, r.name), h('div', { class: 'meta' }, on ? `online · ${r.online.join(', ')}` : 'offline')),
+      h('div', { class: 'right' }, h('div', { class: 'val' }, `${fmtNum(r.stars)} ★`), h('div', { class: `chg ${dir(r.change)}` }, changeShort(r.change, r.changePct))));
+  }
+
   function viewHome() {
     const s = cache.summary;
     if (!s) return h('div', { class: 'empty' }, 'Lädt…');
-    const pct = s.sessions.wanted ? Math.round((s.sessions.online / s.sessions.wanted) * 100) : 0;
-    const bar = h('i');
-    bar.style.width = `${Math.min(100, pct)}%`;
+    const pf = cache.pf;
+    const ids = pf ? pf.identities : [];
+    const problems = s.sessions.problems;
     return h('div', null,
-      h('div', { class: 'hero' },
-        h('div', { class: 'big' }, String(s.sessions.online), h('small', null, ` / ${s.sessions.wanted}`)),
-        h('div', { class: 'label' }, `Sessions online${s.sessions.problems ? ` · ${s.sessions.problems} mit Problemen` : ''} · auf „${status.active.name}“`),
-        h('div', { class: 'bar' }, bar)),
-      h('div', { class: 'stats' },
-        h('div', { class: 'stat' }, h('b', null, `${s.identities.ready}/${s.identities.total}`), h('span', null, 'Identitäten bereit')),
-        h('div', { class: 'stat' }, h('b', null, `${s.agents.online}`), h('span', null, `Agents online`)),
-        h('button', { class: 'stat tap', onclick: () => starsSheet() }, h('b', null, fmtNum(cache.stars?.total ?? s.stars)), h('span', null, 'Sterne gesamt'),
-          cache.stars?.gained.h24 ? h('em', null, `+${fmtNum(cache.stars.gained.h24)} in 24 h`) : null)),
+      pf
+        ? priceBlock('Sterne-Portfolio', pf.total, pf, pf.range, (v) => { setRange(v); refresh(true); })
+        : h('div', { class: 'pf' }, h('div', { class: 'pf-label' }, 'Sterne-Portfolio'), h('div', { class: 'pf-value' }, fmtNum(s.stars), h('small', null, '★'))),
       s.starAlerts && s.starAlerts.length ? alertsCard(s.starAlerts) : null,
-      cache.stars ? starsCard(cache.stars) : null,
-      h('div', { class: 'section-title' }, 'Schnellaktionen'),
-      h('div', { class: 'actions' },
-        h('button', { class: 'action', onclick: () => bulk('startSessions', 'Die Accounts gehen nacheinander online – in den nächsten Minuten') }, icon('play'), 'Alle online'),
-        h('button', { class: 'action', onclick: () => confirm('Alle Sessions offline setzen?') && bulk('stopSessions', 'Alle Sessions gestoppt') }, icon('stop'), 'Alle offline'),
-        h('button', { class: 'action', onclick: () => bulk('reconnect', 'Neu verbinden…') }, icon('reconnect'), 'Neu verbinden')),
-      h('div', { class: 'section-title' }, 'Sessions'),
-      s.sessions.list.length ? s.sessions.list.map((x) => sessionRow((cache.sessions || []).find((y) => y.id === x.id) || { id: x.id, state: x.state, serverName: x.server, username: x.name })) : h('div', { class: 'card empty' }, 'Keine Session soll online sein.'),
-      h('div', { class: 'section-title' }, 'Live'),
-      h('div', { class: 'card feed' }, feed.length ? feed.slice(0, 10).map((f) => h('div', null, h('time', null, timeOf(f.at)), h('span', null, f.text))) : h('span', { class: 'muted' }, live ? 'Wartet auf Ereignisse…' : 'Live-Verbindung wird aufgebaut…')));
+      h('div', { class: 'h2' }, h('b', null, 'Identitäten'), h('button', { onclick: () => { tab = 'people'; shell(); refresh(); } }, `Alle ${ids.length || s.identities.total} ›`)),
+      ids.length ? h('div', { class: 'list' }, ids.slice(0, 6).map((r) => stockRow(r, () => identityPage(r.id)))) : h('div', { class: 'empty' }, 'Keine Identitäten.'),
+      h('div', { class: 'h2' }, h('b', null, 'Sessions'), h('button', { onclick: () => { tab = 'sessions'; shell(); refresh(); } }, 'Alle ›')),
+      h('div', { class: 'facts' },
+        h('div', null, h('span', null, 'Online'), h('b', null, `${s.sessions.online} von ${s.sessions.wanted}`)),
+        h('div', null, h('span', null, 'Mit Problemen'), h('b', { class: problems ? 'down' : '' }, String(problems))),
+        h('div', null, h('span', null, 'Identitäten bereit'), h('b', null, `${s.identities.ready} von ${s.identities.total}`)),
+        h('div', null, h('span', null, 'Agents online'), h('b', null, String(s.agents.online))),
+        h('div', null, h('span', null, 'Läuft auf'), h('b', null, status.active.name)),
+        h('div', null, h('span', null, 'Sterne 24 h'), h('b', { class: s.starsGained24h ? 'up' : '' }, s.starsGained24h ? `+${fmtNum(s.starsGained24h)}` : '0'))),
+      h('div', { class: 'pair' },
+        h('button', { class: 'pill-btn', onclick: () => bulk('startSessions', 'Die Accounts gehen nacheinander online – in den nächsten Minuten') }, 'Alle online'),
+        h('button', { class: 'pill-btn dark', onclick: () => confirm('Alle Sessions offline setzen? Die Accounts gehen nacheinander, über einige Minuten verteilt.') && bulk('stopSessions', 'Die Accounts gehen nacheinander offline – in den nächsten Minuten') }, 'Alle offline')),
+      h('div', { style: { display: 'flex', justifyContent: 'space-between' } },
+        h('button', { class: 'textlink', onclick: () => bulk('reconnect', 'Neu verbinden…') }, 'Alle neu verbinden'),
+        h('button', { class: 'textlink', onclick: () => starsSheet() }, 'Sterne-Statistik ›')),
+      h('div', { class: 'h2' }, h('b', null, 'Aktivität')),
+      h('div', { class: 'feed' }, feed.length ? feed.slice(0, 10).map((f) => h('div', null, h('time', null, timeOf(f.at)), h('span', null, f.text))) : h('div', { class: 'muted' }, live ? 'Wartet auf Ereignisse…' : 'Live-Verbindung wird aufgebaut…')));
+  }
+
+  /** Full page of one identity: balance as a price chart, figures, servers; "Online" / "Offline" like buy / sell. */
+  function identityPage(id) {
+    let range = pfRange;
+    const head = h('div', null, h('div', { class: 'empty' }, 'Lädt…'));
+    const servers = h('div');
+    const dash = (cache.rows || []).find((x) => x.id === id);
+    const title = h('div', { class: 't' }, h('b', null, dash ? dash.minecraft.username || dash.label : `#${id}`), h('span', null, dash ? `${dash.label || ''}${dash.number ? ` · Nr. ${pad2(dash.number)}` : ''}` : ''));
+    let close = () => undefined;
+    const go = (action, ok) => act(async () => {
+      await pc('POST', '/api/bulk', { action, identityIds: [id] });
+      await draw();
+      await details();
+    }, ok);
+    const draw = async () => {
+      try {
+        const d = await pc('GET', `/api/stars/identity/${id}?range=${range}`);
+        fill(title, h('b', null, d.name), h('span', null, d.online.length ? `online · ${d.online.join(', ')}` : 'offline'));
+        fill(head,
+          priceBlock('Sterne', d.stars, d, range, (v) => { range = v; setRange(v); void draw(); }),
+          h('div', { class: 'h2' }, h('b', null, 'Kennzahlen')),
+          h('div', { class: 'facts' },
+            h('div', null, h('span', null, 'Gewonnen 24 h'), h('b', { class: d.gained.h24 ? 'up' : '' }, `+${fmtNum(d.gained.h24)}`)),
+            h('div', null, h('span', null, 'Gewonnen 7 Tage'), h('b', { class: d.gained.d7 ? 'up' : '' }, `+${fmtNum(d.gained.d7)}`)),
+            h('div', null, h('span', null, 'Gewonnen 30 Tage'), h('b', { class: d.gained.d30 ? 'up' : '' }, `+${fmtNum(d.gained.d30)}`)),
+            h('div', null, h('span', null, 'Status'), h('b', { class: d.online.length ? 'up' : '' }, d.online.length ? 'online' : 'offline'))));
+      } catch (e) {
+        fill(head, h('div', { class: 'banner err' }, e.message));
+      }
+    };
+    let details = async () => undefined;
+    const row = dash || { id, label: '', number: 0, minecraft: {}, stars: 0, ready: false, health: '', sessions: [] };
+    close = sheet({ page: true },
+      h('div', { class: 'page-top' }, h('button', { class: 'back', 'aria-label': 'Zurück', onclick: () => close() }, icon('back')), title),
+      head,
+      servers,
+      h('div', { class: 'sticky-pair' }, h('div', { class: 'pair' },
+        h('button', { class: 'pill-btn', onclick: () => go('startSessions', 'Geht online') }, 'Online'),
+        h('button', { class: 'pill-btn dark', onclick: () => go('stopSessions', 'Geht offline') }, 'Offline'))));
+    details = personDetails(row, servers);
+    void draw();
+    void details();
+    return close;
   }
 
   // ------------------------------------------------------------------ stars
   const fmtNum = (n) => Number(n || 0).toLocaleString('de-DE');
-  let starsRange = 'day';
-
-  /** Bars of stars gained (one series, one hue); tap a bar for its value. */
-  function starsChart(points, label, caption) {
-    const W = 300;
-    const HGT = 96;
-    const max = Math.max(1, ...points.map((p) => p.gained));
-    const step = W / points.length;
-    const bw = Math.max(2, step - 2); // 2px gap between bars
-    const NS = 'http://www.w3.org/2000/svg';
-    const svg = document.createElementNS(NS, 'svg');
-    svg.setAttribute('viewBox', `0 0 ${W} ${HGT + 1}`);
-    svg.setAttribute('class', 'chart');
-    svg.setAttribute('role', 'img');
-    svg.setAttribute('aria-label', `${caption.textContent}`);
-    const el = (tag, attrs) => {
-      const e = document.createElementNS(NS, tag);
-      for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, String(v));
-      return e;
-    };
-    // recessive guide at the maximum
-    svg.append(el('line', { x1: 0, x2: W, y1: 8, y2: 8, class: 'grid' }));
-    const def = caption.textContent;
-    points.forEach((p, i) => {
-      const x = i * step + (step - bw) / 2;
-      const hgt = p.gained ? Math.max(3, (p.gained / max) * (HGT - 10)) : 0;
-      const r = Math.min(4, bw / 2, hgt);
-      if (hgt) {
-        // rounded top (4px), square on the baseline
-        const y = HGT - hgt;
-        svg.append(el('path', { class: 'bar', d: `M${x},${HGT} V${y + r} Q${x},${y} ${x + r},${y} H${x + bw - r} Q${x + bw},${y} ${x + bw},${y + r} V${HGT} Z` }));
-      }
-      const hit = el('rect', { x: i * step, y: 0, width: step, height: HGT, class: 'hit' });
-      const show = () => {
-        caption.textContent = `${label(p)}: +${fmtNum(p.gained)} ★`;
-        svg.querySelectorAll('.hit.on').forEach((n) => n.classList.remove('on'));
-        hit.classList.add('on');
-      };
-      hit.addEventListener('pointerenter', show);
-      hit.addEventListener('click', show);
-      svg.append(hit);
-    });
-    svg.addEventListener('pointerleave', () => {
-      caption.textContent = def;
-      svg.querySelectorAll('.hit.on').forEach((n) => n.classList.remove('on'));
-    });
-    svg.append(el('line', { x1: 0, x2: W, y1: HGT + 0.5, y2: HGT + 0.5, class: 'axis' }));
-    return svg;
-  }
-
-  function starsCard(st) {
-    const daily = starsRange === 'day';
-    const pts = daily ? st.hourly : st.daily;
-    const sum = pts.reduce((a, p) => a + p.gained, 0);
-    const caption = h('div', { class: 'chart-cap' }, daily ? `+${fmtNum(sum)} ★ in den letzten 24 Stunden` : `+${fmtNum(sum)} ★ in den letzten 30 Tagen`);
-    const label = daily
-      ? (p) => `${pad2(new Date(p.t).getHours())}–${pad2((new Date(p.t).getHours() + 1) % 24)} Uhr`
-      : (p) => new Date(`${p.day}T12:00:00`).toLocaleDateString('de-DE', { weekday: 'short', day: 'numeric', month: 'numeric' });
-    const kpi = (v, t) => h('div', null, h('b', null, `+${fmtNum(v)}`), h('span', null, t));
-    return h('div', { class: 'card stars' },
-      h('div', { class: 'stars-head' },
-        h('div', null, h('div', { class: 'name' }, h('b', null, 'Sterne')), h('div', { class: 'muted small' }, `${fmtNum(st.online)} ★ auf den Accounts, die gerade online sind`)),
-        h('div', { class: 'seg' },
-          h('button', { class: daily ? 'on' : '', onclick: () => { starsRange = 'day'; paint(); } }, '24 h'),
-          h('button', { class: daily ? '' : 'on', onclick: () => { starsRange = 'month'; paint(); } }, '30 Tage'))),
-      h('div', { class: 'kpis' }, kpi(st.gained.h24, '24 Stunden'), kpi(st.gained.d7, '7 Tage'), kpi(st.gained.d30, '30 Tage'), kpi(st.gained.d365, '1 Jahr')),
-      caption,
-      starsChart(pts, label, caption),
-      h('div', { class: 'chart-x' }, h('span', null, daily ? 'vor 24 h' : 'vor 30 Tagen'), h('span', null, daily ? 'jetzt' : 'heute')),
-      h('button', { class: 'btn wide', style: { marginTop: '10px' }, onclick: () => starsSheet() }, 'Sterne pro Identität'));
-  }
-
   // ------------------------------------------------------------------ star alerts
   const ALERT_KIND = { stall: 'Keine Sterne', spike: 'Ungewöhnlich viele Sterne', drop: 'Sterne verloren', test: 'Test' };
   const alertTitle = (a) => (a.kind === 'test' ? 'Test' : `${a.name}${a.server ? ` (${a.server})` : ''} – ${ALERT_KIND[a.kind] || a.kind}`);
@@ -367,10 +471,9 @@
 
   /** Warnings of the last 24 hours on the home tab. */
   function alertsCard(list) {
-    return h('div', { class: 'card alerts' },
-      h('div', { class: 'name' }, h('b', null, 'Stern-Warnungen'), h('span', { class: 'muted small' }, ' · letzte 24 h')),
-      list.slice(0, 3).map(alertRow),
-      h('button', { class: 'btn wide', style: { marginTop: '8px' }, onclick: () => alertsSheet() }, 'Alle Warnungen und Einstellungen'));
+    return h('div', null,
+      h('div', { class: 'h2' }, h('b', null, 'Warnungen'), h('button', { onclick: () => alertsSheet() }, 'Alle ›')),
+      h('div', { class: 'alerts' }, list.slice(0, 3).map(alertRow)));
   }
 
   async function alertsSheet() {
@@ -459,20 +562,23 @@
     const [cls, text] = stateOf(s.state);
     const name = nameOf(s);
     return h('div', { class: 'row', onclick: () => sessionSheet(s) },
-      h('div', { class: 'avatar' }, name.slice(0, 2).toUpperCase()),
-      h('div', { class: 'main' }, h('div', { class: 'name' }, name), h('div', { class: 'meta' }, s.serverName || '', s.agentId ? ' · Agent' : '', s.stats?.ping != null ? ` · ${s.stats.ping} ms` : '')),
+      h('div', { class: `ava ${s.state === 'ONLINE' ? 'on' : ''}`, style: { background: avaColor(String(s.id).split(':')[0]) } }, initials(name)),
+      h('div', { class: 'main' }, h('div', { class: 'name' }, name), h('div', { class: 'meta' }, s.serverName || '', s.agentId ? ' · Agent' : '', s.stats?.ping != null ? ` · ${s.stats.ping} ms` : '', s.leaveAt ? ` · geht um ${timeOf(s.leaveAt)}` : '')),
       h('span', { class: `pill ${cls}` }, text));
   }
 
   // ------------------------------------------------------------------ sheets
   let openChat = null;
+  /** Bottom sheet; sheet({ page: true }, …) opens a full-screen page instead. */
   function sheet(...content) {
+    const page = !!(content[0] && content[0].page === true && !(content[0] instanceof Node));
+    if (page) content = content.slice(1);
     const root = document.getElementById('sheet-root');
     const close = () => {
       root.replaceChildren();
       openChat = null;
     };
-    const bg = h('div', { class: 'sheet-bg', onclick: (e) => e.target === bg && close() }, h('div', { class: 'sheet' }, h('div', { class: 'grip' }), ...content));
+    const bg = h('div', { class: 'sheet-bg', onclick: (e) => e.target === bg && close() }, h('div', { class: page ? 'sheet page' : 'sheet' }, page ? null : h('div', { class: 'grip' }), ...content));
     root.replaceChildren(bg);
     return close;
   }
@@ -622,22 +728,22 @@
     };
   }
 
+  let peopleFilter = 'all';
   function viewPeople() {
-    const rows = cache.rows || [];
-    const head = h('div', { class: 'actions', style: { gridTemplateColumns: '1fr 1fr', marginBottom: '12px' } },
-      h('button', { class: 'action', onclick: () => serversSheet() }, icon('sessions'), 'Server & Zuweisungen'),
-      h('button', { class: 'action', onclick: () => { tab = 'more'; shell(); refresh(); } }, icon('people'), 'Agents'));
-    if (!rows.length) return h('div', null, head, h('div', { class: 'card empty' }, 'Keine Identitäten.'));
-    return h('div', null, head, rows.map((r) => {
-      const online = r.sessions.filter((x) => x.state === 'ONLINE').length;
-      const cls = r.sessions.some((x) => x.state === 'BLOCKED') ? 'err' : online ? 'ok' : r.sessions.some((x) => x.desired === 'ONLINE') ? 'warn' : '';
-      const name = r.label || `Identity${pad2(r.number)}`;
-      return h('div', { class: 'row', onclick: () => personSheet(r) },
-        h('div', { class: 'avatar' }, pad2(r.number)),
-        h('div', { class: 'main' }, h('div', { class: 'name' }, name), h('div', { class: 'meta' }, r.minecraft.username || 'kein Minecraft', ` · ${r.stars} ★`)),
-        h('span', { class: `dot ${cls}` }),
-        h('span', { class: 'pill' }, `${online}/${r.sessions.length}`));
-    }));
+    const pf = cache.pf;
+    const list = pf ? pf.identities : (cache.rows || []).map((r) => ({ id: r.id, name: r.minecraft.username || r.label, stars: Number(r.stars) || 0, online: r.sessions.filter((x) => x.state === 'ONLINE').map((x) => x.serverName || ''), change: 0, changePct: null }));
+    const groups = { all: list, online: list.filter((r) => r.online.length), off: list.filter((r) => !r.online.length) };
+    const chip = (id, label) => h('button', { class: peopleFilter === id ? 'on' : '', onclick: () => { peopleFilter = id; paint(); } }, `${label} ${groups[id].length}`);
+    const total = list.reduce((a, r) => a + r.stars, 0);
+    return h('div', null,
+      h('div', { class: 'pf' }, h('div', { class: 'pf-label' }, 'Identitäten'), h('div', { class: 'pf-value' }, fmtNum(total), h('small', null, '★')),
+        pf ? h('div', { class: `pf-change ${dir(pf.change)}` }, changeLong(pf.change, pf.changePct), h('span', { class: 'when' }, RANGES.find((r) => r[0] === pf.range)?.[2] || '')) : null),
+      h('div', { class: 'ranges' }, RANGES.map(([id, short]) => h('button', { class: pf && id === pf.range ? 'on' : '', onclick: () => { setRange(id); refresh(true); } }, short))),
+      h('div', { class: 'seg-chips' }, chip('all', 'Alle'), chip('online', 'Online'), chip('off', 'Offline')),
+      groups[peopleFilter].length ? h('div', { class: 'list', style: { marginTop: '10px' } }, groups[peopleFilter].map((r) => stockRow(r, () => identityPage(r.id)))) : h('div', { class: 'empty' }, 'Keine Identitäten.'),
+      h('div', { style: { display: 'flex', justifyContent: 'space-between', marginTop: '6px' } },
+        h('button', { class: 'textlink', onclick: () => serversSheet() }, 'Server & Zuweisungen ›'),
+        h('button', { class: 'textlink', onclick: () => { tab = 'more'; shell(); refresh(); } }, 'Agents ›')));
   }
 
   /** Where something runs: label of a placement / agent id. */
@@ -653,10 +759,9 @@
   }
 
   /** Identity: servers with state, start / stop, where each runs (this PC or an agent), add / remove servers. */
-  function personSheet(r) {
-    const name = r.label || `Identity${pad2(r.number)}`;
-    const body = h('div', null, h('div', { class: 'muted small' }, 'Lädt…'));
-    const close = sheet(h('h2', null, name), h('div', { class: 'muted small' }, `${r.minecraft.username || 'kein Minecraft'} · ${r.stars} ★ · ${r.ready ? 'bereit' : ({ OK: 'in Ordnung', WARNING: 'Hinweise', ERROR: 'Probleme', BLOCKED: 'blockiert' })[r.health] || r.health}`), body);
+  function personDetails(r, body) {
+    const name = r.label || r.minecraft.username || `Identity${pad2(r.number)}`;
+    fill(body, h('div', { class: 'muted small' }, 'Lädt…'));
     const reload = async () => {
       try {
         const [detail, servers, agents, rows] = await Promise.all([pc('GET', `/api/identities/${r.id}`), pc('GET', '/api/servers'), pc('GET', '/api/backend/agents').catch(() => []), pc('GET', '/api/dashboard').then((d) => d.rows)]);
@@ -703,16 +808,12 @@
                   const sel = select(free.map((x) => [x.id, x.name]), free[0].id, () => undefined);
                   return h('div', { class: 'send' }, sel, h('button', { class: 'btn primary', onclick: () => change(() => pc('PUT', `/api/identities/${r.id}/servers/${sel.value}`, {}), 'Server zugewiesen') }, 'Hinzufügen'));
                 })())
-            : null,
-          h('div', { class: 'btns' },
-            h('button', { class: 'btn', onclick: () => change(() => pc('POST', '/api/bulk', { action: 'startSessions', identityIds: [r.id] }), 'Alle Server dieser Identität starten') }, 'Alle starten'),
-            h('button', { class: 'btn', onclick: () => change(() => pc('POST', '/api/bulk', { action: 'stopSessions', identityIds: [r.id] }), 'Gestoppt') }, 'Alle stoppen')));
+            : null);
       } catch (e) {
         fill(body, h('div', { class: 'banner err' }, e.message));
       }
     };
-    void reload();
-    return close;
+    return reload;
   }
 
   /** Servers: add one, see who is assigned, assign a server to several identities at once. */

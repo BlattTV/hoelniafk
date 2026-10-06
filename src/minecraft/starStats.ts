@@ -78,3 +78,63 @@ export function starStats(
     at: now.toISOString(),
   };
 }
+
+// ------------------------------------------------------------------ "portfolio" (Control app)
+
+export type StarRange = '1d' | '1w' | '1m' | '1y' | 'max';
+export const STAR_RANGES: StarRange[] = ['1d', '1w', '1m', '1y', 'max'];
+
+export interface StarSeries {
+  /** Balance over the range, oldest first (the last point is now). */
+  points: Array<{ t: string; v: number }>;
+  /** Balance now minus balance at the start of the range; pct relative to the start (null if it was 0). */
+  change: number;
+  changePct: number | null;
+}
+
+const SPAN: Record<Exclude<StarRange, 'max'>, { span: number; steps: number }> = {
+  '1d': { span: D, steps: 96 }, // every 15 minutes
+  '1w': { span: 7 * D, steps: 84 }, // every 2 hours
+  '1m': { span: 30 * D, steps: 120 }, // every 6 hours
+  '1y': { span: 365 * D, steps: 122 }, // every 3 days
+};
+
+/**
+ * The balance over time, rebuilt backwards from the balance now with the recorded changes (first
+ * readings and manual corrections are not changes – the line does not jump there).
+ */
+export function starSeries(
+  history: Array<{ identityId: number; ts: string; delta: number }>,
+  total: number,
+  range: StarRange,
+  now = Date.now(),
+  identityId?: number,
+): StarSeries {
+  const rows = history
+    .filter((r) => identityId === undefined || r.identityId === identityId)
+    .map((r) => ({ t: Date.parse(r.ts), d: r.delta }))
+    .filter((r) => r.t <= now)
+    .sort((a, b) => a.t - b.t);
+  let span: number;
+  let steps: number;
+  if (range === 'max') {
+    const first = rows.length ? rows[0].t : now - D;
+    span = Math.max(D, now - first + H);
+    steps = 120;
+  } else ({ span, steps } = SPAN[range]);
+  const start = now - span;
+  const step = span / steps;
+  // value at time x = total − sum of the changes after x
+  const points: Array<{ t: string; v: number }> = [];
+  let after = rows.filter((r) => r.t > start).reduce((a, r) => a + r.d, 0);
+  let i = rows.findIndex((r) => r.t > start);
+  if (i < 0) i = rows.length;
+  for (let k = 0; k <= steps; k++) {
+    const x = k === steps ? now : start + k * step;
+    while (i < rows.length && rows[i].t <= x) after -= rows[i++].d;
+    points.push({ t: new Date(x).toISOString(), v: total - after });
+  }
+  const first = points[0].v;
+  const change = total - first;
+  return { points, change, changePct: first > 0 ? (change / first) * 100 : null };
+}

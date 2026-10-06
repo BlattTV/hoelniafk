@@ -14,7 +14,7 @@ import { DISCORD_APP_URL, isDiscordUrl, type DiscordTarget } from '../discord/di
 import { isMicrosoftUrl, type MicrosoftTarget } from '../identity/microsoftAccount.js';
 import type { BulkAction } from '../ops/bulk.js';
 import { refs } from '../vault/refs.js';
-import { starStats } from '../minecraft/starStats.js';
+import { STAR_RANGES, type StarRange, starSeries, starStats } from '../minecraft/starStats.js';
 import { parseScoreboard } from '../core/rules.js';
 
 const log = createLogger('web');
@@ -457,6 +457,41 @@ export async function buildServer(suite: Suite, opts: ServerOptions = {}): Promi
       ),
       servers: suite.repo.listServers().map((s) => ({ id: s.id, name: s.name, trackStars: s.trackStars })),
     };
+  });
+  // "portfolio" for the Control app: balance over a range (like a share price) for all and per identity
+  const starRange = (v: unknown): StarRange => (STAR_RANGES.includes(v as StarRange) ? (v as StarRange) : '1d');
+  const starRows = () => {
+    const online = new Map<number, string[]>();
+    for (const x of suite.sessions.list()) if (x.state === 'ONLINE') online.set(x.identityId, [...(online.get(x.identityId) ?? []), x.serverName]);
+    return suite.identities.dashboard().map((r) => ({ id: r.id, number: r.number, name: r.minecraft.username || r.label || `#${r.id}`, label: r.label, stars: Number(r.stars) || 0, online: online.get(r.id) ?? [] }));
+  };
+  app.get('/api/stars/portfolio', async (req: Req) => {
+    const range = starRange(req.query.range);
+    const history = suite.repo.starHistory(new Date(0).toISOString());
+    const rows = starRows();
+    const total = rows.reduce((a, r) => a + r.stars, 0);
+    const now = Date.now();
+    return {
+      range,
+      total,
+      ...starSeries(history, total, range, now),
+      identities: rows
+        .map((r) => {
+          const s = starSeries(history, r.stars, range, now, r.id);
+          return { ...r, change: s.change, changePct: s.changePct };
+        })
+        .sort((a, b) => b.stars - a.stars),
+      at: new Date(now).toISOString(),
+    };
+  });
+  app.get('/api/stars/identity/:id', async (req: Req) => {
+    const id = num(req.params.id, 'id');
+    const range = starRange(req.query.range);
+    const row = starRows().find((r) => r.id === id);
+    if (!row) throw new ValidationError('Unknown identity');
+    const history = suite.repo.starHistory(new Date(0).toISOString());
+    const since = (ms: number) => history.filter((x) => x.identityId === id && x.delta > 0 && Date.now() - Date.parse(x.ts) <= ms).reduce((a, x) => a + x.delta, 0);
+    return { ...row, range, ...starSeries(history, row.stars, range, Date.now(), id), gained: { h24: since(86_400_000), d7: since(7 * 86_400_000), d30: since(30 * 86_400_000) } };
   });
   // abnormal star earning: alerts + their settings (also from the Control app)
   app.get('/api/stars/alerts', async () => ({ alerts: suite.starAlerts.list(), settings: suite.starAlerts.settings() }));
