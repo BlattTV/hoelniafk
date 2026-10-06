@@ -5,6 +5,8 @@ import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.content.res.Configuration;
+import android.view.View;
 import android.graphics.Color;
 import android.net.Uri;
 import android.os.Build;
@@ -56,6 +58,7 @@ public class MainActivity extends Activity {
       }
     });
     web.addJavascriptInterface(new Bridge(), "HoelniControl");
+    applyBars((getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES);
     setContentView(web);
     open(getIntent().getStringExtra("tab"));
     AlertJob.schedule(this);
@@ -80,6 +83,28 @@ public class MainActivity extends Activity {
   }
 
   private static final String NOTIFY = "android.permission.POST_NOTIFICATIONS";
+
+  private void applyBars(boolean dark) {
+    int bg = dark ? Color.BLACK : Color.WHITE;
+    getWindow().setStatusBarColor(bg);
+    getWindow().setNavigationBarColor(bg);
+    web.setBackgroundColor(bg);
+    int flags = getWindow().getDecorView().getSystemUiVisibility();
+    if (dark) flags &= ~View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
+    else flags |= View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
+    if (Build.VERSION.SDK_INT >= 26) {
+      if (dark) flags &= ~View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
+      else flags |= View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
+    }
+    getWindow().getDecorView().setSystemUiVisibility(flags);
+  }
+
+  @Override
+  public void onConfigurationChanged(Configuration c) {
+    super.onConfigurationChanged(c);
+    // dark mode switched while the app is open: the page re-checks
+    if (web != null) web.evaluateJavascript("window.dispatchEvent(new Event('hoelni-theme'))", null);
+  }
 
   private boolean notificationsAllowed() {
     return Build.VERSION.SDK_INT < 33 || checkSelfPermission(NOTIFY) == PackageManager.PERMISSION_GRANTED;
@@ -141,6 +166,23 @@ public class MainActivity extends Activity {
     public void refreshWidgets() {
       StatusWidget.requestRefresh(MainActivity.this);
       ActionsWidget.show(MainActivity.this, null);
+    }
+
+    /** The page follows the phone's dark mode (WebView does not always report it to CSS). */
+    @JavascriptInterface
+    public boolean isDarkMode() {
+      return (getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES;
+    }
+
+    /** Status and navigation bar in the colours of the page (light or dark). */
+    @JavascriptInterface
+    public void setTheme(final boolean dark) {
+      runOnUiThread(new Runnable() {
+        @Override
+        public void run() {
+          applyBars(dark);
+        }
+      });
     }
 
     @JavascriptInterface

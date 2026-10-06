@@ -20,6 +20,45 @@
   let live = false;
   let refreshTimer = null;
 
+  // ------------------------------------------------------------------ theme (light / dark like the system, or chosen)
+  const THEME_KEY = 'hoelni.theme';
+  const themePref = () => {
+    try {
+      const v = localStorage.getItem(THEME_KEY);
+      return v === 'light' || v === 'dark' ? v : 'system';
+    } catch {
+      return 'system';
+    }
+  };
+  function systemDark() {
+    try {
+      if (bridge && typeof bridge.isDarkMode === 'function') return !!bridge.isDarkMode();
+    } catch {
+      /* older app */
+    }
+    return !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+  }
+  function applyTheme() {
+    const pref = themePref();
+    const dark = pref === 'dark' || (pref === 'system' && systemDark());
+    document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute('content', dark ? '#000000' : '#ffffff');
+    try {
+      if (bridge && typeof bridge.setTheme === 'function') bridge.setTheme(dark);
+    } catch {
+      /* older app */
+    }
+  }
+  window.addEventListener('hoelni-theme', applyTheme);
+  applyTheme();
+  try {
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme);
+  } catch {
+    /* old browser */
+  }
+  document.addEventListener('visibilitychange', () => !document.hidden && applyTheme());
+
   // ------------------------------------------------------------------ helpers
   function load() {
     try {
@@ -71,6 +110,11 @@
     stop: '<rect x="6" y="6" width="12" height="12" rx="2"/>',
     reconnect: '<path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/>',
     back: '<path d="M15 5l-7 7 7 7"/>',
+    bell: '<path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/>',
+    search: '<circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/>',
+    updown: '<path d="M8 9l4-4 4 4M8 15l4 4 4-4"/>',
+    chevdown: '<path d="M6 9l6 6 6-6"/>',
+    star: '<path d="M12 3.5l2.6 5.4 5.9.8-4.3 4.1 1 5.8L12 16.8l-5.2 2.8 1-5.8-4.3-4.1 5.9-.8z"/>',
   };
   function icon(name) {
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -189,26 +233,51 @@
   const app = document.getElementById('app');
   let topEl = null;
   let mainEl = null;
+  // big text tabs at the top (like "Portfolio  Cash"); the avatar opens "Mehr"
+  const TABS = [['home', 'Portfolio'], ['sessions', 'Sessions'], ['chat', 'Chat']];
   function shell() {
-    topEl = h('header', { class: 'top' });
+    topEl = h('header', { class: 'tb' });
     mainEl = h('main');
-    const nav = h('nav', { class: 'nav' },
-      [['home', 'Übersicht'], ['sessions', 'Sessions'], ['chat', 'Chat'], ['people', 'Identitäten'], ['macro', 'Makros'], ['more', 'Agents']].map(([id, label]) =>
-        h('button', { class: tab === id ? 'on' : '', onclick: () => { tab = id; shell(); refresh(); } }, icon(id === 'people' ? 'people' : id), label)));
-    app.replaceChildren(topEl, mainEl, nav);
+    const dock = h('div', { class: 'dock' },
+      h('button', { onclick: () => searchSheet() }, 'Suche', icon('search')),
+      h('button', { onclick: () => actionsSheet() }, 'Aktionen', icon('updown')));
+    app.replaceChildren(topEl, mainEl, dock);
     paintTop();
   }
   let busy = false;
   function paintTop() {
     if (!topEl) return;
     const active = status?.active;
+    const user = status?.user?.username || session?.user || '';
     topEl.replaceChildren(
-      h('img', { src: 'icon-192.png', alt: '' }),
-      h('div', { class: 'title' },
-        h('h1', null, 'Hoelni Control'),
-        h('div', { class: 'sub' }, h('span', { class: `dot ${active ? (live ? 'ok' : 'info') : 'err'}`, style: { display: 'inline-block', marginRight: '6px', width: '8px', height: '8px' } }),
-          active ? `${active.name}${live ? ' · live' : ''}` : 'kein PC aktiv')),
-      h('button', { class: `icon-btn ${busy ? 'spin' : ''}`, title: 'Aktualisieren', onclick: () => refresh() }, icon('refresh')));
+      h('div', { class: 'tabs' }, TABS.map(([id, label]) => h('button', { class: tab === id ? 'on' : '', onclick: () => { tab = id; shell(); refresh(); } }, label))),
+      h('button', { class: 'me', title: active ? `${active.name}${live ? ' · live' : ''}` : 'kein PC aktiv', onclick: () => { tab = 'more'; shell(); refresh(); } }, (user.slice(0, 1) || 'H').toUpperCase(), h('i', { class: active ? (live ? 'ok' : '') : 'err' })));
+  }
+
+  /** "Suche": identities and sessions by name. */
+  function searchSheet() {
+    const input = h('input', { placeholder: 'Identität, Spieler oder Server', autocomplete: 'off' });
+    const out = h('div', { class: 'list' });
+    const run = async () => {
+      const q = input.value.trim().toLowerCase();
+      if (!cache.pf) cache.pf = await pc('GET', `/api/stars/portfolio?range=${pfRange}`).catch(() => null);
+      const ids = (cache.pf?.identities || []).filter((r) => !q || `${r.name} ${r.label || ''} ${r.online.join(' ')}`.toLowerCase().includes(q));
+      fill(out, ids.length ? ids.map((r) => stockRow(r, () => { close(); identityPage(r.id); })) : h('div', { class: 'empty' }, 'Nichts gefunden.'));
+    };
+    input.addEventListener('input', () => void run());
+    const close = sheet(h('div', { class: 'search' }, icon('search'), input), out);
+    setTimeout(() => input.focus(), 50);
+    void run();
+  }
+
+  /** "Aktionen": everything at once. */
+  function actionsSheet() {
+    const close = sheet(h('h2', null, 'Aktionen'),
+      h('div', { class: 'big-actions' },
+        h('button', { onclick: () => { close(); bulk('startSessions', 'Die Accounts gehen nacheinander online'); } }, 'Alle online', h('small', null, 'nacheinander, über Minuten')),
+        h('button', { onclick: () => { if (confirm('Alle Sessions offline setzen? Die Accounts gehen nacheinander, über einige Minuten verteilt.')) { close(); bulk('stopSessions', 'Die Accounts gehen nacheinander offline'); } } }, 'Alle offline', h('small', null, 'nacheinander, über Minuten')),
+        h('button', { onclick: () => { close(); bulk('reconnect', 'Neu verbinden…'); } }, 'Alle neu verbinden', h('small', null, 'sofort')),
+        h('button', { onclick: () => { close(); refresh(); } }, 'Aktualisieren', h('small', null, status?.active ? status.active.name : ''))));
   }
 
   async function refresh(quiet) {
@@ -289,9 +358,9 @@
   /** "▲ 150 ★ (1,23 %)" */
   // a percent from a tiny start value says nothing (0 → 2 stars …): then only the stars
   const pctOk = (p) => p !== null && p !== undefined && Math.abs(p) < 1000;
-  const changeLong = (c, p) => `${arrow(c)} ${fmtNum(Math.abs(c))} ★${pctOk(p) ? ` (${pctNum(p)} %)` : ''}`.trim();
+  const changeLong = (c, p) => `${c > 0 ? '+' : c < 0 ? '−' : ''}${fmtNum(Math.abs(c))} ★${pctOk(p) ? ` (${pctNum(p)} %)` : ''}`;
   /** list column: "▲ 1,23 %" or, without a start value, "▲ 12 ★" */
-  const changeShort = (c, p) => (c === 0 ? '0 ★' : !pctOk(p) ? `${arrow(c)} ${fmtNum(Math.abs(c))} ★` : `${arrow(c)} ${pctNum(p)} %`);
+  const changeShort = (c, p) => (c === 0 ? '0,00 %' : !pctOk(p) ? `${fmtNum(Math.abs(c))} ★` : `${pctNum(p)} %`);
   function pointTime(iso, range) {
     const d = new Date(iso);
     if (range === '1d') return `${pad2(d.getHours())}:${pad2(d.getMinutes())} Uhr`;
@@ -299,13 +368,55 @@
     return d.toLocaleDateString('de-DE', { day: 'numeric', month: 'short', year: 'numeric' });
   }
 
-  /** Price line (one series): dotted line at the start value; drag over it to read a point. */
-  function trChart(points, cls, onScrub) {
+  /** Smooth path through the points without overshooting (monotone cubic). */
+  function smoothPath(pts) {
+    const n = pts.length;
+    if (n < 3) return pts.map((p, i) => `${i ? 'L' : 'M'}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join('');
+    const d = [];
+    const m = [];
+    for (let i = 0; i < n - 1; i++) d.push((pts[i + 1][1] - pts[i][1]) / (pts[i + 1][0] - pts[i][0] || 1));
+    m.push(d[0]);
+    for (let i = 1; i < n - 1; i++) m.push(d[i - 1] * d[i] <= 0 ? 0 : (d[i - 1] + d[i]) / 2);
+    m.push(d[n - 2]);
+    for (let i = 0; i < n - 1; i++) {
+      if (d[i] === 0) {
+        m[i] = 0;
+        m[i + 1] = 0;
+        continue;
+      }
+      const a = m[i] / d[i];
+      const b = m[i + 1] / d[i];
+      const sq = a * a + b * b;
+      if (sq > 9) {
+        const t = 3 / Math.sqrt(sq);
+        m[i] = t * a * d[i];
+        m[i + 1] = t * b * d[i];
+      }
+    }
+    let out = `M${pts[0][0].toFixed(1)},${pts[0][1].toFixed(1)}`;
+    for (let i = 0; i < n - 1; i++) {
+      const h3 = (pts[i + 1][0] - pts[i][0]) / 3;
+      out += `C${(pts[i][0] + h3).toFixed(1)},${(pts[i][1] + m[i] * h3).toFixed(1)} ${(pts[i + 1][0] - h3).toFixed(1)},${(pts[i + 1][1] - m[i + 1] * h3).toFixed(1)} ${pts[i + 1][0].toFixed(1)},${pts[i + 1][1].toFixed(1)}`;
+    }
+    return out;
+  }
+
+  function axisTime(iso, range) {
+    const d = new Date(iso);
+    if (range === '1d') return `${pad2(d.getHours())}:00`;
+    if (range === '1w') return d.toLocaleDateString('de-DE', { weekday: 'short' });
+    if (range === '1m') return d.toLocaleDateString('de-DE', { day: 'numeric', month: 'numeric' });
+    return d.toLocaleDateString('de-DE', { month: 'short' });
+  }
+
+  /** Price curve (one series): dotted base line at the start, % labels on the right, times below; drag to read. */
+  function trChart(points, cls, onScrub, range) {
     const wrap = h('div', { class: 'tr-chart', role: 'img', 'aria-label': 'Verlauf des Sterne-Stands' });
     if (!points || points.length < 2) return wrap;
     const W = 1000;
-    const HGT = 190;
-    const PAD = 14;
+    const HGT = 220;
+    const PAD = 16;
+    const start = points[0].v;
     let min = Math.min(...points.map((p) => p.v));
     let max = Math.max(...points.map((p) => p.v));
     if (max === min) {
@@ -319,21 +430,32 @@
     svg.setAttribute('viewBox', `0 0 ${W} ${HGT}`);
     svg.setAttribute('preserveAspectRatio', 'none');
     const base = document.createElementNS(NS, 'line');
-    for (const [k, v] of Object.entries({ x1: 0, x2: W, y1: y(points[0].v), y2: y(points[0].v), class: 'base' })) base.setAttribute(k, String(v));
+    for (const [k, v] of Object.entries({ x1: 0, x2: W, y1: y(start), y2: y(start), class: 'base' })) base.setAttribute(k, String(v));
     const line = document.createElementNS(NS, 'path');
     line.setAttribute('class', `line ${cls}`);
-    line.setAttribute('d', points.map((p, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(p.v).toFixed(1)}`).join(''));
+    // the curve is drawn through at most ~40 points (smooth like a price chart); reading stays exact
+    const stepK = Math.max(1, Math.ceil(points.length / 40));
+    const shown = points.map((p, i) => [x(i), y(p.v), i]).filter((q) => q[2] % stepK === 0 || q[2] === points.length - 1);
+    line.setAttribute('d', smoothPath(shown));
     svg.append(base, line);
+    wrap.append(svg);
+    // quiet axis labels: change against the start in % (or stars when it started at 0), four steps
+    for (let k = 0; k < 4; k++) {
+      const v = max - ((max - min) * k) / 3;
+      const text = start > 0 ? `${((v - start) / start * 100).toLocaleString('de-DE', { maximumFractionDigits: Math.abs((v - start) / start * 100) < 10 ? 2 : 1 })} %` : `${fmtNum(Math.round(v))} ★`;
+      wrap.append(h('div', { class: 'ylab', style: { top: `${y(v)}px` } }, text));
+    }
+    wrap.append(h('div', { class: 'xlabs' }, [0, 1, 2, 3, 4].map((k) => h('span', null, axisTime(points[Math.round((k / 4) * (points.length - 1))].t, range)))));
     const cross = h('div', { class: 'cross' });
     const knob = h('div', { class: 'knob' });
-    wrap.append(svg, cross, knob);
+    wrap.append(cross, knob);
     const at = (clientX) => {
       const r = wrap.getBoundingClientRect();
       const i = Math.max(0, Math.min(points.length - 1, Math.round(((clientX - r.left) / r.width) * (points.length - 1))));
       const left = `${(x(i) / W) * 100}%`;
       cross.style.left = left;
       knob.style.left = left;
-      knob.style.top = `${(y(points[i].v) / HGT) * 100}%`;
+      knob.style.top = `${y(points[i].v)}px`;
       wrap.classList.add('scrub');
       onScrub(points[i]);
     };
@@ -353,9 +475,10 @@
   function priceBlock(label, value, series, range, onRange) {
     const cls = dir(series.change);
     const valueEl = h('div', { class: 'pf-value' }, fmtNum(value), h('small', null, '★'));
+    // (the star stands where a broker app shows the currency)
     const when = RANGES.find((r) => r[0] === range)?.[2] || '';
     const changeEl = h('div', { class: `pf-change ${cls}` });
-    const showChange = () => fill(changeEl, changeLong(series.change, series.changePct), h('span', { class: 'when' }, when));
+    const showChange = () => fill(changeEl, h('span', { class: 'tri' }, arrow(series.change)), changeLong(series.change, series.changePct), h('span', { class: 'when' }, when));
     showChange();
     const chart = trChart(series.points, cls, (p) => {
       if (!p) {
@@ -368,23 +491,42 @@
       const c = p.v - start;
       fill(valueEl, fmtNum(p.v), h('small', null, '★'));
       changeEl.className = `pf-change ${dir(c)}`;
-      fill(changeEl, changeLong(c, start > 0 ? (c / start) * 100 : null), h('span', { class: 'when' }, pointTime(p.t, range)));
-    });
+      fill(changeEl, h('span', { class: 'tri' }, arrow(c)), changeLong(c, start > 0 ? (c / start) * 100 : null), h('span', { class: 'when' }, pointTime(p.t, range)));
+    }, range);
     return h('div', { class: 'pf' },
-      h('div', { class: 'pf-label' }, label),
+      label ? h('div', { class: 'pf-label' }, label) : null,
       valueEl,
       changeEl,
-      chart,
-      h('div', { class: 'ranges' }, RANGES.map(([id, short]) => h('button', { class: id === range ? 'on' : '', onclick: () => onRange(id) }, short))));
+      h('div', { class: 'ranges' }, RANGES.map(([id, short]) => h('button', { class: id === range ? 'on' : '', onclick: () => onRange(id) }, short))),
+      chart);
   }
 
-  /** One identity like a share: avatar, name, where it is online; balance and change on the right. */
+  /** "Logo" of an identity: its Minecraft head (falls back to initials on a colour of its own). */
+  function logo(id, name, on) {
+    const el = h('div', { class: `logo ${on ? 'on' : ''}`, style: { background: avaColor(id) } }, initials(name));
+    if (/^[A-Za-z0-9_]{3,16}$/.test(name || '')) {
+      const img = h('img', { alt: '', src: `https://mc-heads.net/avatar/${encodeURIComponent(name)}/88`, loading: 'lazy' });
+      img.addEventListener('load', () => { el.style.background = 'transparent'; fill(el, img); });
+      img.addEventListener('error', () => img.remove());
+    }
+    return el;
+  }
+
+  /** One identity like a holding: head, name, where it is online; balance and change on the right. */
   function stockRow(r, onclick) {
     const on = r.online && r.online.length > 0;
     return h('div', { class: 'stock', onclick },
-      h('div', { class: `ava ${on ? 'on' : ''}`, style: { background: avaColor(r.id) } }, initials(r.name)),
-      h('div', { class: 'main' }, h('div', { class: 'name' }, r.name), h('div', { class: 'meta' }, on ? `online · ${r.online.join(', ')}` : 'offline')),
-      h('div', { class: 'right' }, h('div', { class: 'val' }, `${fmtNum(r.stars)} ★`), h('div', { class: `chg ${dir(r.change)}` }, changeShort(r.change, r.changePct))));
+      logo(r.id, r.name, on),
+      h('div', { class: 'main' }, h('div', { class: 'name' }, r.name), h('div', { class: 'meta' }, on ? r.online.join(', ') : 'offline')),
+      h('div', { class: 'right' }, h('div', { class: 'val' }, `${fmtNum(r.stars)} ★`), h('div', { class: `chg ${dir(r.change)}` }, r.change ? h('span', { class: 'tri' }, arrow(r.change)) : null, changeShort(r.change, r.changePct))));
+  }
+
+  const kv = (label, value, cls) => h('div', { class: 'kvrow' }, h('span', null, label), h('b', { class: cls || null }, value));
+
+  /** Range for the list ("Heute ⌄" like "Seit Kauf ⌄"). */
+  function rangeSheet() {
+    const close = sheet(h('h2', null, 'Zeitraum'),
+      h('div', { class: 'group menu' }, RANGES.map(([id, , long]) => h('div', { class: 'kvrow', onclick: () => { close(); setRange(id); refresh(true); } }, h('span', null, long), h('b', null, id === pfRange ? '✓' : '')))));
   }
 
   function viewHome() {
@@ -392,30 +534,24 @@
     if (!s) return h('div', { class: 'empty' }, 'Lädt…');
     const pf = cache.pf;
     const ids = pf ? pf.identities : [];
-    const problems = s.sessions.problems;
+    const alerts = (s.starAlerts || []).length;
+    const goTab = (t) => { tab = t; shell(); refresh(); };
+    const mini = (label, value, onclick, cls) => h('button', { class: 'mini', onclick }, h('span', null, label), h('b', { class: cls || null }, value));
     return h('div', null,
       pf
-        ? priceBlock('Sterne-Portfolio', pf.total, pf, pf.range, (v) => { setRange(v); refresh(true); })
-        : h('div', { class: 'pf' }, h('div', { class: 'pf-label' }, 'Sterne-Portfolio'), h('div', { class: 'pf-value' }, fmtNum(s.stars), h('small', null, '★'))),
-      s.starAlerts && s.starAlerts.length ? alertsCard(s.starAlerts) : null,
-      h('div', { class: 'h2' }, h('b', null, 'Identitäten'), h('button', { onclick: () => { tab = 'people'; shell(); refresh(); } }, `Alle ${ids.length || s.identities.total} ›`)),
-      ids.length ? h('div', { class: 'list' }, ids.slice(0, 6).map((r) => stockRow(r, () => identityPage(r.id)))) : h('div', { class: 'empty' }, 'Keine Identitäten.'),
-      h('div', { class: 'h2' }, h('b', null, 'Sessions'), h('button', { onclick: () => { tab = 'sessions'; shell(); refresh(); } }, 'Alle ›')),
-      h('div', { class: 'facts' },
-        h('div', null, h('span', null, 'Online'), h('b', null, `${s.sessions.online} von ${s.sessions.wanted}`)),
-        h('div', null, h('span', null, 'Mit Problemen'), h('b', { class: problems ? 'down' : '' }, String(problems))),
-        h('div', null, h('span', null, 'Identitäten bereit'), h('b', null, `${s.identities.ready} von ${s.identities.total}`)),
-        h('div', null, h('span', null, 'Agents online'), h('b', null, String(s.agents.online))),
-        h('div', null, h('span', null, 'Läuft auf'), h('b', null, status.active.name)),
-        h('div', null, h('span', null, 'Sterne 24 h'), h('b', { class: s.starsGained24h ? 'up' : '' }, s.starsGained24h ? `+${fmtNum(s.starsGained24h)}` : '0'))),
-      h('div', { class: 'pair' },
-        h('button', { class: 'pill-btn', onclick: () => bulk('startSessions', 'Die Accounts gehen nacheinander online – in den nächsten Minuten') }, 'Alle online'),
-        h('button', { class: 'pill-btn dark', onclick: () => confirm('Alle Sessions offline setzen? Die Accounts gehen nacheinander, über einige Minuten verteilt.') && bulk('stopSessions', 'Die Accounts gehen nacheinander offline – in den nächsten Minuten') }, 'Alle offline')),
-      h('div', { style: { display: 'flex', justifyContent: 'space-between' } },
-        h('button', { class: 'textlink', onclick: () => bulk('reconnect', 'Neu verbinden…') }, 'Alle neu verbinden'),
-        h('button', { class: 'textlink', onclick: () => starsSheet() }, 'Sterne-Statistik ›')),
-      h('div', { class: 'h2' }, h('b', null, 'Aktivität')),
-      h('div', { class: 'feed' }, feed.length ? feed.slice(0, 10).map((f) => h('div', null, h('time', null, timeOf(f.at)), h('span', null, f.text))) : h('div', { class: 'muted' }, live ? 'Wartet auf Ereignisse…' : 'Live-Verbindung wird aufgebaut…')));
+        ? priceBlock('Sterne', pf.total, pf, pf.range, (v) => { setRange(v); refresh(true); })
+        : h('div', { class: 'pf' }, h('div', { class: 'pf-label' }, 'Sterne'), h('div', { class: 'pf-value' }, fmtNum(s.stars), h('small', null, '★'))),
+      h('div', { class: 'cards' },
+        mini('Online', `${s.sessions.online} von ${s.sessions.wanted}`, () => goTab('sessions')),
+        mini('Warnungen', String(alerts), () => alertsSheet(), alerts ? 'warn' : ''),
+        mini('Probleme', String(s.sessions.problems), () => goTab('sessions'), s.sessions.problems ? 'warn' : ''),
+        mini('Agents', String(s.agents.online), () => goTab('more')),
+        mini('Makros', 'öffnen', () => goTab('macro'))),
+      h('div', { class: 'h2' }, h('b', null, 'Identitäten'), h('button', { onclick: () => rangeSheet() }, RANGES.find((r) => r[0] === pfRange)?.[2] || 'Heute', icon('chevdown'))),
+      ids.length ? h('div', { class: 'list' }, ids.map((r) => stockRow(r, () => identityPage(r.id)))) : h('div', { class: 'empty' }, 'Keine Identitäten.'),
+      alerts ? alertsCard(s.starAlerts) : null,
+      h('div', { class: 'h2' }, h('b', null, 'Aktivität'), h('button', { onclick: () => starsSheet() }, 'Statistik')),
+      h('div', { class: 'feed' }, feed.length ? feed.slice(0, 8).map((f) => h('div', null, h('time', null, timeOf(f.at)), h('span', null, f.text))) : h('div', { class: 'muted' }, live ? 'Noch nichts Neues.' : 'Live-Verbindung wird aufgebaut…')));
   }
 
   /** Full page of one identity: balance as a price chart, figures, servers; "Online" / "Offline" like buy / sell. */
@@ -424,7 +560,8 @@
     const head = h('div', null, h('div', { class: 'empty' }, 'Lädt…'));
     const servers = h('div');
     const dash = (cache.rows || []).find((x) => x.id === id);
-    const title = h('div', { class: 't' }, h('b', null, dash ? dash.minecraft.username || dash.label : `#${id}`), h('span', null, dash ? `${dash.label || ''}${dash.number ? ` · Nr. ${pad2(dash.number)}` : ''}` : ''));
+    const firstName = dash ? dash.minecraft.username || dash.label : `#${id}`;
+    const title = h('div', { class: 't' }, h('b', null, firstName), h('span', null, dash?.label || ''));
     let close = () => undefined;
     const go = (action, ok) => act(async () => {
       await pc('POST', '/api/bulk', { action, identityIds: [id] });
@@ -436,13 +573,14 @@
         const d = await pc('GET', `/api/stars/identity/${id}?range=${range}`);
         fill(title, h('b', null, d.name), h('span', null, d.online.length ? `online · ${d.online.join(', ')}` : 'offline'));
         fill(head,
-          priceBlock('Sterne', d.stars, d, range, (v) => { range = v; setRange(v); void draw(); }),
-          h('div', { class: 'h2' }, h('b', null, 'Kennzahlen')),
-          h('div', { class: 'facts' },
-            h('div', null, h('span', null, 'Gewonnen 24 h'), h('b', { class: d.gained.h24 ? 'up' : '' }, `+${fmtNum(d.gained.h24)}`)),
-            h('div', null, h('span', null, 'Gewonnen 7 Tage'), h('b', { class: d.gained.d7 ? 'up' : '' }, `+${fmtNum(d.gained.d7)}`)),
-            h('div', null, h('span', null, 'Gewonnen 30 Tage'), h('b', { class: d.gained.d30 ? 'up' : '' }, `+${fmtNum(d.gained.d30)}`)),
-            h('div', null, h('span', null, 'Status'), h('b', { class: d.online.length ? 'up' : '' }, d.online.length ? 'online' : 'offline'))));
+          priceBlock(null, d.stars, d, range, (v) => { range = v; setRange(v); void draw(); }),
+          h('div', { class: 'h2' }, h('b', null, 'Position')),
+          h('div', { class: 'group' },
+            kv('Sterne', `${fmtNum(d.stars)} ★`),
+            kv('Gewonnen 24 h', `+${fmtNum(d.gained.h24)} ★`, d.gained.h24 ? 'up' : ''),
+            kv('Gewonnen 7 Tage', `+${fmtNum(d.gained.d7)} ★`, d.gained.d7 ? 'up' : ''),
+            kv('Gewonnen 30 Tage', `+${fmtNum(d.gained.d30)} ★`, d.gained.d30 ? 'up' : ''),
+            kv('Status', d.online.length ? `online · ${d.online.join(', ')}` : 'offline', d.online.length ? 'up' : '')));
       } catch (e) {
         fill(head, h('div', { class: 'banner err' }, e.message));
       }
@@ -450,7 +588,8 @@
     let details = async () => undefined;
     const row = dash || { id, label: '', number: 0, minecraft: {}, stars: 0, ready: false, health: '', sessions: [] };
     close = sheet({ page: true },
-      h('div', { class: 'page-top' }, h('button', { class: 'back', 'aria-label': 'Zurück', onclick: () => close() }, icon('back')), title),
+      h('div', { class: 'page-top' }, h('button', { class: 'back', 'aria-label': 'Zurück', onclick: () => close() }, icon('back')), h('div', { class: 'grow' })),
+      h('div', { class: 'page-head' }, logo(id, firstName, false), title),
       head,
       servers,
       h('div', { class: 'sticky-pair' }, h('div', { class: 'pair' },
@@ -562,7 +701,7 @@
     const [cls, text] = stateOf(s.state);
     const name = nameOf(s);
     return h('div', { class: 'row', onclick: () => sessionSheet(s) },
-      h('div', { class: `ava ${s.state === 'ONLINE' ? 'on' : ''}`, style: { background: avaColor(String(s.id).split(':')[0]) } }, initials(name)),
+      logo(String(s.id).split(':')[0], name, s.state === 'ONLINE'),
       h('div', { class: 'main' }, h('div', { class: 'name' }, name), h('div', { class: 'meta' }, s.serverName || '', s.agentId ? ' · Agent' : '', s.stats?.ping != null ? ` · ${s.stats.ping} ms` : '', s.leaveAt ? ` · geht um ${timeOf(s.leaveAt)}` : '')),
       h('span', { class: `pill ${cls}` }, text));
   }
@@ -733,17 +872,17 @@
     const pf = cache.pf;
     const list = pf ? pf.identities : (cache.rows || []).map((r) => ({ id: r.id, name: r.minecraft.username || r.label, stars: Number(r.stars) || 0, online: r.sessions.filter((x) => x.state === 'ONLINE').map((x) => x.serverName || ''), change: 0, changePct: null }));
     const groups = { all: list, online: list.filter((r) => r.online.length), off: list.filter((r) => !r.online.length) };
-    const chip = (id, label) => h('button', { class: peopleFilter === id ? 'on' : '', onclick: () => { peopleFilter = id; paint(); } }, `${label} ${groups[id].length}`);
-    const total = list.reduce((a, r) => a + r.stars, 0);
+    const chip = (id, label) => h('button', { class: peopleFilter === id ? 'on' : '', onclick: () => { peopleFilter = id; paint(); } }, `${label} · ${groups[id].length}`);
     return h('div', null,
-      h('div', { class: 'pf' }, h('div', { class: 'pf-label' }, 'Identitäten'), h('div', { class: 'pf-value' }, fmtNum(total), h('small', null, '★')),
-        pf ? h('div', { class: `pf-change ${dir(pf.change)}` }, changeLong(pf.change, pf.changePct), h('span', { class: 'when' }, RANGES.find((r) => r[0] === pf.range)?.[2] || '')) : null),
-      h('div', { class: 'ranges' }, RANGES.map(([id, short]) => h('button', { class: pf && id === pf.range ? 'on' : '', onclick: () => { setRange(id); refresh(true); } }, short))),
+      h('div', { class: 'title-xl' }, 'Identitäten'),
+      pf
+        ? h('div', { class: `pf-change ${dir(pf.change)}` }, h('span', { class: 'tri' }, arrow(pf.change)), changeLong(pf.change, pf.changePct), h('span', { class: 'when' }, RANGES.find((r) => r[0] === pf.range)?.[2] || ''))
+        : null,
       h('div', { class: 'seg-chips' }, chip('all', 'Alle'), chip('online', 'Online'), chip('off', 'Offline')),
-      groups[peopleFilter].length ? h('div', { class: 'list', style: { marginTop: '10px' } }, groups[peopleFilter].map((r) => stockRow(r, () => identityPage(r.id)))) : h('div', { class: 'empty' }, 'Keine Identitäten.'),
-      h('div', { style: { display: 'flex', justifyContent: 'space-between', marginTop: '6px' } },
-        h('button', { class: 'textlink', onclick: () => serversSheet() }, 'Server & Zuweisungen ›'),
-        h('button', { class: 'textlink', onclick: () => { tab = 'more'; shell(); refresh(); } }, 'Agents ›')));
+      h('div', { class: 'ranges', style: { margin: '6px -6px 4px' } }, RANGES.map(([id, short]) => h('button', { class: pf && id === pf.range ? 'on' : '', onclick: () => { setRange(id); refresh(true); } }, short))),
+      groups[peopleFilter].length ? h('div', { class: 'list' }, groups[peopleFilter].map((r) => stockRow(r, () => identityPage(r.id)))) : h('div', { class: 'empty' }, 'Keine Identitäten.'),
+      h('div', { class: 'group menu', style: { marginTop: '24px' } },
+        h('div', { class: 'kvrow', onclick: () => serversSheet() }, h('span', null, 'Server & Zuweisungen'), h('b', null, '›'))));
   }
 
   /** Where something runs: label of a placement / agent id. */
@@ -975,7 +1114,26 @@
 
   function viewMore() {
     const agents = cache.agents || [];
+    const pref = themePref();
+    const setTheme = (v) => {
+      try {
+        localStorage.setItem(THEME_KEY, v);
+      } catch {
+        /* private mode */
+      }
+      applyTheme();
+      paint();
+    };
+    const go = (t) => { tab = t; shell(); refresh(); };
     return h('div', null,
+      h('div', { class: 'title-xl' }, 'Mehr'),
+      h('div', { class: 'group menu', style: { marginTop: '14px' } },
+        h('div', { class: 'kvrow', onclick: () => go('macro') }, h('span', null, 'Makros'), h('b', null, '›')),
+        h('div', { class: 'kvrow', onclick: () => alertsSheet() }, h('span', null, 'Stern-Warnungen'), h('b', null, '›')),
+        h('div', { class: 'kvrow', onclick: () => starsSheet() }, h('span', null, 'Sterne-Statistik'), h('b', null, '›')),
+        h('div', { class: 'kvrow', onclick: () => serversSheet() }, h('span', null, 'Server & Zuweisungen'), h('b', null, '›'))),
+      h('div', { class: 'section-title' }, 'Erscheinungsbild'),
+      h('div', { class: 'seg' }, [['system', 'System'], ['light', 'Hell'], ['dark', 'Dunkel']].map(([v, l]) => h('button', { class: pref === v ? 'on' : '', onclick: () => setTheme(v) }, l))),
       h('div', { class: 'section-title' }, 'Agents', h('span', { class: 'muted small' }, 'antippen zum Steuern')),
       agents.length
         ? agents.map((a) => h('div', { class: 'row', onclick: () => agentSheet(a) },
@@ -1023,7 +1181,7 @@
     };
     pw.addEventListener('keydown', (e) => e.key === 'Enter' && go());
     app.replaceChildren(h('div', { class: 'login' },
-      h('img', { src: 'logo.png', alt: 'Hoelni' }),
+      h('img', { src: 'icon-192.png', alt: 'Hoelni' }),
       h('h1', null, 'Hoelni Control'),
       h('p', { class: 'lead' }, 'Steuere deine Hoelni Client Suite von unterwegs.'),
       error ? h('div', { class: 'banner err' }, error) : null,

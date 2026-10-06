@@ -130,7 +130,7 @@ ${card(items.android, 'Hoelni Agent für Android', 'Das Handy als Agent: APK auf
 </main></body></html>`;
 }
 
-const CONTROL_TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.png': 'image/png', '.svg': 'image/svg+xml', '.webmanifest': 'application/manifest+json', '.json': 'application/json' };
+const CONTROL_TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.png': 'image/png', '.svg': 'image/svg+xml', '.webmanifest': 'application/manifest+json', '.json': 'application/json', '.woff2': 'font/woff2' };
 const CONTROL_DIR = new URL('../../control-app/', import.meta.url);
 
 /** The "Hoelni Control" web app (also inside the Android app) – static files, same origin as the API. */
@@ -155,7 +155,7 @@ function serveControlApp(p, res, search = '') {
     'Cache-Control': 'no-cache',
     'X-Content-Type-Options': 'nosniff',
     'Referrer-Policy': 'no-referrer',
-    'Content-Security-Policy': "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+    'Content-Security-Policy': "default-src 'self'; img-src 'self' data: https://mc-heads.net; style-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'",
   });
   res.end(data);
 }
